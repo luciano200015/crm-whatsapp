@@ -1,5 +1,7 @@
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
 import ContactsOutlined from '@mui/icons-material/ContactsOutlined'
+import HubOutlined from '@mui/icons-material/HubOutlined'
+import WhatsApp from '@mui/icons-material/WhatsApp'
 import LabelOutlined from '@mui/icons-material/LabelOutlined'
 import RecentActorsOutlined from '@mui/icons-material/RecentActorsOutlined'
 import CreditCardOutlined from '@mui/icons-material/CreditCardOutlined'
@@ -59,6 +61,20 @@ export const NAVIGATION: NavEntry[] = [
         label: es.app.nav.tags,
         icon: LabelOutlined,
         anyOf: ['tags.manage'],
+      }),
+    ],
+  },
+  {
+    kind: 'group',
+    id: 'channels',
+    label: es.app.nav.channels,
+    icon: HubOutlined,
+    children: [
+      link({
+        to: '/channels/lines',
+        label: es.app.nav.lines,
+        icon: WhatsApp,
+        anyOf: ['channels.read'],
       }),
     ],
   },

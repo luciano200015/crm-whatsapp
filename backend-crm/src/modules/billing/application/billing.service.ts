@@ -7,7 +7,7 @@ import type { InitialSubscriptionProvider } from '../../auth/application/ports';
 import type {
   WorkspaceEntitlements,
   WorkspaceEntitlementsView,
-} from '../../team/application/ports';
+} from '../../../shared/entitlements/workspace-entitlements';
 import {
   type BillingInterval,
   type FeatureKey,

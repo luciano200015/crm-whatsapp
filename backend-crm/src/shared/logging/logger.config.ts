@@ -22,6 +22,8 @@ export const REDACTED_PATHS = [
   '*.accessToken',
   '*.refreshToken',
   '*.secret',
+  '*.appSecret',
+  'req.headers["x-hub-signature-256"]',
 ];
 
 export function buildLoggerParams(config: AppConfigService): Params {

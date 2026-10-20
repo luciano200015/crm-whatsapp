@@ -3,33 +3,14 @@ import type {
   UserStatus,
 } from '../../../generated/prisma/client';
 import type { PermissionKey } from '../../authorization/domain/permission-catalog';
-import type {
-  FeatureKey,
-  FeatureValue,
-} from '../../billing/domain/plan-catalog';
 
 export type { MembershipStatus, UserStatus };
 
-// ─────────────────────────── Plan entitlements ───────────────────────────
-
-export interface WorkspaceEntitlementsView {
-  planName: string;
-  /** Trial running or paid: creating and reactivating members is allowed. */
-  hasFullAccess: boolean;
-  /** number|null for limits (null = unlimited), boolean for inclusions. */
-  features: Partial<Record<FeatureKey, FeatureValue>>;
-}
-
-/**
- * What the workspace's plan allows. Implemented by the billing module; the
- * team module only depends on this interface.
- */
-export abstract class WorkspaceEntitlements {
-  /** Null when the workspace has no subscription. */
-  abstract entitlements(
-    workspaceId: string,
-  ): Promise<WorkspaceEntitlementsView | null>;
-}
+// Plan limits come from billing through a shared port.
+export {
+  WorkspaceEntitlements,
+  type WorkspaceEntitlementsView,
+} from '../../../shared/entitlements/workspace-entitlements';
 
 // ─────────────────────────── Records ───────────────────────────
 

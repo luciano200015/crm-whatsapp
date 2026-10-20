@@ -182,6 +182,7 @@ model Workspace {
   roles        Role[]
   auditLogs    AuditLog[]
   subscription Subscription?
+  channelLines ChannelLine[]
 
   @@map("workspaces")
 }
@@ -203,10 +204,11 @@ model WorkspaceMembership {
   createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  user      User             @relation("MembershipUser", fields: [userId], references: [id], onDelete: Restrict)
-  invitedBy User?            @relation("MembershipInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  user      User               @relation("MembershipUser", fields: [userId], references: [id], onDelete: Restrict)
+  invitedBy User?              @relation("MembershipInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
   roles     MembershipRole[]
+  lines     ChannelLineAgent[]
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -484,4 +486,69 @@ model Subscription {
   @@index([status, trialEndsAt])
   @@index([status, currentPeriodEnd])
   @@map("subscriptions")
+}
+
+// ─────────────────────────────────── Channels ───────────────────────────────────
+// WhatsApp lines connected through the Cloud API (credentials entered by hand).
+// Conversations and messages live in MongoDB and reference the line id.
+
+enum ChannelProvider {
+  WHATSAPP_CLOUD
+}
+
+enum LineStatus {
+  /// Created; credentials not verified yet.
+  PENDING
+  /// Credentials verified or a signed webhook was received.
+  CONNECTED
+  /// The last check against Meta failed (see lastError).
+  ERROR
+  /// Turned off by the workspace: webhooks are ignored and nothing is sent.
+  DISABLED
+}
+
+model ChannelLine {
+  id                       String          @id @default(uuid(7)) @db.Uuid
+  workspaceId              String          @map("workspace_id") @db.Uuid
+  name                     String          @db.VarChar(80)
+  provider                 ChannelProvider @default(WHATSAPP_CLOUD)
+  /// Meta's id of the phone number: routes incoming webhooks to the line.
+  phoneNumberId            String          @unique @map("phone_number_id") @db.VarChar(32)
+  wabaId                   String?         @map("waba_id") @db.VarChar(32)
+  displayPhone             String?         @map("display_phone") @db.VarChar(32)
+  verifiedName             String?         @map("verified_name") @db.VarChar(120)
+  /// AES-256-GCM (SecretBox). Never returned by the API.
+  accessTokenEnc           String          @map("access_token_enc")
+  accessTokenLast4         String          @map("access_token_last4") @db.VarChar(4)
+  appSecretEnc             String          @map("app_secret_enc")
+  /// Random value the workspace pastes in Meta to verify the webhook URL.
+  webhookVerifyToken       String          @unique @map("webhook_verify_token") @db.VarChar(64)
+  status                   LineStatus      @default(PENDING)
+  lastError                String?         @map("last_error") @db.VarChar(500)
+  lastWebhookAt            DateTime?       @map("last_webhook_at") @db.Timestamptz(3)
+  autoAssign               Boolean         @default(false) @map("auto_assign")
+  /// Round-robin cursor: the agent who received the previous conversation.
+  lastAssignedMembershipId String?         @map("last_assigned_membership_id") @db.Uuid
+  createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agents    ChannelLineAgent[]
+
+  @@index([workspaceId])
+  @@map("channel_lines")
+}
+
+/// Agents who attend a line: they see its unassigned chats and take part in auto-assignment.
+model ChannelLineAgent {
+  lineId       String   @map("line_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+
+  line       ChannelLine         @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  membership WorkspaceMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@id([lineId, membershipId])
+  @@index([membershipId])
+  @@map("channel_line_agents")
 }

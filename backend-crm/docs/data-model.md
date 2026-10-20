@@ -67,6 +67,15 @@ Añadidas al final de la migración inicial porque Prisma no las modela: `CHECK`
 3. Revisar el SQL; añadir a mano lo que Prisma no modele. Las migraciones destructivas (borrar columnas/tablas, cambiar tipos con pérdida) requieren aprobación explícita.
 4. `npm run prisma:migrate:dev` para aplicarla, y `npm run test:int`.
 
+## Canales (migración `channel_lines`)
+
+| Tabla | Propósito | Claves / restricciones |
+| ----- | --------- | ---------------------- |
+| `channel_lines` | Línea de WhatsApp: ids de Meta, credenciales **cifradas**, token de verificación del webhook, estado, autoasignación y cursor rotativo | `phone_number_id` único (enruta webhooks) + `CHECK` numérico; `webhook_verify_token` único; `CASCADE` con el workspace |
+| `channel_line_agents` | Agentes (membresías) que atienden cada línea | PK `(line_id, membership_id)`; `CASCADE` con la línea y la membresía |
+
+Ver [channels.md](channels.md).
+
 ## MongoDB
 
 Datos operativos del CRM. Todas las colecciones usan el plugin `workspaceScoped` (ver [contacts.md](contacts.md#convenciones-mongodb)).

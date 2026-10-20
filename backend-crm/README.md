@@ -257,6 +257,7 @@ src/
       presentation/       Controlador, DTOs, guards (JWT global, CSRF), cookies
     users/                GET/PATCH /users/me (incluye el plan de cada workspace)
     contacts/             Contactos y etiquetas (MongoDB)
+    channels/             Líneas de WhatsApp (Cloud API), webhook y simulador
     team/                 Equipo: agentes (alta con contraseña temporal, rol, desactivar) y roles personalizados
     billing/              Planes, precios, límites, suscripciones y prueba gratuita
       domain/             plan-catalog.ts (catálogo editable) y reglas de estados/periodos
@@ -279,6 +280,7 @@ Documentación técnica:
 - [docs/authentication.md](docs/authentication.md) — flujos de autenticación, tokens, cookies, CSRF y decisiones de seguridad.
 - [docs/data-model.md](docs/data-model.md) — entidades, índices y decisiones del modelo.
 - [docs/authorization.md](docs/authorization.md) — permisos, roles, guard por workspace y reglas de propietario.
+- [docs/channels.md](docs/channels.md) — líneas de WhatsApp (Cloud API), webhook firmado, simulador y cómo conectar un número real.
 - [docs/contacts.md](docs/contacts.md) — contactos, etiquetas y convenciones MongoDB.
 - [docs/team.md](docs/team.md) — agentes, roles del sistema y personalizados, contraseña temporal, reglas anti-escalada.
 - [docs/billing.md](docs/billing.md) — planes, precios, límites, prueba gratuita, estados y API de suscripciones.
@@ -321,6 +323,10 @@ Se validan al arrancar ([`src/config/env.schema.ts`](src/config/env.schema.ts));
 | `BILLING_DEFAULT_PLAN` / `BILLING_DEFAULT_INTERVAL` | no (`team` / `MONTH`) | Plan y periodo asignados si el registro no elige uno |
 | `BILLING_CURRENCY` | no (`USD`) | Moneda de los precios ofrecidos |
 | `BILLING_PAYMENTS_MODE` | no (`disabled`) | `simulated` aprueba los pagos al instante (solo desarrollo; prohibido en producción) |
+| `CHANNEL_SECRETS_KEY` | **sí** | 32 bytes en base64 (`npm run secrets:generate`). Cifra las credenciales de las líneas de WhatsApp |
+| `PUBLIC_API_URL` | no (`APP_URL`) | URL pública de la API para el webhook de Meta (en desarrollo, la de un túnel) |
+| `WHATSAPP_MODE` | no (`live`) | `simulated`: no se llama a Meta (solo desarrollo; prohibido en producción) |
+| `WHATSAPP_GRAPH_VERSION` | no (`v23.0`) | Versión de la Graph API de Meta |
 | `SEED_DEMO_DATA` / `SEED_DEMO_PASSWORD` | no | Datos demo del seed (solo desarrollo) |
 
 Las variables `POSTGRES_*`, `MONGO_*`, `REDIS_*` y `MAILPIT_*` solo las usa Docker Compose.

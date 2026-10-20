@@ -10,6 +10,8 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthorizationModule } from './modules/authorization/authorization.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { ChannelsModule } from './modules/channels/channels.module';
+import { WhatsAppWebhookModule } from './modules/channels/whatsapp-webhook.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { TeamModule } from './modules/team/team.module';
 import { UsersModule } from './modules/users/users.module';
@@ -37,6 +39,8 @@ import { SecurityModule } from './shared/security/security.module';
     BillingModule,
     TeamModule,
     ContactsModule,
+    ChannelsModule,
+    WhatsAppWebhookModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

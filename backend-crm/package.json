@@ -14,7 +14,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,test,prisma}/**/*.ts\"",
+    "lint": "eslint \"{src,test,prisma,scripts}/**/*.ts\"",
     "lint:fix": "eslint \"{src,test,prisma}/**/*.ts\" --fix",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
@@ -30,7 +30,8 @@
     "docker:up": "docker compose up -d --wait",
     "docker:down": "docker compose down",
     "postinstall": "prisma generate",
-    "secrets:generate": "node scripts/generate-secrets.mjs"
+    "secrets:generate": "node scripts/generate-secrets.mjs",
+    "whatsapp:simulate": "ts-node --transpile-only scripts/whatsapp-simulate.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",

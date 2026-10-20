@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { validateEnv } from './env.schema';
 
 const SECRET = 'sup3r-s3cret-value';
@@ -14,6 +14,7 @@ const base = {
   JWT_PRIVATE_KEY: b64(keys.privateKey),
   JWT_PUBLIC_KEY: b64(keys.publicKey),
   TOKEN_HASH_SECRET: 'x'.repeat(48),
+  CHANNEL_SECRETS_KEY: randomBytes(32).toString('base64'),
   NODE_ENV: 'development',
   APP_URL: 'http://localhost:3000',
   CORS_ORIGINS: 'http://localhost:5173, http://localhost:4200',
@@ -34,6 +35,24 @@ describe('validateEnv', () => {
     expect(env.COOKIE_SECURE).toBe(false);
     expect(env.SWAGGER_ENABLED).toBe(true);
     expect(env.COOKIE_SAMESITE).toBe('strict');
+  });
+
+  it('requires a 32-byte channel secrets key and refuses simulated WhatsApp in production', () => {
+    expect(() =>
+      validateEnv({ ...base, CHANNEL_SECRETS_KEY: 'short' }),
+    ).toThrow(/CHANNEL_SECRETS_KEY/);
+    expect(validateEnv(base)).toMatchObject({
+      WHATSAPP_MODE: 'live',
+      PUBLIC_API_URL: 'http://localhost:3000',
+    });
+    expect(() =>
+      validateEnv({
+        ...base,
+        NODE_ENV: 'production',
+        COOKIE_SECURE: 'true',
+        WHATSAPP_MODE: 'simulated',
+      }),
+    ).toThrow(/WHATSAPP_MODE/);
   });
 
   it('fails when a required variable is missing', () => {

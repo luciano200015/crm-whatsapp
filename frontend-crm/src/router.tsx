@@ -97,6 +97,17 @@ export const routes = [
                 ],
               },
               {
+                element: <RequirePermission anyOf={['channels.read']} />,
+                children: [
+                  {
+                    path: '/channels/lines',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/channels/LinesPage')).LinesPage,
+                    }),
+                  },
+                ],
+              },
+              {
                 element: <RequirePermission anyOf={['billing.read']} />,
                 children: [
                   {

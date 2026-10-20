@@ -287,3 +287,50 @@ export interface TagRequest {
   color: string
   description?: string | null
 }
+
+// ─────────────────────────── Channels ───────────────────────────
+
+export type LineStatus = 'PENDING' | 'CONNECTED' | 'ERROR' | 'DISABLED'
+
+export interface LineAgent {
+  membershipId: string
+  userId: string
+  displayName: string
+  email: string
+  status: MembershipStatus
+}
+
+export interface Line {
+  id: string
+  name: string
+  provider: 'WHATSAPP_CLOUD'
+  phoneNumberId: string
+  wabaId: string | null
+  displayPhone: string | null
+  verifiedName: string | null
+  status: LineStatus
+  lastError: string | null
+  lastWebhookAt: string | null
+  autoAssign: boolean
+  agents: LineAgent[]
+  /** Credentials are never returned: only the last 4 characters of the token. */
+  accessTokenLast4: string
+  /** Configuration for Meta; only with channels.manage. */
+  webhook: { url: string; verifyToken: string } | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LineRequest {
+  name: string
+  phoneNumberId: string
+  wabaId?: string | null
+  displayPhone?: string | null
+  accessToken: string
+  appSecret: string
+}
+
+export interface LineChanges extends Partial<LineRequest> {
+  enabled?: boolean
+  autoAssign?: boolean
+}

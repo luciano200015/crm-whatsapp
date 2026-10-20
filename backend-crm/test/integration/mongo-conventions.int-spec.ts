@@ -1,4 +1,4 @@
-import type { Connection, Model } from 'mongoose';
+import type { Connection } from 'mongoose';
 import { MissingWorkspaceFilterError } from '../../src/database/mongodb/workspace-scoped.plugin';
 import {
   CONTACT_MODEL,
@@ -10,15 +10,19 @@ import {
 } from '../../src/modules/contacts/infrastructure/contact.schemas';
 import { clearMongo, createTestMongo } from '../utils/test-db';
 
+const compile = (connection: Connection) => ({
+  contacts: connection.model<ContactDocument>(CONTACT_MODEL, ContactSchema),
+  tags: connection.model<TagDocument>(TAG_MODEL, TagSchema),
+});
+
 describe('MongoDB conventions (integration)', () => {
   let connection: Connection;
-  let contacts: Model<ContactDocument>;
-  let tags: Model<TagDocument>;
+  let contacts: ReturnType<typeof compile>['contacts'];
+  let tags: ReturnType<typeof compile>['tags'];
 
   beforeAll(async () => {
     connection = await createTestMongo();
-    contacts = connection.model(CONTACT_MODEL, ContactSchema);
-    tags = connection.model(TAG_MODEL, TagSchema);
+    ({ contacts, tags } = compile(connection));
     await Promise.all([contacts.createIndexes(), tags.createIndexes()]);
   });
 
@@ -40,14 +44,11 @@ describe('MongoDB conventions (integration)', () => {
   });
 
   it.each([
-    ['find', (m: Model<ContactDocument>) => m.find({ phone: '+1' })],
-    ['findOne', (m: Model<ContactDocument>) => m.findOne({})],
-    ['countDocuments', (m: Model<ContactDocument>) => m.countDocuments()],
-    [
-      'updateMany',
-      (m: Model<ContactDocument>) => m.updateMany({}, { name: 'x' }),
-    ],
-    ['deleteMany', (m: Model<ContactDocument>) => m.deleteMany({})],
+    ['find', (m: typeof contacts) => m.find({ phone: '+1' })],
+    ['findOne', (m: typeof contacts) => m.findOne({})],
+    ['countDocuments', (m: typeof contacts) => m.countDocuments()],
+    ['updateMany', (m: typeof contacts) => m.updateMany({}, { name: 'x' })],
+    ['deleteMany', (m: typeof contacts) => m.deleteMany({})],
   ])('refuses %s without a workspaceId filter', async (_op, run) => {
     await expect(run(contacts)).rejects.toBeInstanceOf(
       MissingWorkspaceFilterError,

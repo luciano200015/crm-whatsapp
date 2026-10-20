@@ -62,7 +62,9 @@ export async function createTestApp(
     })
     .compile();
 
-  const app = moduleRef.createNestApplication<INestApplication<App>>();
+  const app = moduleRef.createNestApplication<INestApplication<App>>({
+    rawBody: true,
+  });
   configureApp(app);
   await app.init();
   return { app, mailer, config: app.get(AppConfigService) };

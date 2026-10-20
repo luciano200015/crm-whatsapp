@@ -124,6 +124,11 @@ export function setupSwagger(app: INestApplication): void {
         'Equipo del workspace: agentes (alta, rol, desactivar) y roles personalizados',
       )
       .addTag('contacts', 'Contactos y etiquetas del workspace')
+      .addTag(
+        'channels',
+        'Líneas de WhatsApp (Cloud API): credenciales, agentes y autoasignación',
+      )
+      .addTag('webhooks', 'Llamadas de Meta (verificación del webhook)')
       .addTag('health', 'Disponibilidad del servicio y sus dependencias')
       .build(),
   );

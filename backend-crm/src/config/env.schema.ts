@@ -130,6 +130,24 @@ export const envSchema = z
     BILLING_PAYMENTS_MODE: z
       .enum(['disabled', 'simulated'])
       .default('disabled'),
+
+    // ── Channels (WhatsApp Cloud API) ──
+    /** 32 random bytes, base64. Encrypts line credentials (AES-256-GCM). */
+    CHANNEL_SECRETS_KEY: z
+      .string()
+      .trim()
+      .refine((value) => Buffer.from(value, 'base64').length === 32, {
+        message: 'must be 32 random bytes encoded as base64',
+      }),
+    /** Public base URL of this API, shown as the webhook URL to paste in Meta. */
+    PUBLIC_API_URL: z.url().optional(),
+    /** live: talk to Meta. simulated: outgoing messages succeed without calling Meta (dev only). */
+    WHATSAPP_MODE: z.enum(['live', 'simulated']).default('live'),
+    WHATSAPP_GRAPH_BASE_URL: z.url().default('https://graph.facebook.com'),
+    WHATSAPP_GRAPH_VERSION: z
+      .string()
+      .regex(/^v\d+\.\d+$/)
+      .default('v23.0'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -139,6 +157,13 @@ export const envSchema = z
         code: 'custom',
         path: ['BILLING_PAYMENTS_MODE'],
         message: 'simulated payments are not allowed in production',
+      });
+    }
+    if (env.WHATSAPP_MODE === 'simulated') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['WHATSAPP_MODE'],
+        message: 'simulated WhatsApp is not allowed in production',
       });
     }
 
@@ -171,6 +196,7 @@ export const envSchema = z
     // Swagger is opt-in for production and on by default elsewhere.
     SWAGGER_ENABLED: env.SWAGGER_ENABLED ?? env.NODE_ENV !== 'production',
     WEB_APP_URL: env.WEB_APP_URL ?? env.APP_URL,
+    PUBLIC_API_URL: env.PUBLIC_API_URL ?? env.APP_URL,
   }));
 
 export type Env = z.infer<typeof envSchema>;

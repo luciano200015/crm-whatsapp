@@ -1,4 +1,4 @@
-// Prints fresh token secrets as .env lines. Usage: npm run secrets:generate
+// Prints fresh secrets as .env lines. Usage: npm run secrets:generate
 // Paste the output into .env (and a different run into .env.test).
 // Never reuse development secrets in production.
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -16,6 +16,7 @@ process.stdout.write(
     `JWT_PRIVATE_KEY=${b64(privateKey)}`,
     `JWT_PUBLIC_KEY=${b64(publicKey)}`,
     `TOKEN_HASH_SECRET=${randomBytes(48).toString('base64url')}`,
+    `CHANNEL_SECRETS_KEY=${randomBytes(32).toString('base64')}`,
     '',
   ].join('\n'),
 );
