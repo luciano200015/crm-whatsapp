@@ -34,6 +34,9 @@ import {
   type NewMemberValues,
 } from '../../../components/team/MemberDialogs'
 import { useRoles, useTeamAccess } from '../../../components/team/useTeam'
+import { Can } from '../../../auth/permissions'
+import { PageHeader } from '../../../components/PageHeader'
+import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { es } from '../../../i18n/es'
 import { errorMessage } from '../../../lib/api/errors'
 import { teamApi, teamKeys } from '../../../lib/api/team'
@@ -44,7 +47,9 @@ import { meQueryKey } from '../../../lib/api/users'
 
 type StatusFilter = 'ALL' | MembershipStatus
 
-export function MembersPage() {
+/** Equipo → Agentes. The route requires members.read. */
+export function AgentsPage() {
+  useDocumentTitle(es.team.agentsTitle)
   const team = useTeamAccess()
   const workspaceId = team.workspaceId ?? ''
   const queryClient = useQueryClient()
@@ -126,6 +131,7 @@ export function MembersPage() {
 
   return (
     <Stack spacing={2.5}>
+      <PageHeader title={es.team.agentsTitle} subtitle={es.team.agentsSubtitle} />
       {blockedReason && team.can('members.invite') && (
         <Alert
           severity="warning"
@@ -183,7 +189,7 @@ export function MembersPage() {
             label={es.team.usage(usage.activeMembers, usage.limit)}
           />
         )}
-        {team.can('members.invite') && (
+        <Can anyOf={['members.invite']}>
           <Tooltip title={blockedReason ?? ''}>
             <span>
               <Button
@@ -197,7 +203,7 @@ export function MembersPage() {
               </Button>
             </span>
           </Tooltip>
-        )}
+        </Can>
       </Stack>
 
       <Card variant="outlined">

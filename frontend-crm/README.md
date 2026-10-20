@@ -93,10 +93,11 @@ Los mensajes de la API se muestran en español. Los `401` de login siempre muest
 | `/` | autenticado | Inicio: workspace activo, roles y permisos |
 | `/account/profile` | autenticado | Perfil (nombre, idioma, zona horaria) |
 | `/account/security` | autenticado | Cambiar contraseña y gestionar sesiones |
-| `/team/members` | `members.read` | Equipo → Agentes |
+| `/team/agents` | `members.read` | Equipo → Agentes (`/team/members` redirige aquí) |
 | `/team/roles` | `roles.read` | Equipo → Roles |
+| `/forbidden` | autenticado | «No autorizado»: adonde se redirige al abrir una página sin permiso |
 | `/account/password-required` | autenticado | Cambio obligatorio de la contraseña temporal |
-| `/billing` | autenticado | Plan y facturación del workspace activo |
+| `/billing` | `billing.read` | Plan y facturación del workspace activo |
 | `/pricing` | todos | Planes y precios públicos (mensual/anual) |
 
 La zona autenticada se carga bajo demanda (code splitting), así la pantalla de login es más ligera.
@@ -116,9 +117,25 @@ Permisos: ver el plan requiere `billing.read` (OWNER, ADMIN) y cambiarlo `billin
 
 Con `BILLING_PAYMENTS_MODE=simulated` en el backend, los pagos se aprueban al instante (se avisa en la pantalla). Con `disabled`, solo se puede cambiar de plan durante la prueba.
 
+## Menú y permisos
+
+El menú lateral se define en un solo sitio, [`src/layouts/navigation.ts`](src/layouts/navigation.ts):
+
+- Cada enlace declara los permisos que necesita (`anyOf` / `allOf`) y los grupos (p. ej. **Equipo → Agentes, Roles**) se pliegan.
+- Un grupo sin enlaces permitidos no aparece.
+- Los permisos son los del workspace activo, leídos de `/users/me`; al cambiar de workspace o volver a la pestaña, el menú se recalcula.
+
+| Pieza | Uso |
+| ----- | --- |
+| `usePermissions()` ([`src/auth/usePermissions.ts`](src/auth/usePermissions.ts)) | `has('contacts.read')`, `allows({ anyOf, allOf })` |
+| `<Can anyOf={[…]} allOf={[…]} fallback?>` | Renderiza sus hijos solo si se cumple el permiso; si no, nada (o `fallback`) |
+| `<RequirePermission anyOf={[…]} />` | Elemento de ruta en [`router.tsx`](src/router.tsx): sin permiso redirige a `/forbidden` |
+
+Es solo interfaz: la API vuelve a comprobar cada petición.
+
 ## Equipo (agentes y roles)
 
-Menú **Equipo**, visible con `members.read` o `roles.read` en el workspace activo. Tiene dos pestañas, como en wasapi. Reglas y API en `docs/team.md` del backend.
+Grupo **Equipo** del menú con dos páginas: Agentes (`members.read`) y Roles (`roles.read`). Reglas y API en `docs/team.md` del backend.
 
 | Pantalla | Qué hace |
 | -------- | -------- |

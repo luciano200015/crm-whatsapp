@@ -10,5 +10,7 @@ export function useMe() {
     queryFn: () => usersApi.me(),
     enabled: status === 'authenticated',
     staleTime: 60_000,
+    // Role changes made by an admin reach the menu when the user returns to the tab.
+    refetchOnWindowFocus: true,
   })
 }

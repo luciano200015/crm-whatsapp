@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router'
-import { ProtectedRoute, PublicOnlyRoute, RequirePasswordChanged } from './auth/routes'
+import { RequirePermission } from './auth/permissions'
+import { ProtectedRoute, PublicOnlyRoute, RequirePasswordChanged, TeamIndex } from './auth/routes'
 import { AuthLayout } from './layouts/AuthLayout'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
 import { LoginPage } from './pages/auth/LoginPage'
@@ -49,18 +50,22 @@ export const routes = [
                   Component: (await import('./pages/app/DashboardPage')).DashboardPage,
                 }),
               },
-              { path: '/team', element: <Navigate to="/team/members" replace /> },
+              { path: '/team', element: <TeamIndex /> },
+              { path: '/team/members', element: <Navigate to="/team/agents" replace /> },
               {
-                lazy: async () => ({
-                  Component: (await import('./pages/app/team/TeamPage')).TeamPage,
-                }),
+                element: <RequirePermission anyOf={['members.read']} />,
                 children: [
                   {
-                    path: '/team/members',
+                    path: '/team/agents',
                     lazy: async () => ({
-                      Component: (await import('./pages/app/team/MembersPage')).MembersPage,
+                      Component: (await import('./pages/app/team/AgentsPage')).AgentsPage,
                     }),
                   },
+                ],
+              },
+              {
+                element: <RequirePermission anyOf={['roles.read']} />,
+                children: [
                   {
                     path: '/team/roles',
                     lazy: async () => ({
@@ -70,9 +75,20 @@ export const routes = [
                 ],
               },
               {
-                path: '/billing',
+                element: <RequirePermission anyOf={['billing.read']} />,
+                children: [
+                  {
+                    path: '/billing',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/BillingPage')).BillingPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                path: '/forbidden',
                 lazy: async () => ({
-                  Component: (await import('./pages/app/BillingPage')).BillingPage,
+                  Component: (await import('./pages/app/ForbiddenPage')).ForbiddenPage,
                 }),
               },
               {

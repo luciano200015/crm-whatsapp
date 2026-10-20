@@ -21,6 +21,9 @@ import { Link as RouterLink } from 'react-router'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { RoleDialog, type RoleDialogMode } from '../../../components/team/RoleDialog'
 import { usePermissionCatalog, useRoles, useTeamAccess } from '../../../components/team/useTeam'
+import { Can } from '../../../auth/permissions'
+import { PageHeader } from '../../../components/PageHeader'
+import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { es } from '../../../i18n/es'
 import { errorMessage } from '../../../lib/api/errors'
 import { teamApi, teamKeys } from '../../../lib/api/team'
@@ -28,7 +31,9 @@ import type { Role, RoleRequest } from '../../../lib/api/types'
 import { meQueryKey } from '../../../lib/api/users'
 import { holdsAll, roleDescription, roleName } from '../../../lib/team'
 
+/** Equipo → Roles. The route requires roles.read. */
 export function RolesPage() {
+  useDocumentTitle(es.team.rolesTitle)
   const team = useTeamAccess()
   const workspaceId = team.workspaceId ?? ''
   const roles = useRoles(team.workspaceId)
@@ -71,6 +76,7 @@ export function RolesPage() {
 
   return (
     <Stack spacing={2.5}>
+      <PageHeader title={es.team.rolesTitle} subtitle={es.team.rolesSubtitle} />
       {canManage && !team.customRolesIncluded && (
         <Alert
           severity="info"
@@ -86,7 +92,7 @@ export function RolesPage() {
         </Alert>
       )}
 
-      {canManage && (
+      <Can anyOf={['roles.manage']}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button
             variant="contained"
@@ -97,7 +103,7 @@ export function RolesPage() {
             {es.team.newRole}
           </Button>
         </Box>
-      )}
+      </Can>
 
       {roles.isPending ? (
         <Skeleton variant="rounded" height={180} />

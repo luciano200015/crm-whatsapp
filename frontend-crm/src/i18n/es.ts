@@ -110,6 +110,8 @@ export const es = {
     nav: {
       home: 'Inicio',
       team: 'Equipo',
+      agents: 'Agentes',
+      roles: 'Roles',
       billing: 'Plan y facturación',
       profile: 'Mi perfil',
       security: 'Seguridad',
@@ -218,10 +220,11 @@ export const es = {
     } as Record<string, string | undefined>,
   },
   team: {
-    title: 'Equipo',
-    subtitle: 'Los agentes de este espacio de trabajo y lo que puede hacer cada uno.',
-    tabs: { members: 'Agentes', roles: 'Roles' },
-    noPermission: 'No tienes permiso para ver el equipo de este espacio de trabajo.',
+    agentsTitle: 'Agentes',
+    agentsSubtitle: 'Las personas que atienden en este espacio de trabajo, su rol y su estado.',
+    rolesTitle: 'Roles',
+    rolesSubtitle:
+      'Qué puede hacer cada rol. Los del sistema son fijos; los personalizados son de este espacio de trabajo.',
     // Members
     newMember: 'Nuevo agente',
     search: 'Buscar por nombre o correo',
@@ -412,6 +415,11 @@ export const es = {
     PASSWORD_CHANGE_REQUIRED: 'Primero debes cambiar tu contraseña temporal.',
     PLAN_LIMIT_EXCEEDED: (details: Record<string, unknown>) =>
       `El plan ${String(details.plan ?? '')} permite ${String(details.limit ?? '?')} agentes y este espacio de trabajo tiene ${String(details.usage ?? '?')} miembros activos. Desactiva miembros antes de cambiar.`,
+  },
+  forbidden: {
+    title: 'No autorizado',
+    body: 'No tienes autorización para ver esta página en este espacio de trabajo. Si crees que es un error, pide acceso a un administrador.',
+    goHome: 'Ir al inicio',
   },
   notFound: {
     title: 'Página no encontrada',
