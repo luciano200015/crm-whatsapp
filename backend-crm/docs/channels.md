@@ -43,27 +43,32 @@ Una **línea** es un número de WhatsApp Business conectado con la **API oficial
 - **Cada línea puede venir de una app de Meta distinta, con su propio App Secret.** La URL dice con qué secreto verificar la firma **antes** de leer el cuerpo. Con una URL por workspace habría que probar todos los secretos del workspace.
 - **Meta admite una sola URL de webhook por app.** Si varios números comparten app, basta pegar la URL de cualquiera de sus líneas: los eventos se enrutan por `phone_number_id` dentro del mismo workspace.
 
-### En desarrollo: túnel con ngrok
+### En desarrollo: túnel hacia el webhook
 
 Meta no puede llamar a `localhost`. `npm run tunnel` expone **solo el webhook**:
 
-- arranca un filtro local (`127.0.0.1:3001`) delante de la API;
-- abre ngrok hacia ese filtro;
+- arranca un filtro local (`127.0.0.1:3001`) delante de la API y abre el túnel hacia ese filtro;
 - cualquier otra ruta (login, Swagger, el resto de la API) responde `404` sin llegar a la API;
-- solo deja pasar `GET` y `POST` a `/api/v1/webhooks/whatsapp/<uuid>` y rechaza cuerpos de más de 3 MB;
-- funciona con cualquier versión de ngrok y con cualquier otro túnel que apunte a ese puerto.
+- solo deja pasar `GET` y `POST` a `/api/v1/webhooks/whatsapp/<uuid>` y rechaza cuerpos de más de 3 MB (`413`).
+
+| Túnel | Cuenta | URL |
+| ----- | ------ | --- |
+| **Cloudflare quick tunnel** (por defecto) | No hace falta | `https://<aleatorio>.trycloudflare.com`, nueva en cada arranque |
+| ngrok (`--ngrok`) | Sí (authtoken) | Aleatoria, o fija con tu dominio gratuito (`--domain`) |
 
 ```bash
-ngrok config add-authtoken <tu-authtoken>        # una vez: https://dashboard.ngrok.com/get-started/your-authtoken
-npm run tunnel                                   # URL aleatoria
-npm run tunnel -- --domain tu-nombre.ngrok-free.app   # tu dominio gratuito fijo de ngrok
+winget install Cloudflare.cloudflared            # una vez (macOS: brew install cloudflared)
+npm run tunnel                                   # Cloudflare
+
+ngrok config add-authtoken <tu-authtoken>        # alternativa: una vez, https://dashboard.ngrok.com/get-started/your-authtoken
+npm run tunnel -- --ngrok --domain tu-nombre.ngrok-free.app
 ```
 
 El script imprime la línea `PUBLIC_API_URL=https://…`:
 
 - cópiala en `.env`, pon `WHATSAPP_MODE=live` y reinicia la API;
 - la tarjeta de la línea mostrará la URL pública;
-- con una URL aleatoria, cada vez que reinicias ngrok cambia y hay que volver a pegarla en Meta. Por eso conviene el dominio fijo.
+- si la URL cambia (Cloudflare en cada arranque), hay que volver a pegarla en Meta → *WhatsApp → Configuración → Webhook*. El token de verificación no cambia.
 
 **Con el número de prueba de Meta:**
 

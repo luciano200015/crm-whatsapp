@@ -1,17 +1,18 @@
 /**
  * Exposes ONLY the WhatsApp webhook of the local API to the internet, so Meta
- * can reach it while you develop. ngrok points at a small filter in front of
- * the API: any other request (login, Swagger, the rest of the API) gets 404
- * without reaching it, and bodies over 3 MB are refused.
+ * can reach it while you develop. The tunnel points at a small filter in
+ * front of the API: any other request (login, Swagger, the rest of the API)
+ * gets 404 without reaching it, and bodies over 3 MB are refused.
  *
- *   npm run tunnel
- *   npm run tunnel -- --domain my-name.ngrok-free.app   # fixed URL
+ *   npm run tunnel                       # Cloudflare quick tunnel, no account
+ *   npm run tunnel -- --ngrok            # ngrok (needs its authtoken)
+ *   npm run tunnel -- --ngrok --domain my-name.ngrok-free.app   # fixed URL
  *
- * Prints the PUBLIC_API_URL to put in .env. Needs ngrok logged in to your
- * account (`ngrok config add-authtoken …`). Reads PORT from .env.
+ * Prints the PUBLIC_API_URL to put in .env. Reads PORT from .env.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { config } from 'dotenv';
+import { existsSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -26,6 +27,7 @@ const MAX_BODY_BYTES = 3 * 1024 * 1024;
 function main(): void {
   const { values } = parseArgs({
     options: {
+      ngrok: { type: 'boolean', default: false },
       domain: { type: 'string' },
       port: { type: 'string', default: '3001' },
     },
@@ -83,7 +85,8 @@ function main(): void {
     console.log(
       `Webhook filter on 127.0.0.1:${filterPort} → API on localhost:${apiPort}`,
     );
-    startNgrok(filterPort, values.domain);
+    if (values.ngrok) startNgrok(filterPort, values.domain);
+    else startCloudflare(filterPort);
   });
 }
 
@@ -126,10 +129,7 @@ function startNgrok(port: number, domain: string | undefined): void {
       return;
     }
     if (entry.msg === 'started tunnel' && entry.url) {
-      console.log('\nTunnel ready. Only the WhatsApp webhook is reachable.');
-      console.log(
-        `Put this in .env and restart the API:\n\n  PUBLIC_API_URL=${entry.url}\n`,
-      );
+      announce(entry.url);
     } else if (entry.lvl === 'eror' || entry.lvl === 'crit') {
       const error = entry.err ?? entry.msg ?? line;
       if (!shown.has(error)) {
@@ -139,8 +139,67 @@ function startNgrok(port: number, domain: string | undefined): void {
     }
   });
 
+  stopWith(ngrok);
+}
+
+/**
+ * Cloudflare quick tunnel: no account, a new *.trycloudflare.com URL each
+ * time it starts (paste it again in Meta after a restart).
+ */
+function startCloudflare(port: number): void {
+  const cloudflared = spawn(
+    cloudflaredPath(),
+    ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  );
+  cloudflared.on('error', (error) => {
+    console.error(
+      `Could not start cloudflared (${error.message}). Install it with: winget install Cloudflare.cloudflared`,
+    );
+    process.exit(1);
+  });
+  cloudflared.on('exit', (code) => process.exit(code ?? 0));
+
+  // cloudflared logs to stderr: the URL, then the connections and errors.
+  const shown = new Set<string>();
+  createInterface({ input: cloudflared.stderr }).on('line', (line) => {
+    const url = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(line)?.[0];
+    if (url && !shown.has(url)) {
+      shown.add(url);
+      announce(url);
+    } else if (/ ERR /.test(line)) {
+      const error = line.replace(/^\S+ ERR /, '');
+      if (!shown.has(error)) {
+        shown.add(error);
+        console.error(`cloudflared: ${error}`);
+      }
+    } else if (/Registered tunnel connection/.test(line) && !shown.has('up')) {
+      shown.add('up');
+      console.log('Connected to Cloudflare.');
+    }
+  });
+
+  stopWith(cloudflared);
+}
+
+/** The Windows installer puts it outside the PATH of shells opened before. */
+function cloudflaredPath(): string {
+  const installed = 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe';
+  return process.platform === 'win32' && existsSync(installed)
+    ? installed
+    : 'cloudflared';
+}
+
+function announce(url: string): void {
+  console.log('\nTunnel ready. Only the WhatsApp webhook is reachable.');
+  console.log(
+    `Put this in .env and restart the API:\n\n  PUBLIC_API_URL=${url}\n`,
+  );
+}
+
+function stopWith(child: ChildProcess): void {
   const stop = () => {
-    ngrok.kill();
+    child.kill();
     process.exit(0);
   };
   process.on('SIGINT', stop);
