@@ -128,6 +128,10 @@ export function setupSwagger(app: INestApplication): void {
         'channels',
         'Líneas de WhatsApp (Cloud API): credenciales, agentes y autoasignación',
       )
+      .addTag(
+        'inbox',
+        'Bandeja: conversaciones, respuestas, notas, asignación y eventos en tiempo real',
+      )
       .addTag('webhooks', 'Llamadas de Meta (verificación del webhook)')
       .addTag('health', 'Disponibilidad del servicio y sus dependencias')
       .build(),

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { AppConfigService } from '../../../config/app-config.service';
 import {
@@ -6,8 +6,6 @@ import {
   WhatsAppGateway,
   type LineCredentials,
 } from '../application/ports';
-import type { WebhookEvents } from '../domain/whatsapp-payload';
-import { WhatsAppEventsSink, type LineRecord } from '../application/ports';
 
 const TIMEOUT_MS = 10_000;
 
@@ -114,18 +112,5 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
     return Promise.resolve({
       waMessageId: `wamid.SIMULATED.${randomBytes(12).toString('hex')}`,
     });
-  }
-}
-
-/** Used until a module handles conversations: only counts what arrived. */
-@Injectable()
-export class LoggingEventsSink extends WhatsAppEventsSink {
-  private readonly logger = new Logger('WhatsAppWebhook');
-
-  handle(line: LineRecord, events: WebhookEvents): Promise<void> {
-    this.logger.log(
-      `Line ${line.id}: ${events.messages.length} message(s), ${events.statuses.length} status update(s)`,
-    );
-    return Promise.resolve();
   }
 }

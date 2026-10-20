@@ -48,6 +48,7 @@ ContactSchema.plugin(workspaceScoped);
 ContactSchema.index({ workspaceId: 1, phone: 1 }, { unique: true });
 ContactSchema.index({ workspaceId: 1, tagIds: 1, _id: -1 });
 ContactSchema.index({ workspaceId: 1, _id: -1 });
+ContactSchema.index({ workspaceId: 1, lastMessageAt: -1 });
 
 export const TagSchema = new Schema<TagDocument>(
   {

@@ -194,6 +194,71 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
     return deletedCount === 1;
   }
 
+  async upsertWhatsAppContact(
+    workspaceId: string,
+    phone: string,
+    profileName: string | null,
+  ): Promise<ContactRecord> {
+    try {
+      const doc = await this.contacts
+        .findOneAndUpdate(
+          { workspaceId, phone },
+          {
+            // workspaceId and phone come from the filter on insert.
+            $setOnInsert: {
+              name: profileName,
+              email: null,
+              notes: null,
+              tagIds: [],
+              source: 'whatsapp',
+              lastMessageAt: null,
+              createdBy: null,
+            },
+          },
+          { upsert: true, new: true },
+        )
+        .lean<ContactDocument>();
+      if (doc.name === null && profileName) {
+        await this.contacts.updateOne(
+          { workspaceId, _id: doc._id, name: null },
+          { $set: { name: profileName } },
+        );
+        return toContact({ ...doc, name: profileName });
+      }
+      return toContact(doc);
+    } catch (error: unknown) {
+      // Two webhooks raced to create the same contact: the other one won.
+      if (!isDuplicateKey(error)) throw error;
+      const existing = await this.findContactByPhone(workspaceId, phone);
+      if (!existing) throw error;
+      return existing;
+    }
+  }
+
+  async touchLastMessage(
+    workspaceId: string,
+    contactId: string,
+    at: Date,
+  ): Promise<void> {
+    const _id = objectId(contactId);
+    if (!_id) return;
+    await this.contacts.updateOne(
+      {
+        workspaceId,
+        _id,
+        $or: [{ lastMessageAt: null }, { lastMessageAt: { $lt: at } }],
+      },
+      { $set: { lastMessageAt: at } },
+    );
+  }
+
+  countActiveSince(workspaceId: string, since: Date): Promise<number> {
+    return this.contacts.countDocuments({
+      workspaceId,
+      lastMessageAt: { $gte: since },
+    });
+  }
+
   // ─────────────────────────── Tags ───────────────────────────
 
   async listTags(workspaceId: string): Promise<TagRecord[]> {

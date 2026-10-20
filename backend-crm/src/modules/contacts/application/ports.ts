@@ -80,6 +80,23 @@ export abstract class ContactsStore {
     workspaceId: string,
     contactId: string,
   ): Promise<boolean>;
+  /**
+   * The contact of a WhatsApp sender: found by phone or created
+   * (source "whatsapp"). Fills the name from the WhatsApp profile when the
+   * contact has none. Safe under concurrent webhooks.
+   */
+  abstract upsertWhatsAppContact(
+    workspaceId: string,
+    phone: string,
+    profileName: string | null,
+  ): Promise<ContactRecord>;
+  abstract touchLastMessage(
+    workspaceId: string,
+    contactId: string,
+    at: Date,
+  ): Promise<void>;
+  /** Contacts with a message since `since` (limits.active_contacts). */
+  abstract countActiveSince(workspaceId: string, since: Date): Promise<number>;
 
   abstract listTags(workspaceId: string): Promise<TagRecord[]>;
   /** Number of contacts per tag id. */

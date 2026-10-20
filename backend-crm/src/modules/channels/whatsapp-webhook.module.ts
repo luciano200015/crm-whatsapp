@@ -3,7 +3,8 @@ import { Clock, SystemClock } from '../../shared/time/clock';
 import { ChannelsModule } from './channels.module';
 import { WhatsAppEventsSink } from './application/ports';
 import { WhatsAppWebhookService } from './application/whatsapp-webhook.service';
-import { LoggingEventsSink } from './infrastructure/whatsapp-gateways';
+import { InboxModule } from '../inbox/inbox.module';
+import { InboxIngestService } from '../inbox/application/inbox-ingest.service';
 import { WhatsAppWebhookController } from './presentation/channels.controller';
 
 /**
@@ -11,11 +12,12 @@ import { WhatsAppWebhookController } from './presentation/channels.controller';
  * processes the events (the inbox) can depend on channels without a cycle.
  */
 @Module({
-  imports: [ChannelsModule],
+  imports: [ChannelsModule, InboxModule],
   controllers: [WhatsAppWebhookController],
   providers: [
     WhatsAppWebhookService,
-    { provide: WhatsAppEventsSink, useClass: LoggingEventsSink },
+    // Webhook events become conversations and messages in the inbox.
+    { provide: WhatsAppEventsSink, useExisting: InboxIngestService },
     { provide: Clock, useClass: SystemClock },
   ],
 })

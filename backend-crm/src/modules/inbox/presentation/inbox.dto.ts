@@ -1,0 +1,293 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsIn,
+  IsInt,
+  IsMongoId,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
+
+const trim = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? value.trim() : value;
+
+const VIEWS = ['mine', 'unassigned', 'all'] as const;
+const STATUSES = ['OPEN', 'CLOSED'] as const;
+
+// ─────────────────────────── Requests ───────────────────────────
+
+export class ListConversationsQueryDto {
+  @ApiPropertyOptional({
+    enum: VIEWS,
+    default: 'mine',
+    description:
+      'mine: assigned to me. unassigned: nobody has it. all: everything I can see (all of the workspace with conversations.view_all).',
+  })
+  @IsOptional()
+  @IsIn(VIEWS)
+  view: (typeof VIEWS)[number] = 'mine';
+
+  @ApiPropertyOptional({ enum: STATUSES, default: 'OPEN' })
+  @IsOptional()
+  @IsIn(STATUSES)
+  status: (typeof STATUSES)[number] = 'OPEN';
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  lineId?: string;
+
+  @ApiPropertyOptional({ description: 'Conversations of one contact.' })
+  @IsOptional()
+  @IsMongoId()
+  contactId?: string;
+
+  @ApiPropertyOptional({ description: 'Part of the contact name or phone.' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @ApiPropertyOptional({ description: '`nextCursor` of the previous page.' })
+  @IsOptional()
+  @Matches(/^\d{1,16}_[0-9a-f]{24}$/, { message: 'cursor is invalid' })
+  cursor?: string;
+
+  @ApiPropertyOptional({ default: 30, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 30;
+}
+
+export class ListMessagesQueryDto {
+  @ApiPropertyOptional({
+    description: 'Older messages: `nextCursor` of the previous page.',
+  })
+  @IsOptional()
+  @IsMongoId()
+  cursor?: string;
+
+  @ApiPropertyOptional({ default: 50, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 50;
+}
+
+export class SendTextDto {
+  @ApiProperty({ example: '¡Hola! ¿En qué te puedo ayudar?', maxLength: 4096 })
+  @Transform(trim)
+  @IsString()
+  @Length(1, 4096)
+  text: string;
+}
+
+export class AssignConversationDto {
+  @ApiProperty({
+    format: 'uuid',
+    nullable: true,
+    description: 'Membership id of an active member, or null to unassign.',
+  })
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  membershipId: string | null;
+}
+
+// ─────────────────────────── Responses ───────────────────────────
+
+export class AssigneeDto {
+  @ApiProperty({ format: 'uuid' })
+  membershipId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  userId: string;
+
+  @ApiProperty({ example: 'Andrés Agente' })
+  name: string;
+}
+
+export class LastMessageDto {
+  @ApiProperty({ nullable: true, type: String })
+  text: string | null;
+
+  @ApiProperty({ example: 'text' })
+  type: string;
+
+  @ApiProperty({ enum: ['IN', 'OUT', 'NOTE'] })
+  direction: string;
+
+  @ApiProperty()
+  at: Date;
+}
+
+export class ConversationContactDto {
+  @ApiProperty({ nullable: true, type: String })
+  name: string | null;
+
+  @ApiProperty({ example: '+59171234567' })
+  phone: string;
+}
+
+export class ConversationDto {
+  @ApiProperty({ example: '6716f0c2a1b2c3d4e5f60718' })
+  id: string;
+
+  @ApiProperty({ format: 'uuid' })
+  lineId: string;
+
+  @ApiProperty({ nullable: true, type: String, example: 'Ventas' })
+  lineName: string | null;
+
+  @ApiProperty({ example: '6716f0c2a1b2c3d4e5f60719' })
+  contactId: string;
+
+  @ApiProperty({ type: ConversationContactDto })
+  contact: ConversationContactDto;
+
+  @ApiProperty({ enum: STATUSES })
+  status: string;
+
+  @ApiProperty({ type: AssigneeDto, nullable: true })
+  assignee: AssigneeDto | null;
+
+  @ApiProperty({ type: LastMessageDto, nullable: true })
+  lastMessage: LastMessageDto | null;
+
+  @ApiProperty()
+  lastActivityAt: Date;
+
+  @ApiProperty({ nullable: true, type: Date })
+  lastInboundAt: Date | null;
+
+  @ApiProperty({
+    description: 'Within the 24 h window: free text replies are allowed.',
+  })
+  windowOpen: boolean;
+
+  @ApiProperty({ nullable: true, type: Date })
+  windowExpiresAt: Date | null;
+
+  @ApiProperty({ example: 2 })
+  unreadCount: number;
+
+  @ApiProperty({ nullable: true, type: Date })
+  closedAt: Date | null;
+
+  @ApiProperty()
+  createdAt: Date;
+}
+
+export class ConversationPageDto {
+  @ApiProperty({ type: [ConversationDto] })
+  items: ConversationDto[];
+
+  @ApiProperty({ nullable: true, type: String })
+  nextCursor: string | null;
+}
+
+export class InboxCountsDto {
+  @ApiProperty({ description: 'Open conversations assigned to me.' })
+  mine: number;
+
+  @ApiProperty({ description: 'Open, unassigned and visible to me.' })
+  unassigned: number;
+
+  @ApiProperty({ description: 'Open and visible to me.' })
+  all: number;
+
+  @ApiProperty({
+    description: 'Unread messages in open conversations visible to me.',
+  })
+  unread: number;
+}
+
+export class MediaDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty({ nullable: true, type: String })
+  mimeType: string | null;
+
+  @ApiProperty({ nullable: true, type: String })
+  caption: string | null;
+
+  @ApiProperty({ nullable: true, type: String })
+  filename: string | null;
+}
+
+export class SentByDto {
+  @ApiProperty({ format: 'uuid' })
+  userId: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+export class MessageDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  conversationId: string;
+
+  @ApiProperty({
+    enum: ['IN', 'OUT', 'NOTE'],
+    description: 'NOTE: internal note, never sent to WhatsApp.',
+  })
+  direction: string;
+
+  @ApiProperty({
+    enum: [
+      'text',
+      'image',
+      'audio',
+      'video',
+      'document',
+      'sticker',
+      'location',
+      'unsupported',
+    ],
+  })
+  type: string;
+
+  @ApiProperty({ nullable: true, type: String })
+  text: string | null;
+
+  @ApiProperty({ type: MediaDto, nullable: true })
+  media: MediaDto | null;
+
+  @ApiProperty({
+    enum: ['received', 'pending', 'sent', 'delivered', 'read', 'failed'],
+  })
+  status: string;
+
+  @ApiProperty({ nullable: true, type: String })
+  error: string | null;
+
+  @ApiProperty({ type: SentByDto, nullable: true })
+  sentBy: SentByDto | null;
+
+  @ApiProperty()
+  createdAt: Date;
+}
+
+export class MessagePageDto {
+  @ApiProperty({ type: [MessageDto], description: 'Newest first.' })
+  items: MessageDto[];
+
+  @ApiProperty({ nullable: true, type: String })
+  nextCursor: string | null;
+}
