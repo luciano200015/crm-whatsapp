@@ -1,0 +1,482 @@
+// PostgreSQL is the source of truth for identity, authorization, workspaces
+// and (future) billing. See docs/data-model.md for design decisions.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  // Extensionless relative imports so ts-node (seed) and Jest resolve the .ts sources.
+  importFileExtension = ""
+  // Partial unique indexes (system roles, pending invitations). See docs/data-model.md.
+  previewFeatures     = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────── Identity ───────────────────────────────
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+model User {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  /// Always stored normalized (trimmed + lowercased).
+  email           String     @unique @db.VarChar(320)
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  displayName     String     @map("display_name") @db.VarChar(120)
+  status          UserStatus @default(PENDING_VERIFICATION)
+  avatarUrl       String?    @map("avatar_url") @db.VarChar(2048)
+  locale          String?    @db.VarChar(16)
+  timezone        String?    @db.VarChar(64)
+  lastLoginAt     DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  credential              UserCredential?
+  sessions                UserSession[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  memberships             WorkspaceMembership[]    @relation("MembershipUser")
+  invitedMemberships      WorkspaceMembership[]    @relation("MembershipInvitedBy")
+  createdWorkspaces       Workspace[]              @relation("WorkspaceCreatedBy")
+  sentInvitations         WorkspaceInvitation[]    @relation("InvitationInvitedBy")
+  acceptedInvitations     WorkspaceInvitation[]    @relation("InvitationAcceptedBy")
+  assignedMembershipRoles MembershipRole[]         @relation("MembershipRoleAssignedBy")
+  auditLogs               AuditLog[]
+
+  @@map("users")
+}
+
+/// Credentials are kept apart from the profile so profile reads never touch hashes.
+model UserCredential {
+  userId            String    @id @map("user_id") @db.Uuid
+  /// Argon2id encoded hash (includes salt and parameters).
+  passwordHash      String    @map("password_hash") @db.VarChar(255)
+  passwordChangedAt DateTime  @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  failedLoginCount  Int       @default(0) @map("failed_login_count")
+  lockedUntil       DateTime? @map("locked_until") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_credentials")
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum SessionRevokeReason {
+  LOGOUT
+  REUSE_DETECTED
+  PASSWORD_CHANGED
+  ADMIN
+  EXPIRED
+}
+
+/// A session is the family of rotating refresh tokens issued from one login.
+model UserSession {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  userId       String               @map("user_id") @db.Uuid
+  status       SessionStatus        @default(ACTIVE)
+  ipAddress    String?              @map("ip_address") @db.VarChar(45)
+  userAgent    String?              @map("user_agent") @db.VarChar(512)
+  lastUsedAt   DateTime             @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  /// Absolute expiry: rotation never extends a session beyond this point.
+  expiresAt    DateTime             @map("expires_at") @db.Timestamptz(3)
+  revokedAt    DateTime?            @map("revoked_at") @db.Timestamptz(3)
+  revokeReason SessionRevokeReason? @map("revoke_reason")
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId, status])
+  @@map("user_sessions")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  sessionId String    @map("session_id") @db.Uuid
+  /// HMAC-SHA256(server pepper, token) as hex. The raw token is never stored.
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  /// Token this one was rotated from (null for the first token of a session).
+  parentId  String?   @unique @map("parent_id") @db.Uuid
+  /// Set when the token is exchanged; presenting it again means reuse.
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  session UserSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  parent  RefreshToken? @relation("RefreshTokenRotation", fields: [parentId], references: [id], onDelete: SetNull)
+  child   RefreshToken? @relation("RefreshTokenRotation")
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt      DateTime? @map("used_at") @db.Timestamptz(3)
+  requestedIp String?   @map("requested_ip") @db.VarChar(45)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt      DateTime? @map("used_at") @db.Timestamptz(3)
+  requestedIp String?   @map("requested_ip") @db.VarChar(45)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+// ─────────────────────────── Workspaces & members ───────────────────────────
+
+enum WorkspaceStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+model Workspace {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  name        String          @db.VarChar(120)
+  slug        String          @unique @db.VarChar(63)
+  status      WorkspaceStatus @default(ACTIVE)
+  settings    Json            @default("{}")
+  createdById String?         @map("created_by_id") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy    User?                 @relation("WorkspaceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  memberships  WorkspaceMembership[]
+  invitations  WorkspaceInvitation[]
+  roles        Role[]
+  auditLogs    AuditLog[]
+  subscription Subscription?
+
+  @@map("workspaces")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
+model WorkspaceMembership {
+  id            String           @id @default(uuid(7)) @db.Uuid
+  workspaceId   String           @map("workspace_id") @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  status        MembershipStatus @default(ACTIVE)
+  joinedAt      DateTime         @default(now()) @map("joined_at") @db.Timestamptz(3)
+  deactivatedAt DateTime?        @map("deactivated_at") @db.Timestamptz(3)
+  invitedById   String?          @map("invited_by_id") @db.Uuid
+  settings      Json             @default("{}")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  user      User             @relation("MembershipUser", fields: [userId], references: [id], onDelete: Restrict)
+  invitedBy User?            @relation("MembershipInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  roles     MembershipRole[]
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_memberships")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// Only one PENDING invitation per (workspace, email), enforced by a partial unique index.
+model WorkspaceInvitation {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  workspaceId      String           @map("workspace_id") @db.Uuid
+  /// Normalized recipient email.
+  email            String           @db.VarChar(320)
+  roleId           String           @map("role_id") @db.Uuid
+  tokenHash        String           @unique @map("token_hash") @db.Char(64)
+  status           InvitationStatus @default(PENDING)
+  invitedById      String?          @map("invited_by_id") @db.Uuid
+  expiresAt        DateTime         @map("expires_at") @db.Timestamptz(3)
+  acceptedAt       DateTime?        @map("accepted_at") @db.Timestamptz(3)
+  acceptedByUserId String?          @map("accepted_by_user_id") @db.Uuid
+  revokedAt        DateTime?        @map("revoked_at") @db.Timestamptz(3)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role       Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  invitedBy  User?     @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedBy User?     @relation("InvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, email], where: { status: "PENDING" }, map: "workspace_invitations_pending_email_key")
+  @@index([workspaceId, status])
+  @@index([email])
+  @@map("workspace_invitations")
+}
+
+// ─────────────────────────────── Authorization ───────────────────────────────
+
+/// System roles have workspaceId = null. Uniqueness of `key` is enforced per
+/// scope by two partial unique indexes (system / workspace).
+model Role {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  key         String   @db.VarChar(64)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace       Workspace?            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  permissions     RolePermission[]
+  membershipRoles MembershipRole[]
+  invitations     WorkspaceInvitation[]
+
+  @@unique([key], where: { workspaceId: null }, map: "roles_system_key_key")
+  @@unique([workspaceId, key], where: { workspaceId: { not: null } }, map: "roles_workspace_key_key")
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  /// Dotted key, e.g. "contacts.read".
+  key         String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model MembershipRole {
+  membershipId String   @map("membership_id") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  assignedById String?  @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+
+  membership WorkspaceMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       Role                @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedBy User?               @relation("MembershipRoleAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@id([membershipId, roleId])
+  @@index([roleId])
+  @@map("membership_roles")
+}
+
+// ─────────────────────────────────── Audit ───────────────────────────────────
+
+/// Append-only log of sensitive operations. Never store passwords, tokens,
+/// cookies or secrets in `metadata`.
+model AuditLog {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  /// Dotted action name, e.g. "auth.login.succeeded".
+  action      String   @db.VarChar(100)
+  targetType  String?  @map("target_type") @db.VarChar(64)
+  targetId    String?  @map("target_id") @db.VarChar(64)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent") @db.VarChar(512)
+  requestId   String?  @map("request_id") @db.VarChar(64)
+  metadata    Json     @default("{}")
+
+  actor     User?      @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────── Billing ───────────────────────────────────
+// Plans, prices and entitlements are synced from src/modules/billing/domain/plan-catalog.ts
+// by the seed. A workspace has exactly one subscription row (history lives in audit_logs).
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+enum FeatureKind {
+  /// Numeric quota; PlanFeature.limitValue null means unlimited.
+  LIMIT
+  /// Included or not (PlanFeature.enabled).
+  BOOLEAN
+  /// Descriptive value, e.g. backup frequency (PlanFeature.textValue).
+  TEXT
+}
+
+enum SubscriptionStatus {
+  /// Free trial running (trialEndsAt in the future).
+  TRIALING
+  /// Paid and within the current period.
+  ACTIVE
+  /// Created without a trial and waiting for the first payment.
+  INCOMPLETE
+  /// Period ended without a successful renewal.
+  PAST_DUE
+  /// Canceled by the customer.
+  CANCELED
+  /// Trial ended without a payment.
+  EXPIRED
+}
+
+model Plan {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  /// Stable identifier used by code, URLs and the sign-up form ("team", "business"…).
+  code          String   @unique @db.VarChar(50)
+  name          String   @db.VarChar(80)
+  tagline       String?  @db.VarChar(160)
+  description   String?  @db.VarChar(500)
+  sortOrder     Int      @default(0) @map("sort_order")
+  /// Shown on the pricing page and selectable by customers.
+  isPublic      Boolean  @default(true) @map("is_public")
+  /// Retired plans stay for existing subscriptions but cannot be chosen.
+  isActive      Boolean  @default(true) @map("is_active")
+  isHighlighted Boolean  @default(false) @map("is_highlighted")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  prices        PlanPrice[]
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model PlanPrice {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  planId      String          @map("plan_id") @db.Uuid
+  interval    BillingInterval
+  /// ISO 4217, upper case.
+  currency    String          @db.Char(3)
+  /// Integer minor units (cents) to avoid floating point money.
+  amountCents Int             @map("amount_cents")
+  isActive    Boolean         @default(true) @map("is_active")
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plan          Plan           @relation(fields: [planId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([planId, interval, currency])
+  @@map("plan_prices")
+}
+
+model Feature {
+  id          String      @id @default(uuid(7)) @db.Uuid
+  /// Dotted key used by entitlement checks, e.g. "limits.agents".
+  key         String      @unique @db.VarChar(64)
+  name        String      @db.VarChar(120)
+  description String?     @db.VarChar(500)
+  kind        FeatureKind
+  /// Unit shown next to limits ("agentes", "meses"…).
+  unit        String?     @db.VarChar(40)
+  group       String?     @db.VarChar(40)
+  sortOrder   Int         @default(0) @map("sort_order")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plans PlanFeature[]
+
+  @@map("features")
+}
+
+model PlanFeature {
+  planId     String  @map("plan_id") @db.Uuid
+  featureId  String  @map("feature_id") @db.Uuid
+  /// LIMIT features: the quota; null means unlimited.
+  limitValue Int?    @map("limit_value")
+  /// BOOLEAN features: whether the plan includes it. LIMIT/TEXT: true when available.
+  enabled    Boolean @default(false)
+  /// TEXT features.
+  textValue  String? @map("text_value") @db.VarChar(80)
+
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureId])
+  @@index([featureId])
+  @@map("plan_features")
+}
+
+model Subscription {
+  id                 String             @id @default(uuid(7)) @db.Uuid
+  workspaceId        String             @unique @map("workspace_id") @db.Uuid
+  planId             String             @map("plan_id") @db.Uuid
+  priceId            String?            @map("price_id") @db.Uuid
+  interval           BillingInterval
+  /// Price snapshot at subscription time (later catalog changes do not affect it).
+  amountCents        Int                @map("amount_cents")
+  currency           String             @db.Char(3)
+  status             SubscriptionStatus
+  trialStartedAt     DateTime?          @map("trial_started_at") @db.Timestamptz(3)
+  trialEndsAt        DateTime?          @map("trial_ends_at") @db.Timestamptz(3)
+  currentPeriodStart DateTime?          @map("current_period_start") @db.Timestamptz(3)
+  currentPeriodEnd   DateTime?          @map("current_period_end") @db.Timestamptz(3)
+  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt         DateTime?          @map("canceled_at") @db.Timestamptz(3)
+  /// Who collects payments: "none" (not paid yet), "simulated" (development), later "stripe"…
+  provider           String             @default("none") @db.VarChar(32)
+  providerReference  String?            @map("provider_reference") @db.VarChar(255)
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan      Plan       @relation(fields: [planId], references: [id], onDelete: Restrict)
+  price     PlanPrice? @relation(fields: [priceId], references: [id], onDelete: SetNull)
+
+  @@index([planId])
+  @@index([status, trialEndsAt])
+  @@index([status, currentPeriodEnd])
+  @@map("subscriptions")
+}

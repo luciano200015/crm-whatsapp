@@ -1,0 +1,11 @@
+/* Global styles live in the MUI theme (src/theme). Only resets that MUI does not cover go here. */
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
