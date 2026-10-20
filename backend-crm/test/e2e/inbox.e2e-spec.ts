@@ -287,6 +287,11 @@ describe('Inbox (e2e)', () => {
     expect(contacts.items).toEqual([
       expect.objectContaining({ name: 'Lucía', source: 'whatsapp' }),
     ]);
+    await api(owner)
+      .post(`/conversations/${conversation?.id}/close`)
+      .expect(200);
+    await incoming(line, '59171234567', 'Hola', { waMessageId: 'wamid.same' });
+    expect(await conversations(owner, '?view=all')).toHaveLength(0);
   });
 
   it('auto-assigns new conversations in turns and limits what agents see', async () => {
@@ -446,6 +451,133 @@ describe('Inbox (e2e)', () => {
         membershipId: ana.membershipId,
       })
       .expect(403);
+  });
+
+  it('exposes minimal options without granting administrative read permissions', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+    const line = await lineWithAgents(owner, [ana], true);
+    const options = (await api(ana).get('/conversations/options').expect(200))
+      .body as {
+      lines: { id: string; name: string }[];
+      members: unknown[];
+    };
+    expect(options.lines.map((item) => item.id)).toEqual([line.id]);
+    expect(options.members).toEqual([]);
+    await api(ana).get('/channels/auto-assignment').expect(403);
+    const settings = await api(owner)
+      .get('/channels/auto-assignment')
+      .expect(200);
+    const serialized = JSON.stringify(settings.body);
+    expect(serialized).not.toMatch(/accessToken|appSecret|webhook|verifyToken/);
+    const other = await signUp();
+    const foreign = await http()
+      .get(`/api/v1/workspaces/${owner.workspaceId}/conversations/options`)
+      .set('Authorization', `Bearer ${other.token}`)
+      .expect(404);
+    expect(foreign.status).toBe(404);
+  });
+
+  it('ends an open event stream before sending data after session revocation', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    const server = t.app.getHttpServer() as unknown as Server;
+    if (!server.listening)
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/api/v1/workspaces/${owner.workspaceId}/conversations/events`,
+        {
+          headers: { Authorization: `Bearer ${owner.token}` },
+          signal: controller.signal,
+        },
+      );
+      const reader = response.body!.getReader();
+      const member = await prisma.workspaceMembership.findUniqueOrThrow({
+        where: { id: owner.membershipId },
+      });
+      await prisma.userSession.updateMany({
+        where: { userId: member.userId },
+        data: { status: 'REVOKED', revokedAt: new Date() },
+      });
+      await incoming(line, '59170000051', 'must not be delivered');
+      let body = '';
+      let done = false;
+      while (!done) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        body += new TextDecoder().decode(chunk.value);
+      }
+      expect(body).not.toContain('must not be delivered');
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+    }
+  });
+
+  it('reserves monthly contact slots atomically without dropping inbound messages', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000061', 'first');
+    await incoming(line, '59170000062', 'second');
+    const chats = await conversations(owner, '?view=all');
+    const subscription = await prisma.subscription.findUniqueOrThrow({
+      where: { workspaceId: owner.workspaceId },
+    });
+    const feature = await prisma.feature.findUniqueOrThrow({
+      where: { key: 'limits.active_contacts' },
+    });
+    const featureKey = {
+      planId_featureId: { planId: subscription.planId, featureId: feature.id },
+    };
+    const original = await prisma.planFeature.findUniqueOrThrow({
+      where: featureKey,
+    });
+    await prisma.planFeature.update({
+      where: featureKey,
+      data: { limitValue: 1 },
+    });
+    try {
+      const replies = await Promise.all(
+        chats.map((chat) =>
+          api(owner).post(`/conversations/${chat.id}/messages`, {
+            text: 'reply',
+          }),
+        ),
+      );
+      expect(replies.map((response) => response.status).sort()).toEqual([
+        201, 409,
+      ]);
+      const accepted =
+        chats[replies.findIndex((response) => response.status === 201)];
+      await api(owner)
+        .post(`/conversations/${accepted?.id}/messages`, {
+          text: 'second reply to same contact',
+        })
+        .expect(201);
+      expect(await conversations(owner, '?view=all')).toHaveLength(2);
+      expect(
+        await prisma.workspaceContactUsage.count({
+          where: { workspaceId: owner.workspaceId },
+        }),
+      ).toBe(1);
+      await prisma.subscription.update({
+        where: { workspaceId: owner.workspaceId },
+        data: { status: 'EXPIRED' },
+      });
+      const denied = await api(owner)
+        .post(`/conversations/${accepted?.id}/messages`, { text: 'not sent' })
+        .expect(402);
+      expect(denied.body).toMatchObject({ code: 'SUBSCRIPTION_INACTIVE' });
+    } finally {
+      await prisma.planFeature.update({
+        where: featureKey,
+        data: { limitValue: original.limitValue },
+      });
+    }
   });
 
   it('streams events the member may see (server-sent events)', async () => {

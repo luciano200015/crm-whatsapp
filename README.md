@@ -42,6 +42,7 @@ Los pasos completos, las variables de entorno y los usuarios demo están en [bac
 - [Arquitectura](backend-crm/docs/architecture.md)
 - [Autenticación](backend-crm/docs/authentication.md) · [Autorización y roles](backend-crm/docs/authorization.md)
 - [Equipo: agentes y roles](backend-crm/docs/team.md)
+- [Contactos y etiquetas](backend-crm/docs/contacts.md) · [Canales WhatsApp](backend-crm/docs/channels.md) · [Bandeja y autoasignación](backend-crm/docs/inbox.md)
 - [Planes y suscripciones](backend-crm/docs/billing.md)
 - [Modelo de datos](backend-crm/docs/data-model.md) · [Limitaciones](backend-crm/docs/limitations.md)
 

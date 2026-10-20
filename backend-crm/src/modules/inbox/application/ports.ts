@@ -167,6 +167,7 @@ export abstract class InboxStore {
 
 /** Assignment data that lives in PostgreSQL (lines, agents, memberships). */
 export abstract class AssignmentStore {
+  abstract activeMembers(workspaceId: string): Promise<Assignee[]>;
   /** Next agent of the line in turns (locks the line row); null without agents. */
   abstract nextAgent(lineId: string): Promise<Assignee | null>;
   /** Lines the membership attends. */

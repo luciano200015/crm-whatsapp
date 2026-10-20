@@ -51,6 +51,29 @@ export const routes = [
                 }),
               },
               { path: '/team', element: <TeamIndex /> },
+              {
+                element: <RequirePermission anyOf={['messages.read']} />,
+                children: [
+                  {
+                    path: '/inbox',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/inbox/InboxPage')).InboxPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                element: <RequirePermission anyOf={['channels.manage']} />,
+                children: [
+                  {
+                    path: '/inbox/auto-assignment',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/inbox/AutoAssignmentPage'))
+                        .AutoAssignmentPage,
+                    }),
+                  },
+                ],
+              },
               { path: '/team/members', element: <Navigate to="/team/agents" replace /> },
               {
                 element: <RequirePermission anyOf={['members.read']} />,

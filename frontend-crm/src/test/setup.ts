@@ -21,7 +21,7 @@ if (!window.matchMedia) {
 
 // Routes are lazy-loaded: the first render of a test file compiles the page
 // on demand, which can exceed the 1 s default when several files run at once.
-configure({ asyncUtilTimeout: 5000 })
+configure({ asyncUtilTimeout: 15_000 })
 
 afterEach(() => {
   cleanup()

@@ -25,6 +25,7 @@ import { ColorModeToggle } from '../theme/ColorModeToggle'
 import { themeConfig } from '../theme/theme.config'
 import { ActiveWorkspaceProvider } from '../workspace/active-workspace'
 import { SideNav } from './SideNav'
+import { InboxRealtime } from '../components/inbox/InboxRealtime'
 import { WorkspaceSwitcher } from '../workspace/WorkspaceSwitcher'
 
 const DRAWER_WIDTH = 248
@@ -44,6 +45,7 @@ export function AppLayout() {
 
   return (
     <ActiveWorkspaceProvider>
+      <InboxRealtime />
       <Box sx={{ display: 'flex', minHeight: '100svh', bgcolor: 'background.default' }}>
         <AppBar
           position="fixed"

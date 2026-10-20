@@ -171,7 +171,7 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
               }),
             },
           },
-          { new: true },
+          { returnDocument: 'after' },
         )
         .lean<ContactDocument>();
       return doc ? toContact(doc) : null;
@@ -215,7 +215,7 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
               createdBy: null,
             },
           },
-          { upsert: true, new: true },
+          { upsert: true, returnDocument: 'after' },
         )
         .lean<ContactDocument>();
       if (doc.name === null && profileName) {
@@ -340,7 +340,7 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
               }),
             },
           },
-          { new: true },
+          { returnDocument: 'after' },
         )
         .lean<TagDocument>();
       return doc ? toTag(doc) : null;

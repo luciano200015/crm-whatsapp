@@ -199,3 +199,9 @@ src/
 - Invitaciones por enlace y transferencia de propiedad (pendientes en el backend).
 - Teléfonos asignados a cada agente: llegarán con la mensajería.
 - Pago real: la pantalla de facturación está lista para un checkout cuando el backend tenga una pasarela.
+# Mensajes
+
+`/inbox` muestra la bandeja (`messages.read`); `/inbox/auto-assignment` configura líneas y agentes (`channels.manage`). Los controles verifican los permisos del workspace activo, y el servidor valida cada operación. Cambiar workspace o cerrar sesión desconecta el stream anterior.
+
+Para pruebas sin WhatsApp real, activar el modo simulado y cargar el seed del backend. La guía completa está en [Bandeja y autoasignación](../backend-crm/docs/inbox.md).
+

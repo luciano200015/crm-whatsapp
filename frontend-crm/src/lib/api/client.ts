@@ -7,6 +7,7 @@ export const CSRF_COOKIE = 'crm_csrf'
 const REFRESH_LOCK = 'crm-auth-refresh'
 
 export interface RequestOptions {
+  accept?: string
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   body?: unknown
   /** Send the Bearer token and refresh it once on 401 (default true). */
@@ -34,7 +35,7 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 }
 
 async function send(path: string, options: RequestOptions): Promise<Response> {
-  const headers = new Headers({ Accept: 'application/json' })
+  const headers = new Headers({ Accept: options.accept ?? 'application/json' })
   if (options.body !== undefined) headers.set('Content-Type', 'application/json')
   const token = tokenStore.get()
   if (options.auth !== false && token) headers.set('Authorization', `Bearer ${token}`)
@@ -107,15 +108,19 @@ function withCrossTabLock<T>(task: () => Promise<T>): Promise<T> {
 // ─────────────────────────── Requests ───────────────────────────
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return parse<T>(await apiResponse(path, options))
+}
+
+export async function apiResponse(path: string, options: RequestOptions = {}): Promise<Response> {
   const response = await send(path, options)
 
   if (response.status === 401 && options.auth !== false) {
     const refreshed = await refreshAccessToken()
     if (!refreshed) {
       onSessionExpired?.()
-      return parse<T>(response)
+      return response
     }
-    return parse<T>(await send(path, options))
+    return send(path, options)
   }
-  return parse<T>(response)
+  return response
 }

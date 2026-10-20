@@ -9,6 +9,11 @@ export interface ContactFilter {
 }
 
 export const contactsApi = {
+  get(workspaceId: string, contactId: string, signal?: AbortSignal) {
+    return apiRequest<Contact>(`${base(workspaceId)}/contacts/${encodeURIComponent(contactId)}`, {
+      signal,
+    })
+  },
   list(workspaceId: string, filter: ContactFilter, cursor?: string) {
     const query = new URLSearchParams({ limit: '50' })
     if (filter.search) query.set('search', filter.search)

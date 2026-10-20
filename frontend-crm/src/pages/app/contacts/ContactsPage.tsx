@@ -31,6 +31,7 @@ import {
 } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useDeferredValue, useState } from 'react'
+import { Link } from 'react-router'
 import { Can } from '../../../auth/permissions'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { PageHeader } from '../../../components/PageHeader'
@@ -219,6 +220,15 @@ export function ContactsPage() {
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                         {contact.phone}
+                        <Can anyOf={['messages.read']}>
+                          <Button
+                            component={Link}
+                            to={`/inbox?contactId=${encodeURIComponent(contact.id)}`}
+                            size="small"
+                          >
+                            Ir al chat
+                          </Button>
+                        </Can>
                       </TableCell>
                       <TableCell>
                         <Stack direction="row" useFlexGap spacing={0.5} sx={{ flexWrap: 'wrap' }}>

@@ -1,4 +1,6 @@
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
+import ChatOutlined from '@mui/icons-material/ChatOutlined'
+import AltRouteOutlined from '@mui/icons-material/AltRouteOutlined'
 import ContactsOutlined from '@mui/icons-material/ContactsOutlined'
 import HubOutlined from '@mui/icons-material/HubOutlined'
 import WhatsApp from '@mui/icons-material/WhatsApp'
@@ -43,6 +45,27 @@ const link = (item: Omit<NavLinkItem, 'kind'>): NavLinkItem => ({ kind: 'link', 
  */
 export const NAVIGATION: NavEntry[] = [
   link({ to: '/', label: es.app.nav.home, icon: HomeOutlined, end: true }),
+  {
+    kind: 'group',
+    id: 'messages',
+    label: 'Mensajes',
+    icon: ChatOutlined,
+    children: [
+      link({
+        to: '/inbox',
+        label: 'Bandeja',
+        icon: ChatOutlined,
+        end: true,
+        anyOf: ['messages.read'],
+      }),
+      link({
+        to: '/inbox/auto-assignment',
+        label: 'Autoasignación',
+        icon: AltRouteOutlined,
+        anyOf: ['channels.manage'],
+      }),
+    ],
+  },
   {
     kind: 'group',
     id: 'contacts',

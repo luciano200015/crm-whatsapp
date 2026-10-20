@@ -119,6 +119,41 @@ export class AssigneeDto {
   name: string;
 }
 
+export class InboxLineOptionDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+export class InboxOptionsDto {
+  @ApiProperty({ type: [InboxLineOptionDto] })
+  lines: InboxLineOptionDto[];
+
+  @ApiProperty({ type: [AssigneeDto] })
+  members: AssigneeDto[];
+}
+
+export class AssignmentLineDto extends InboxLineOptionDto {
+  @ApiProperty()
+  status: string;
+
+  @ApiProperty()
+  autoAssign: boolean;
+
+  @ApiProperty({ type: [String] })
+  membershipIds: string[];
+}
+
+export class AutoAssignmentOptionsDto {
+  @ApiProperty({ type: [AssignmentLineDto] })
+  lines: AssignmentLineDto[];
+
+  @ApiProperty({ type: [AssigneeDto] })
+  members: AssigneeDto[];
+}
+
 export class LastMessageDto {
   @ApiProperty({ nullable: true, type: String })
   text: string | null;

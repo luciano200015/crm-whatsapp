@@ -544,6 +544,13 @@ export const es = {
   },
   /** Messages for API error codes (ErrorResponse.code). */
   apiErrors: {
+    CONVERSATION_NOT_FOUND: 'Esta conversación ya no está disponible para ti.',
+    CONVERSATION_CLOSED: 'Reabre la conversación antes de responder.',
+    CONVERSATION_ALREADY_OPEN: 'Este contacto ya tiene otra conversación abierta en la línea.',
+    WINDOW_CLOSED: 'La ventana de respuesta terminó. Espera un nuevo mensaje del cliente.',
+    LINE_UNAVAILABLE: 'La línea está desactivada o ya no existe.',
+    ALREADY_ASSIGNED: 'Otro agente ya tomó esta conversación.',
+    CONTACT_LIMIT_REACHED: 'Alcanzaste el límite mensual de contactos activos de tu plan.',
     PLAN_UNAVAILABLE: 'Ese plan no está disponible.',
     NO_SUBSCRIPTION: 'Este espacio de trabajo todavía no tiene un plan.',
     ALREADY_ON_PLAN: 'Ya tienes este plan con ese periodo de facturación.',

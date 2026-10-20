@@ -1,12 +1,35 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/postgres/prisma.service';
+import type { UserStatus } from '../../../generated/prisma/client';
 import { pickNextAgent } from '../domain/inbox-rules';
 import { AssignmentStore, type Assignee } from '../application/ports';
+
+/**
+ * Users who cannot sign in. Unverified users (PENDING_VERIFICATION) can, so
+ * they can attend and be assigned conversations.
+ */
+const BLOCKED_USER_STATUSES: UserStatus[] = ['SUSPENDED', 'DISABLED'];
 
 @Injectable()
 export class PrismaAssignmentStore extends AssignmentStore {
   constructor(private readonly prisma: PrismaService) {
     super();
+  }
+
+  async activeMembers(workspaceId: string): Promise<Assignee[]> {
+    const members = await this.prisma.workspaceMembership.findMany({
+      where: {
+        workspaceId,
+        status: 'ACTIVE',
+        user: { status: { notIn: BLOCKED_USER_STATUSES } },
+      },
+      select: { id: true, user: { select: { id: true, displayName: true } } },
+    });
+    return members.map((member) => ({
+      membershipId: member.id,
+      userId: member.user.id,
+      name: member.user.displayName,
+    }));
   }
 
   /**
@@ -21,7 +44,12 @@ export class PrismaAssignmentStore extends AssignmentStore {
         select: {
           lastAssignedMembershipId: true,
           agents: {
-            where: { membership: { status: 'ACTIVE' } },
+            where: {
+              membership: {
+                status: 'ACTIVE',
+                user: { status: { notIn: BLOCKED_USER_STATUSES } },
+              },
+            },
             orderBy: [{ assignedAt: 'asc' }, { membershipId: 'asc' }],
             select: {
               membership: {
@@ -70,7 +98,12 @@ export class PrismaAssignmentStore extends AssignmentStore {
     membershipId: string,
   ): Promise<Assignee | null> {
     const membership = await this.prisma.workspaceMembership.findFirst({
-      where: { id: membershipId, workspaceId, status: 'ACTIVE' },
+      where: {
+        id: membershipId,
+        workspaceId,
+        status: 'ACTIVE',
+        user: { status: { notIn: BLOCKED_USER_STATUSES } },
+      },
       select: { id: true, user: { select: { id: true, displayName: true } } },
     });
     return membership

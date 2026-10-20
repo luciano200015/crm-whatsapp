@@ -1,11 +1,11 @@
 # Limitaciones y pendientes
 
-Estado tras las Fases 0, 1 y 2, más planes y suscripciones y el módulo de equipo (agentes y roles).
+Estado con autenticación, planes, equipo, contactos, canales y bandeja de mensajes. Detalles y pruebas locales en [inbox.md](inbox.md).
 
 ## No implementado todavía
 
 - **Workspaces**: crear workspaces adicionales, editarlos, abandonarlos y transferir la propiedad. Las **invitaciones por enlace** tampoco existen: hoy los agentes se dan de alta con contraseña temporal ([team.md](team.md)).
-- **Equipo**: los teléfonos asignados a cada agente llegarán con la mensajería. La contraseña temporal no caduca hasta que se cambia o se reenvía. Los correos del equipo están en inglés.
+- **Equipo**: las líneas asignadas y la autoasignación están disponibles. La contraseña temporal no caduca hasta que se cambia o se reenvía. Los correos del equipo están en inglés.
 - **Autorización por workspace**: `WorkspaceAccessGuard`, `@RequirePermissions()` y `@CurrentWorkspace()` protegen billing y equipo. No hay caché de permisos: se consultan en cada petición.
 - **Rate limiting distribuido**: el actual (`@nestjs/throttler`) guarda los contadores en memoria, por proceso. Con varias instancias hay que pasarlo a Redis (Fase 7).
 - **Bloqueo por cuenta**: 5 fallos seguidos bloquean la cuenta 15 minutos. Esto permite que un tercero bloquee temporalmente una cuenta ajena; el throttling por IP lo limita. Pendiente valorar CAPTCHA o bloqueo progresivo.
@@ -13,7 +13,7 @@ Estado tras las Fases 0, 1 y 2, más planes y suscripciones y el módulo de equi
 - **Limpieza de sesiones y tokens caducados**: las filas caducadas quedan en la base de datos (se rechazan por fecha). Falta un job periódico de limpieza y de marcado `EXPIRED`.
 - **Rotación de claves JWT**: hay un solo par de claves; rotarlas invalida todos los access tokens (máx. 15 min de impacto). Falta soporte de `kid`/JWKS con varias claves.
 - **Billing**: no hay pasarela de pago real (`BILLING_PAYMENTS_MODE` solo admite `disabled` y `simulated`), ni job que expire pruebas o periodos (el estado se recalcula y persiste al leerlo), ni emails de aviso de fin de prueba. Los límites solo se aplican a los agentes al bajar de plan; el resto se aplicará cuando existan contactos, líneas y créditos IA. Detalle en [billing.md](billing.md#pendiente).
-- Mensajería: fuera de alcance de esta etapa.
+- **Mensajería**: pendiente conexión real verificada con Meta, descarga/envío de multimedia, plantillas y Embedded Signup. SSE funciona en una instancia; varias instancias requieren Redis. No hay cola persistente/outbox para recuperar fallos parciales entre PostgreSQL y MongoDB.
 
 ## Decisiones con contrapartidas
 

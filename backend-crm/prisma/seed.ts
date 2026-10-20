@@ -5,6 +5,9 @@ import { Argon2PasswordHasher } from '../src/modules/auth/infrastructure/argon2-
 import { seedAuthorization } from './seed-authorization';
 import { seedBilling } from './seed-billing';
 import { DEMO_USERS, seedDemoData } from './seed-demo';
+import { createConnection } from 'mongoose';
+import { SecretBox } from '../src/shared/security/secret-box';
+import { seedInboxDemo } from './seed-inbox';
 
 async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
@@ -67,6 +70,18 @@ async function seedDemo(prisma: PrismaClient): Promise<void> {
     password,
     hashPassword: (value) => hasher.hash(value),
   });
+  if (process.env.WHATSAPP_MODE === 'simulated') {
+    const uri = process.env.MONGODB_URI;
+    const key = Buffer.from(process.env.CHANNEL_SECRETS_KEY ?? '', 'base64');
+    if (!uri || key.length !== 32)
+      throw new Error('Inbox demo requires MongoDB and CHANNEL_SECRETS_KEY');
+    const mongo = await createConnection(uri).asPromise();
+    try {
+      await seedInboxDemo(prisma, mongo, SecretBox.withKey(key));
+    } finally {
+      await mongo.close();
+    }
+  }
   console.log(
     `Demo data: ${demo.usersCreated} users, ${demo.workspacesCreated} workspaces, ${demo.customRolesCreated} custom roles, ` +
       `${demo.membershipsCreated} memberships, ${demo.subscriptionsCreated} subscriptions created. ` +

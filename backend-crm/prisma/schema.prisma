@@ -176,13 +176,14 @@ model Workspace {
   createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy    User?                 @relation("WorkspaceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy    User?                   @relation("WorkspaceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   memberships  WorkspaceMembership[]
   invitations  WorkspaceInvitation[]
   roles        Role[]
   auditLogs    AuditLog[]
   subscription Subscription?
   channelLines ChannelLine[]
+  contactUsage WorkspaceContactUsage[]
 
   @@map("workspaces")
 }
@@ -537,6 +538,18 @@ model ChannelLine {
 
   @@index([workspaceId])
   @@map("channel_lines")
+}
+
+/// Distinct contacts replied to per workspace and UTC month (limits.active_contacts).
+/// contactId is the MongoDB contact id; one row reserves one slot of the monthly quota.
+model WorkspaceContactUsage {
+  workspaceId String    @map("workspace_id") @db.Uuid
+  month       DateTime  @db.Date
+  contactId   String    @map("contact_id") @db.VarChar(24)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, month, contactId])
+  @@map("workspace_contact_usage")
 }
 
 /// Agents who attend a line: they see its unassigned chats and take part in auto-assignment.

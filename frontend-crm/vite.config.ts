@@ -24,6 +24,9 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     restoreMocks: true,
+    // The first render of each file compiles lazy-loaded pages; with many
+    // files in parallel that can take several seconds.
+    testTimeout: 30_000,
     // Absolute API URL in tests: Node's fetch (and MSW) cannot resolve relative URLs.
     env: { VITE_API_BASE_URL: 'http://localhost:3000/api/v1' },
   },

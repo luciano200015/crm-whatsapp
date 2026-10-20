@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { WorkspaceEntitlements } from '../../shared/entitlements/workspace-entitlements';
 import { Clock, SystemClock } from '../../shared/time/clock';
@@ -11,6 +12,8 @@ import { InboxIngestService } from './application/inbox-ingest.service';
 import { InboxStreamService } from './application/inbox-stream.service';
 import { InboxService } from './application/inbox.service';
 import { AssignmentStore, InboxStore } from './application/ports';
+import { ContactQuota } from './application/contact-quota';
+import { PrismaContactQuota } from './infrastructure/prisma-contact-quota';
 import {
   CONVERSATION_MODEL,
   ConversationSchema,
@@ -19,7 +22,10 @@ import {
 } from './infrastructure/inbox.schemas';
 import { MongoInboxStore } from './infrastructure/mongo-inbox-store';
 import { PrismaAssignmentStore } from './infrastructure/prisma-assignment-store';
-import { ConversationsController } from './presentation/inbox.controller';
+import {
+  AutoAssignmentController,
+  ConversationsController,
+} from './presentation/inbox.controller';
 
 /**
  * Inbox: conversations and messages (MongoDB), auto-assignment (PostgreSQL
@@ -28,6 +34,7 @@ import { ConversationsController } from './presentation/inbox.controller';
  */
 @Module({
   imports: [
+    AuthModule,
     BillingModule,
     ChannelsModule,
     ContactsModule,
@@ -36,12 +43,13 @@ import { ConversationsController } from './presentation/inbox.controller';
       { name: MESSAGE_MODEL, schema: MessageSchema },
     ]),
   ],
-  controllers: [ConversationsController],
+  controllers: [ConversationsController, AutoAssignmentController],
   providers: [
     InboxService,
     InboxIngestService,
     InboxStreamService,
     InboxEvents,
+    { provide: ContactQuota, useClass: PrismaContactQuota },
     { provide: InboxStore, useClass: MongoInboxStore },
     { provide: AssignmentStore, useClass: PrismaAssignmentStore },
     { provide: WorkspaceEntitlements, useExisting: BillingService },

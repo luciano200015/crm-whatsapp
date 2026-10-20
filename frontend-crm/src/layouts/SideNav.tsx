@@ -8,6 +8,7 @@ import ListItemText from '@mui/material/ListItemText'
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router'
 import { Can } from '../auth/permissions'
+import { UnreadBadge } from '../components/inbox/InboxRealtime'
 import { usePermissions } from '../auth/usePermissions'
 import { NAVIGATION, visibleLinks, type NavGroup, type NavLinkItem } from './navigation'
 
@@ -64,6 +65,7 @@ function NavItem({
         <Icon fontSize="small" />
       </ListItemIcon>
       <ListItemText primary={item.label} />
+      {item.to === '/inbox' && <UnreadBadge />}
     </ListItemButton>
   )
 }

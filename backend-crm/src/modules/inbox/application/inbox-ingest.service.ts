@@ -40,6 +40,8 @@ export class InboxIngestService extends WhatsAppEventsSink {
 
   private async receive(line: LineRecord, inbound: InboundMessage) {
     const { workspaceId } = line;
+    if (await this.store.findMessageByWaId(workspaceId, inbound.waMessageId))
+      return;
     const phone = normalizePhone(inbound.from) ?? `+${inbound.from}`;
     const contact = await this.contacts.upsertWhatsAppContact(
       workspaceId,

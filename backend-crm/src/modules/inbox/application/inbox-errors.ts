@@ -1,7 +1,21 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 
 /** Stable `code`s so clients can show their own localized message. */
 export const InboxErrors = {
+  // Same status as team and channels: the plan must be paid or in trial.
+  subscriptionInactive: () =>
+    new HttpException(
+      {
+        message: 'An active subscription or trial is required to send messages',
+        code: 'SUBSCRIPTION_INACTIVE',
+      },
+      HttpStatus.PAYMENT_REQUIRED,
+    ),
   conversationNotFound: () =>
     new NotFoundException({
       message: 'Conversation not found',

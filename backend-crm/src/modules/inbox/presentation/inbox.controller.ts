@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   type MessageEvent,
@@ -39,6 +40,8 @@ import { InboxService, type InboxActor } from '../application/inbox.service';
 import { InboxStreamService } from '../application/inbox-stream.service';
 import {
   AssignConversationDto,
+  InboxOptionsDto,
+  AutoAssignmentOptionsDto,
   ConversationDto,
   ConversationPageDto,
   InboxCountsDto,
@@ -74,6 +77,19 @@ export class ConversationsController {
     private readonly inbox: InboxService,
     private readonly stream: InboxStreamService,
   ) {}
+
+  @Get('options')
+  @RequirePermissions('messages.read')
+  @ApiOkResponse({ type: InboxOptionsDto })
+  @ApiOperation({
+    summary: 'Visible lines and permitted assignment recipients',
+  })
+  options(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+  ) {
+    return this.inbox.options(actor(auth, workspace));
+  }
 
   @Get()
   @RequirePermissions('messages.read')
@@ -113,8 +129,12 @@ export class ConversationsController {
   events(
     @CurrentWorkspace() workspace: WorkspaceAccess,
     @CurrentUser() auth: AuthContext,
+    @Headers('authorization') authorization: string,
   ): Observable<MessageEvent> {
-    return this.stream.stream(actor(auth, workspace));
+    return this.stream.stream(
+      actor(auth, workspace),
+      authorization.split(' ')[1] ?? '',
+    );
   }
 
   @Get(':conversationId')
@@ -154,7 +174,7 @@ export class ConversationsController {
   @ApiOperation({
     summary: 'Reply through WhatsApp',
     description:
-      'Takes the conversation if nobody has it. Only within 24 h of the customer\'s last message (409 WINDOW_CLOSED). If Meta rejects the message it is stored with status "failed" and the reason in `error`.',
+      'Takes the conversation if nobody has it. Only within 24 h of the customer\'s last message (409 WINDOW_CLOSED) and with an active plan (402 SUBSCRIPTION_INACTIVE). If Meta rejects the message it is stored with status "failed" and the reason in `error`.',
   })
   @ApiCreatedResponse({ type: MessageDto })
   @ApiConflictResponse({
@@ -268,5 +288,26 @@ export class ConversationsController {
     @Param('conversationId') conversationId: string,
   ): Promise<ConversationDto> {
     return this.inbox.markRead(actor(auth, workspace), conversationId);
+  }
+}
+
+@ApiTags('inbox')
+@ApiBearerAuth(SWAGGER_BEARER)
+@UseGuards(WorkspaceAccessGuard)
+@Controller({
+  path: 'workspaces/:workspaceId/channels/auto-assignment',
+  version: '1',
+})
+export class AutoAssignmentController {
+  constructor(private readonly inbox: InboxService) {}
+
+  @Get()
+  @RequirePermissions('channels.manage')
+  @ApiOkResponse({ type: AutoAssignmentOptionsDto })
+  @ApiOperation({
+    summary: 'Auto-assignment settings and active members, without credentials',
+  })
+  options(@CurrentWorkspace() workspace: WorkspaceAccess) {
+    return this.inbox.autoAssignmentOptions(workspace.workspaceId);
   }
 }

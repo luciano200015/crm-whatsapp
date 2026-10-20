@@ -253,7 +253,11 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
               closedAt: null,
             },
           },
-          { upsert: true, new: true, includeResultMetadata: true },
+          {
+            upsert: true,
+            returnDocument: 'after',
+            includeResultMetadata: true,
+          },
         )
         .lean<ModifyResult<ConversationDocument>>();
       const doc = result.value;
@@ -301,7 +305,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
                 unreadCount: 0,
               },
             },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean<ConversationDocument>();
     return doc ? toConversation(doc) : null;
@@ -323,7 +327,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
           ...(options.onlyIfUnassigned && { assignee: null }),
         },
         { $set: { assignee } },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean<ConversationDocument>();
     return doc ? toConversation(doc) : null;
@@ -344,7 +348,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
           status === 'CLOSED'
             ? { $set: { status, closedAt: at, unreadCount: 0 } }
             : { $set: { status, closedAt: null, lastActivityAt: at } },
-          { new: true },
+          { returnDocument: 'after' },
         )
         .lean<ConversationDocument>();
       return doc ? toConversation(doc) : null;
@@ -364,7 +368,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       .findOneAndUpdate(
         { workspaceId, _id },
         { $set: { unreadCount: 0 } },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean<ConversationDocument>();
     return doc ? toConversation(doc) : null;
@@ -421,7 +425,11 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     const _id = objectId(messageId);
     if (!_id) return null;
     const doc = await this.messages
-      .findOneAndUpdate({ workspaceId, _id }, { $set: changes }, { new: true })
+      .findOneAndUpdate(
+        { workspaceId, _id },
+        { $set: changes },
+        { returnDocument: 'after' },
+      )
       .lean<MessageDocument>();
     return doc ? toMessage(doc) : null;
   }

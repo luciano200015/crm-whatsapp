@@ -22,6 +22,7 @@ import {
   type InboxScope,
 } from '../domain/inbox-rules';
 import { InboxErrors } from './inbox-errors';
+import { ContactQuota } from './contact-quota';
 import { InboxEvents } from './inbox-events';
 import {
   AssignmentStore,
@@ -79,6 +80,7 @@ export class InboxService {
     private readonly entitlements: WorkspaceEntitlements,
     private readonly events: InboxEvents,
     private readonly clock: Clock,
+    private readonly contactQuota: ContactQuota,
   ) {}
 
   async scope(actor: InboxActor): Promise<InboxScope> {
@@ -87,6 +89,36 @@ export class InboxService {
       membershipId,
       viewAll: permissions.has('conversations.view_all'),
       lineIds: await this.assignments.agentLineIds(workspaceId, membershipId),
+    };
+  }
+
+  async options(actor: InboxActor) {
+    const scope = await this.scope(actor);
+    const names = await this.assignments.lineNames(actor.access.workspaceId);
+    return {
+      lines: [...names]
+        .filter(([id]) => scope.viewAll || scope.lineIds.includes(id))
+        .map(([id, name]) => ({ id, name })),
+      members: actor.access.permissions.has('conversations.assign')
+        ? await this.assignments.activeMembers(actor.access.workspaceId)
+        : [],
+    };
+  }
+
+  async autoAssignmentOptions(workspaceId: string) {
+    const [lines, members] = await Promise.all([
+      this.lines.listLines(workspaceId),
+      this.assignments.activeMembers(workspaceId),
+    ]);
+    return {
+      lines: lines.map((line) => ({
+        id: line.id,
+        name: line.name,
+        status: line.status,
+        autoAssign: line.autoAssign,
+        membershipIds: line.agents.map((agent) => agent.membershipId),
+      })),
+      members,
     };
   }
 
@@ -157,10 +189,17 @@ export class InboxService {
 
     const me = await this.me(actor);
     if (!conversation.assignee) {
-      conversation =
-        (await this.store.setAssignee(workspaceId, conversationId, me, {
+      const claimed = await this.store.setAssignee(
+        workspaceId,
+        conversationId,
+        me,
+        {
           onlyIfUnassigned: true,
-        })) ?? conversation;
+        },
+      );
+      if (!claimed) throw InboxErrors.alreadyAssigned();
+      this.emitConversation(claimed, conversation);
+      conversation = claimed;
     }
 
     const pending = await this.store.insertMessage(workspaceId, {
@@ -344,8 +383,8 @@ export class InboxService {
   }
 
   /**
-   * limits.active_contacts counts contacts with a message this month. A
-   * contact already active this month never counts twice.
+   * Reserve a distinct contacted recipient for this UTC month. Incoming
+   * traffic cannot consume or bypass the outgoing contact allowance.
    */
   private async assertContactLimit(
     workspaceId: string,
@@ -353,17 +392,16 @@ export class InboxService {
     now: Date,
   ): Promise<void> {
     const plan = await this.entitlements.entitlements(workspaceId);
+    if (!plan?.hasFullAccess) throw InboxErrors.subscriptionInactive();
     const limit = plan ? planLimit(plan, 'limits.active_contacts') : null;
-    if (!plan || limit === null) return;
     const since = startOfMonth(now);
-    const contact = await this.contacts.findContact(workspaceId, contactId);
-    if (contact?.lastMessageAt && contact.lastMessageAt >= since) return;
-    const usage = await this.contacts.countActiveSince(workspaceId, since);
-    if (usage >= limit) {
+    if (
+      !(await this.contactQuota.reserve(workspaceId, contactId, since, limit))
+    ) {
       throw InboxErrors.contactLimitReached({
         plan: plan.planName,
-        limit,
-        usage,
+        limit: limit ?? 0,
+        usage: limit ?? 0,
       });
     }
   }

@@ -221,7 +221,10 @@ describe('Team: members', () => {
     renderAt('/team/members')
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: es.team.newMember }))
+    const newMember = await screen.findByRole('button', { name: es.team.newMember })
+    // Enabled once the assignable roles have loaded.
+    await waitFor(() => expect(newMember).toBeEnabled())
+    await user.click(newMember)
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText(/Nombre completo/), 'Carla Pérez')
     await user.type(within(dialog).getByLabelText(/Correo electrónico/), 'carla@example.com')
@@ -264,7 +267,10 @@ describe('Team: roles', () => {
     renderAt('/team/roles')
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: es.team.newRole }))
+    const newRole = await screen.findByRole('button', { name: es.team.newRole })
+    // Enabled once the plan catalog and the permission list have loaded.
+    await waitFor(() => expect(newRole).toBeEnabled())
+    await user.click(newRole)
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText(/Nombre del rol/), 'Ventas')
     await user.click(

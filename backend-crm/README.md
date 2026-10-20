@@ -258,6 +258,7 @@ src/
     users/                GET/PATCH /users/me (incluye el plan de cada workspace)
     contacts/             Contactos y etiquetas (MongoDB)
     channels/             Líneas de WhatsApp (Cloud API), webhook y simulador
+    inbox/                Bandeja: conversaciones, respuestas, notas, autoasignación y eventos SSE
     team/                 Equipo: agentes (alta con contraseña temporal, rol, desactivar) y roles personalizados
     billing/              Planes, precios, límites, suscripciones y prueba gratuita
       domain/             plan-catalog.ts (catálogo editable) y reglas de estados/periodos
@@ -281,6 +282,7 @@ Documentación técnica:
 - [docs/data-model.md](docs/data-model.md) — entidades, índices y decisiones del modelo.
 - [docs/authorization.md](docs/authorization.md) — permisos, roles, guard por workspace y reglas de propietario.
 - [docs/channels.md](docs/channels.md) — líneas de WhatsApp (Cloud API), webhook firmado, simulador y cómo conectar un número real.
+- [docs/inbox.md](docs/inbox.md) — bandeja de mensajes, visibilidad por agente, autoasignación rotativa, ventana de 24 h, tiempo real y cómo probarla en local.
 - [docs/contacts.md](docs/contacts.md) — contactos, etiquetas y convenciones MongoDB.
 - [docs/team.md](docs/team.md) — agentes, roles del sistema y personalizados, contraseña temporal, reglas anti-escalada.
 - [docs/billing.md](docs/billing.md) — planes, precios, límites, prueba gratuita, estados y API de suscripciones.

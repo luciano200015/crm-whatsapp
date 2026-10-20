@@ -67,6 +67,14 @@ Añadidas al final de la migración inicial porque Prisma no las modela: `CHECK`
 3. Revisar el SQL; añadir a mano lo que Prisma no modele. Las migraciones destructivas (borrar columnas/tablas, cambiar tipos con pérdida) requieren aprobación explícita.
 4. `npm run prisma:migrate:dev` para aplicarla, y `npm run test:int`.
 
+## Cupo mensual de contactos (migración `monthly_contact_usage`)
+
+| Tabla | Propósito | Claves / restricciones |
+| ----- | --------- | ---------------------- |
+| `workspace_contact_usage` | Contactos distintos a los que se respondió por workspace y mes UTC (`limits.active_contacts`). Una fila = un cupo reservado | PK `(workspace_id, month, contact_id)`; `CHECK` día 1 del mes e id de MongoDB válido; `CASCADE` con el workspace |
+
+La reserva se hace bajo bloqueo de la fila del workspace, así que dos respuestas simultáneas no ocupan el mismo último cupo. Ver [inbox.md](inbox.md).
+
 ## Canales (migración `channel_lines`)
 
 | Tabla | Propósito | Claves / restricciones |
@@ -84,6 +92,8 @@ Datos operativos del CRM. Todas las colecciones usan el plugin `workspaceScoped`
 | --------- | --------- | ------- |
 | `contacts` | Contactos: teléfono E.164, nombre, email, notas, `tagIds`, origen | `(workspaceId, phone)` único; `(workspaceId, tagIds, _id)`; `(workspaceId, _id)` |
 | `tags` | Etiquetas con color | `(workspaceId, normalizedName)` único |
+| `conversations` | Chat de un contacto en una línea: copia del contacto, estado `OPEN`/`CLOSED`, agente asignado, último mensaje, `lastInboundAt` (ventana de 24 h), no leídos | `(workspaceId, lineId, contactId)` único **solo para `OPEN`** (índice parcial); `(workspaceId, status, lastActivityAt, _id)`; por agente y por línea |
+| `messages` | Mensajes entrantes (`IN`), salientes (`OUT`) y notas internas (`NOTE`) con estado de entrega | `(workspaceId, conversationId, _id)`; `(workspaceId, waMessageId)` único parcial: un webhook repetido no duplica |
 
 ## Equipo (migración `team_members_roles`)
 
