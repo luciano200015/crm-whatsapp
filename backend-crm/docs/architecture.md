@@ -36,7 +36,7 @@ No se crean carpetas ni archivos vacíos para "cumplir" la estructura.
 | ---------------- | ------------------------------------------------- | ------ |
 | `config`         | Validación centralizada del entorno               | Hecho  |
 | `database/postgres` | Prisma + migraciones                           | Hecho  |
-| `database/mongodb`  | Conexión Mongoose                              | Conexión hecha; convenciones en Fase 5 |
+| `database/mongodb`  | Conexión Mongoose, plugin `workspaceScoped`, paginación por cursor | Hecho |
 | `health`         | Liveness/readiness                                | Hecho  |
 | `authorization`  | Catálogo de permisos, guards, resolución de permisos | Hecho: catálogo, `JwtAuthGuard` global, `AuthorizationService` y `WorkspaceAccessGuard` + `@RequirePermissions()` |
 | `billing`        | Planes, precios, límites, suscripciones por workspace, prueba gratuita | Hecho sin pasarela de pago real, ver [billing.md](billing.md) |
@@ -44,6 +44,7 @@ No se crean carpetas ni archivos vacíos para "cumplir" la estructura.
 | `users`          | Perfil propio (`/users/me`)                       | Hecho (Fase 2) |
 | `audit`          | Registro de operaciones sensibles                 | Hecho (servicio con saneado de metadata) |
 | `team`           | Agentes del workspace (alta con contraseña temporal, rol, desactivar) y roles personalizados | Hecho, ver [team.md](team.md) |
+| `contacts`       | Contactos y etiquetas (MongoDB) | Hecho, ver [contacts.md](contacts.md) |
 | `workspaces`, `invitations` | Crear y editar espacios de trabajo, invitaciones por enlace, transferencia de propiedad | Pendiente |
 
 Las sesiones viven dentro de `auth` (son la familia de refresh tokens); no justifican un módulo propio por ahora.

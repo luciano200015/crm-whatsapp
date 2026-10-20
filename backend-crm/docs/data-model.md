@@ -67,6 +67,15 @@ Añadidas al final de la migración inicial porque Prisma no las modela: `CHECK`
 3. Revisar el SQL; añadir a mano lo que Prisma no modele. Las migraciones destructivas (borrar columnas/tablas, cambiar tipos con pérdida) requieren aprobación explícita.
 4. `npm run prisma:migrate:dev` para aplicarla, y `npm run test:int`.
 
+## MongoDB
+
+Datos operativos del CRM. Todas las colecciones usan el plugin `workspaceScoped` (ver [contacts.md](contacts.md#convenciones-mongodb)).
+
+| Colección | Propósito | Índices |
+| --------- | --------- | ------- |
+| `contacts` | Contactos: teléfono E.164, nombre, email, notas, `tagIds`, origen | `(workspaceId, phone)` único; `(workspaceId, tagIds, _id)`; `(workspaceId, _id)` |
+| `tags` | Etiquetas con color | `(workspaceId, normalizedName)` único |
+
 ## Equipo (migración `team_members_roles`)
 
 - `user_credentials.must_change_password` (`boolean`, por defecto `false`).

@@ -123,6 +123,7 @@ export function setupSwagger(app: INestApplication): void {
         'team',
         'Equipo del workspace: agentes (alta, rol, desactivar) y roles personalizados',
       )
+      .addTag('contacts', 'Contactos y etiquetas del workspace')
       .addTag('health', 'Disponibilidad del servicio y sus dependencias')
       .build(),
   );

@@ -10,6 +10,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthorizationModule } from './modules/authorization/authorization.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
 import { TeamModule } from './modules/team/team.module';
 import { UsersModule } from './modules/users/users.module';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
@@ -35,6 +36,7 @@ import { SecurityModule } from './shared/security/security.module';
     UsersModule,
     BillingModule,
     TeamModule,
+    ContactsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

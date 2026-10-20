@@ -1,4 +1,7 @@
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
+import ContactsOutlined from '@mui/icons-material/ContactsOutlined'
+import LabelOutlined from '@mui/icons-material/LabelOutlined'
+import RecentActorsOutlined from '@mui/icons-material/RecentActorsOutlined'
 import CreditCardOutlined from '@mui/icons-material/CreditCardOutlined'
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined'
 import HomeOutlined from '@mui/icons-material/HomeOutlined'
@@ -38,6 +41,27 @@ const link = (item: Omit<NavLinkItem, 'kind'>): NavLinkItem => ({ kind: 'link', 
  */
 export const NAVIGATION: NavEntry[] = [
   link({ to: '/', label: es.app.nav.home, icon: HomeOutlined, end: true }),
+  {
+    kind: 'group',
+    id: 'contacts',
+    label: es.app.nav.contacts,
+    icon: ContactsOutlined,
+    children: [
+      link({
+        to: '/contacts',
+        label: es.app.nav.contactsManage,
+        icon: RecentActorsOutlined,
+        end: true,
+        anyOf: ['contacts.read'],
+      }),
+      link({
+        to: '/contacts/tags',
+        label: es.app.nav.tags,
+        icon: LabelOutlined,
+        anyOf: ['tags.manage'],
+      }),
+    ],
+  },
   {
     kind: 'group',
     id: 'team',

@@ -4,8 +4,9 @@ import { AppConfigService } from '../../config/app-config.service';
 
 /**
  * MongoDB connection for operational CRM data (contacts, conversations, messages).
- * Collection conventions (workspaceId on every document, workspace-scoped
- * indexes, cursor pagination) are defined in Phase 5.
+ * Conventions: every collection uses the workspaceScoped plugin (required
+ * workspaceId, queries without it are refused), indexes start with
+ * workspaceId, and lists use cursor pagination (pagination.ts).
  */
 @Module({
   imports: [
@@ -13,8 +14,9 @@ import { AppConfigService } from '../../config/app-config.service';
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => ({
         uri: config.get('MONGODB_URI'),
-        // Index builds are run by migrations/deploy tooling in production.
-        autoIndex: !config.isProduction,
+        // Each store creates its indexes explicitly on startup (awaited), so
+        // unique indexes exist before the first request in every environment.
+        autoIndex: false,
         serverSelectionTimeoutMS: 5_000,
       }),
     }),

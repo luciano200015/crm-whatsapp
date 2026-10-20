@@ -238,3 +238,52 @@ export interface RoleRequest {
   description?: string | null
   permissions: string[]
 }
+
+// ─────────────────────────── Contacts ───────────────────────────
+
+export interface TagSummary {
+  id: string
+  name: string
+  color: string
+}
+
+export interface Tag extends TagSummary {
+  description: string | null
+  contactCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Contact {
+  id: string
+  /** E.164, e.g. +59171234567. */
+  phone: string
+  name: string | null
+  email: string | null
+  notes: string | null
+  tags: TagSummary[]
+  source: 'manual' | 'whatsapp'
+  lastMessageAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CursorPage<T> {
+  items: T[]
+  /** Cursor of the next page; null on the last one. */
+  nextCursor: string | null
+}
+
+export interface ContactRequest {
+  phone: string
+  name?: string | null
+  email?: string | null
+  notes?: string | null
+  tagIds?: string[]
+}
+
+export interface TagRequest {
+  name: string
+  color: string
+  description?: string | null
+}

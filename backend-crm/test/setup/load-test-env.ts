@@ -14,10 +14,14 @@ config({ path: envFile, override: true, quiet: true });
 process.env.NODE_ENV = 'test';
 
 assertTestDatabase(process.env.DATABASE_URL);
+assertTestDatabase(process.env.MONGODB_URI, 'MONGODB_URI');
 
 /** Refuse to run destructive test helpers against anything but a *_test database. */
-export function assertTestDatabase(url: string | undefined): void {
-  if (!url) throw new Error('DATABASE_URL is not set in .env.test');
+export function assertTestDatabase(
+  url: string | undefined,
+  variable = 'DATABASE_URL',
+): void {
+  if (!url) throw new Error(`${variable} is not set in .env.test`);
   const database = new URL(url).pathname.replace(/^\//, '');
   if (!database.endsWith('_test')) {
     throw new Error(

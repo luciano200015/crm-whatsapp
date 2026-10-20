@@ -75,6 +75,28 @@ export const routes = [
                 ],
               },
               {
+                element: <RequirePermission anyOf={['contacts.read']} />,
+                children: [
+                  {
+                    path: '/contacts',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/contacts/ContactsPage')).ContactsPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                element: <RequirePermission anyOf={['tags.manage']} />,
+                children: [
+                  {
+                    path: '/contacts/tags',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/contacts/TagsPage')).TagsPage,
+                    }),
+                  },
+                ],
+              },
+              {
                 element: <RequirePermission anyOf={['billing.read']} />,
                 children: [
                   {

@@ -7,7 +7,10 @@ export const PERMISSION_GROUP_ORDER = [
   'members',
   'roles',
   'contacts',
+  'tags',
+  'channels',
   'messages',
+  'conversations',
   'billing',
 ] as const
 

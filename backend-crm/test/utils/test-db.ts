@@ -1,4 +1,5 @@
 import { PrismaPg } from '@prisma/adapter-pg';
+import { createConnection, type Connection } from 'mongoose';
 import { PrismaClient } from '../../src/generated/prisma/client';
 import { assertTestDatabase } from '../setup/load-test-env';
 
@@ -36,4 +37,27 @@ export async function errorCodeOf(promise: Promise<unknown>): Promise<string> {
     throw error;
   }
   throw new Error('Expected the query to fail, but it succeeded');
+}
+
+/** Mongoose connection to the (verified) test MongoDB database. */
+export async function createTestMongo(): Promise<Connection> {
+  const url = process.env.MONGODB_URI;
+  assertTestDatabase(url, 'MONGODB_URI');
+  return createConnection(url ?? '').asPromise();
+}
+
+/**
+ * Empties every collection of the test MongoDB database. Uses the native
+ * driver on purpose: the workspaceScoped plugin refuses unfiltered deletes.
+ */
+export async function clearMongo(connection: Connection): Promise<void> {
+  assertTestDatabase(process.env.MONGODB_URI, 'MONGODB_URI');
+  const db = connection.db;
+  if (!db) throw new Error('MongoDB connection is not open');
+  const collections = await db
+    .listCollections({}, { nameOnly: true })
+    .toArray();
+  await Promise.all(
+    collections.map(({ name }) => db.collection(name).deleteMany({})),
+  );
 }

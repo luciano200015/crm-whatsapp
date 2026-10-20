@@ -27,8 +27,13 @@ Fuente única: [`src/modules/authorization/domain/permission-catalog.ts`](../src
 | `roles.manage`     | ✓ |   |   |
 | `contacts.read`    | ✓ | ✓ | ✓ |
 | `contacts.write`   | ✓ | ✓ | ✓ |
+| `tags.manage`      | ✓ | ✓ |   |
+| `channels.read`    | ✓ | ✓ |   |
+| `channels.manage`  | ✓ | ✓ |   |
 | `messages.read`    | ✓ | ✓ | ✓ |
 | `messages.send`    | ✓ | ✓ | ✓ |
+| `conversations.assign`   | ✓ | ✓ |   |
+| `conversations.view_all` | ✓ | ✓ |   |
 | `billing.read`     | ✓ | ✓ |   |
 | `billing.manage`   | ✓ |   |   |
 

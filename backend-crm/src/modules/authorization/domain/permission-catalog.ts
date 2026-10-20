@@ -14,9 +14,16 @@ export const PERMISSIONS = {
   'roles.read': 'View roles and their permissions',
   'roles.manage': 'Create, change and delete custom roles',
   'contacts.read': 'View contacts',
-  'contacts.write': 'Create, update and delete contacts',
+  'contacts.write': 'Create, update and delete contacts and tag them',
+  'tags.manage': 'Create, rename and delete contact tags',
+  'channels.read': 'View the WhatsApp lines of the workspace',
+  'channels.manage':
+    'Connect and configure WhatsApp lines, their agents and auto-assignment',
   'messages.read': 'View conversations and messages',
-  'messages.send': 'Send messages',
+  'messages.send': 'Reply, add notes, close and reopen conversations',
+  'conversations.assign': 'Assign or transfer conversations to other agents',
+  'conversations.view_all':
+    'See every conversation, not only your own and the unassigned ones of your lines',
   'billing.read': 'View subscription and invoices',
   'billing.manage': 'Change subscription and payment details',
 } as const satisfies Record<string, string>;
@@ -31,7 +38,10 @@ export const PERMISSION_GROUPS = [
   'members',
   'roles',
   'contacts',
+  'tags',
+  'channels',
   'messages',
+  'conversations',
   'billing',
 ] as const;
 export type PermissionGroup = (typeof PERMISSION_GROUPS)[number];
