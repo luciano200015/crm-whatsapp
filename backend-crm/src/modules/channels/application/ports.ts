@@ -99,6 +99,8 @@ export abstract class ChannelsStore {
   ): Promise<LineRecord | 'member_not_found' | null>;
   /** A signed webhook arrived: PENDING/ERROR lines become CONNECTED. */
   abstract recordWebhook(lineId: string, at: Date): Promise<void>;
+  /** Meta verified the callback URL: only the time, the status stays as is. */
+  abstract recordVerification(lineId: string, at: Date): Promise<void>;
 }
 
 export interface LineCredentials {
@@ -132,6 +134,14 @@ export abstract class WhatsAppGateway {
     to: string,
     text: string,
   ): Promise<{ waMessageId: string }>;
+  /**
+   * Subscribes the Meta app of the token to the WhatsApp Business Account so
+   * Meta delivers its `messages` webhooks. Idempotent.
+   */
+  abstract subscribeApp(
+    credentials: LineCredentials,
+    wabaId: string,
+  ): Promise<void>;
 }
 
 /**

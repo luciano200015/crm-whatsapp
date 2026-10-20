@@ -64,6 +64,14 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     return { waMessageId: id };
   }
 
+  async subscribeApp(credentials: LineCredentials, wabaId: string) {
+    await this.call(
+      credentials,
+      `/${encodeURIComponent(wabaId)}/subscribed_apps`,
+      { method: 'POST' },
+    );
+  }
+
   private async call(
     credentials: LineCredentials,
     path: string,
@@ -112,5 +120,9 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
     return Promise.resolve({
       waMessageId: `wamid.SIMULATED.${randomBytes(12).toString('hex')}`,
     });
+  }
+
+  subscribeApp() {
+    return Promise.resolve();
   }
 }

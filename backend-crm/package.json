@@ -31,7 +31,8 @@
     "docker:down": "docker compose down",
     "postinstall": "prisma generate",
     "secrets:generate": "node scripts/generate-secrets.mjs",
-    "whatsapp:simulate": "ts-node --transpile-only scripts/whatsapp-simulate.ts"
+    "whatsapp:simulate": "ts-node --transpile-only scripts/whatsapp-simulate.ts",
+    "tunnel": "ts-node --transpile-only scripts/webhook-tunnel.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",

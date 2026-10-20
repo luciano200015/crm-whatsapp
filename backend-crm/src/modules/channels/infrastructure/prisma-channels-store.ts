@@ -201,4 +201,11 @@ export class PrismaChannelsStore extends ChannelsStore {
       data: { status: 'CONNECTED', lastError: null },
     });
   }
+
+  async recordVerification(lineId: string, at: Date): Promise<void> {
+    await this.prisma.channelLine.update({
+      where: { id: lineId },
+      data: { lastWebhookAt: at },
+    });
+  }
 }

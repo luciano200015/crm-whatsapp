@@ -185,9 +185,16 @@ describe('Channels: WhatsApp lines (e2e)', () => {
           'hub.challenge': '1158201444',
         });
 
+      await verify('wrong').expect(403);
       const ok = await verify(line.webhook?.verifyToken ?? '').expect(200);
       expect(ok.text).toBe('1158201444');
-      await verify('wrong').expect(403);
+
+      // The card shows that Meta reached the URL; the credentials are still untested.
+      const after = (
+        await api(owner).get(`/channels/lines/${line.id}`).expect(200)
+      ).body as LineBody;
+      expect(after.lastWebhookAt).not.toBeNull();
+      expect(after.status).toBe('PENDING');
     });
 
     it('accepts signed events, rejects unsigned ones and marks the line connected', async () => {

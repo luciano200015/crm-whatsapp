@@ -200,8 +200,10 @@ export class ChannelsService {
   }
 
   /**
-   * Checks the credentials against Meta: CONNECTED with the verified number
-   * and name, or ERROR with Meta's message (credentials are never echoed).
+   * Checks the credentials against Meta and subscribes the app to the WABA
+   * (without it Meta sends no `messages` webhooks): CONNECTED with the
+   * verified number and name, or ERROR with Meta's message (credentials are
+   * never echoed).
    */
   async test(workspaceId: string, lineId: string): Promise<LineView> {
     const line = await this.requireLine(workspaceId, lineId);
@@ -209,6 +211,18 @@ export class ChannelsService {
     let data: LineUpdate;
     try {
       const phone = await this.gateway.fetchPhoneNumber(credentials);
+      if (line.wabaId) {
+        await this.gateway
+          .subscribeApp(credentials, line.wabaId)
+          .catch((error: unknown) => {
+            throw error instanceof WhatsAppApiError
+              ? new WhatsAppApiError(
+                  `Could not subscribe the app to the WhatsApp Business Account: ${error.message}`,
+                  error.status,
+                )
+              : error;
+          });
+      }
       data = {
         status: line.status === 'DISABLED' ? 'DISABLED' : 'CONNECTED',
         lastError: null,

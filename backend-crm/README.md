@@ -327,7 +327,7 @@ Se validan al arrancar ([`src/config/env.schema.ts`](src/config/env.schema.ts));
 | `BILLING_PAYMENTS_MODE` | no (`disabled`) | `simulated` aprueba los pagos al instante (solo desarrollo; prohibido en producción) |
 | `CHANNEL_SECRETS_KEY` | **sí** | 32 bytes en base64 (`npm run secrets:generate`). Cifra las credenciales de las líneas de WhatsApp |
 | `PUBLIC_API_URL` | no (`APP_URL`) | URL pública de la API para el webhook de Meta (en desarrollo, la de un túnel) |
-| `WHATSAPP_MODE` | no (`live`) | `simulated`: no se llama a Meta (solo desarrollo; prohibido en producción) |
+| `WHATSAPP_MODE` | no (`live`) | `simulated`: no se llama a Meta (solo desarrollo; prohibido en producción). Para conectar un número real en local: `npm run tunnel` expone solo el webhook con ngrok ([docs/channels.md](docs/channels.md#en-desarrollo-túnel-con-ngrok)) |
 | `WHATSAPP_GRAPH_VERSION` | no (`v23.0`) | Versión de la Graph API de Meta |
 | `SEED_DEMO_DATA` / `SEED_DEMO_PASSWORD` | no | Datos demo del seed (solo desarrollo) |
 

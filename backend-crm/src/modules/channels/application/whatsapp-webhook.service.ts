@@ -40,6 +40,7 @@ export class WhatsAppWebhookService {
     ) {
       throw ChannelsErrors.verificationFailed();
     }
+    await this.store.recordVerification(line.id, this.clock.now());
     return challenge;
   }
 
@@ -59,6 +60,10 @@ export class WhatsAppWebhookService {
         this.secrets.decrypt(secrets.appSecretEnc),
       )
     ) {
+      // Usually a wrong App Secret on the line. Never log the body or header.
+      this.logger.warn(
+        `Rejected webhook with an invalid signature for line ${line.id}`,
+      );
       throw ChannelsErrors.invalidSignature();
     }
 
