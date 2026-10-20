@@ -345,7 +345,7 @@ describe('Billing (e2e)', () => {
 
     it('refuses a downgrade when members exceed the new limit', async () => {
       const owner = await signUp({ planCode: 'business' });
-      for (let i = 0; i < 3; i++) await addMember(owner.workspaceId, 'VIEWER');
+      for (let i = 0; i < 3; i++) await addMember(owner.workspaceId, 'AGENT');
 
       const response = await changePlan(owner, 'team', 'MONTH').expect(409);
       expect((response.body as { message: string }).message).toMatch(

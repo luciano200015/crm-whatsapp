@@ -4,6 +4,10 @@ import type { RequestContext } from '../../../shared/http/request-context';
 import { Clock } from '../../../shared/time/clock';
 import { AuditService } from '../../audit/audit.service';
 import type { InitialSubscriptionProvider } from '../../auth/application/ports';
+import type {
+  WorkspaceEntitlements,
+  WorkspaceEntitlementsView,
+} from '../../team/application/ports';
 import {
   type BillingInterval,
   type FeatureKey,
@@ -107,7 +111,9 @@ interface Actor {
 }
 
 @Injectable()
-export class BillingService implements InitialSubscriptionProvider {
+export class BillingService
+  implements InitialSubscriptionProvider, WorkspaceEntitlements
+{
   constructor(
     private readonly store: BillingStore,
     private readonly payments: PaymentGateway,
@@ -361,6 +367,22 @@ export class BillingService implements InitialSubscriptionProvider {
       context: actor.context,
     });
     return this.toView(saved);
+  }
+
+  // ─────────────────────────── Entitlements ───────────────────────────
+
+  /** What the plan allows today (used by the team module for its limits). */
+  async entitlements(
+    workspaceId: string,
+  ): Promise<WorkspaceEntitlementsView | null> {
+    const subscription = await this.currentSubscription(workspaceId);
+    if (!subscription) return null;
+    const plan = await this.store.findPlanById(subscription.plan.id);
+    return {
+      planName: subscription.plan.name,
+      hasFullAccess: hasFullAccess(subscription.status),
+      features: plan?.features ?? {},
+    };
   }
 
   // ─────────────────────────── Helpers ───────────────────────────

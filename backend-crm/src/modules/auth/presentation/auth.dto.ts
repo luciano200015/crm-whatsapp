@@ -153,6 +153,13 @@ export class AuthUserDto {
 
   @ApiProperty()
   emailVerified: boolean;
+
+  @ApiProperty({
+    description:
+      'True when the account has a temporary password (created by a workspace admin). ' +
+      'Every endpoint except POST /auth/password/change, GET /users/me and the session endpoints answers 403 PASSWORD_CHANGE_REQUIRED until it is changed.',
+  })
+  mustChangePassword: boolean;
 }
 
 export class AccessTokenResponseDto {

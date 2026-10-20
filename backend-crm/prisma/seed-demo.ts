@@ -2,7 +2,10 @@ import type {
   MembershipStatus,
   PrismaClient,
 } from '../src/generated/prisma/client';
-import type { SystemRoleKey } from '../src/modules/authorization/domain/permission-catalog';
+import type {
+  PermissionKey,
+  SystemRoleKey,
+} from '../src/modules/authorization/domain/permission-catalog';
 import { passwordPolicyViolations } from '../src/modules/auth/domain/password-policy';
 
 /**
@@ -17,9 +20,52 @@ export const DEMO_WORKSPACES = [
 
 type DemoSlug = (typeof DEMO_WORKSPACES)[number]['slug'];
 
+/**
+ * Custom roles (roles.workspace_id set). Only Acme: its plan (Empresa)
+ * includes custom roles, Globex's (Equipo) does not.
+ */
+export const DEMO_CUSTOM_ROLES = [
+  {
+    workspace: 'acme',
+    key: 'viewer',
+    name: 'Solo lectura',
+    description:
+      'Puede ver el espacio de trabajo, el equipo, contactos y conversaciones.',
+    permissions: [
+      'workspace.read',
+      'members.read',
+      'contacts.read',
+      'messages.read',
+    ],
+  },
+  {
+    workspace: 'acme',
+    key: 'supervisor',
+    name: 'Supervisor',
+    description: 'Atiende conversaciones y supervisa al equipo y sus roles.',
+    permissions: [
+      'workspace.read',
+      'members.read',
+      'roles.read',
+      'contacts.read',
+      'contacts.write',
+      'messages.read',
+      'messages.send',
+    ],
+  },
+] as const satisfies readonly {
+  workspace: DemoSlug;
+  key: string;
+  name: string;
+  description: string;
+  permissions: readonly PermissionKey[];
+}[];
+
+type DemoCustomRoleKey = (typeof DEMO_CUSTOM_ROLES)[number]['key'];
+
 interface DemoMembership {
   workspace: DemoSlug;
-  role: SystemRoleKey;
+  role: SystemRoleKey | DemoCustomRoleKey;
   status?: MembershipStatus;
 }
 
@@ -54,8 +100,8 @@ export const DEMO_USERS: readonly {
     email: 'viewer@example.com',
     displayName: 'Vera Viewer',
     memberships: [
-      { workspace: 'acme', role: 'VIEWER' },
-      { workspace: 'globex', role: 'VIEWER', status: 'DEACTIVATED' },
+      { workspace: 'acme', role: 'viewer' },
+      { workspace: 'globex', role: 'AGENT', status: 'DEACTIVATED' },
     ],
   },
 ];
@@ -69,6 +115,7 @@ export interface SeedDemoOptions {
 export interface SeedDemoResult {
   usersCreated: number;
   workspacesCreated: number;
+  customRolesCreated: number;
   membershipsCreated: number;
   subscriptionsCreated: number;
 }
@@ -95,6 +142,7 @@ export async function seedDemoData(
       const result: SeedDemoResult = {
         usersCreated: 0,
         workspacesCreated: 0,
+        customRolesCreated: 0,
         membershipsCreated: 0,
         subscriptionsCreated: 0,
       };
@@ -103,12 +151,8 @@ export async function seedDemoData(
         where: { workspaceId: null, isSystem: true },
         select: { id: true, key: true },
       });
-      const roleId = (key: SystemRoleKey): string => {
-        const role = roles.find((r) => r.key === key);
-        if (!role)
-          throw new Error(`System role ${key} missing: seed roles first`);
-        return role.id;
-      };
+      const systemRoleId = (key: string): string | undefined =>
+        roles.find((r) => r.key === key)?.id;
 
       const userIds = new Map<string, string>();
       for (const demo of DEMO_USERS) {
@@ -153,6 +197,47 @@ export async function seedDemoData(
         result.workspacesCreated++;
       }
 
+      // Custom roles: created with their permissions once; later edits made
+      // from the app are kept.
+      const customRoleIds = new Map<string, string>();
+      for (const custom of DEMO_CUSTOM_ROLES) {
+        const workspaceId = workspaceIds.get(custom.workspace);
+        if (!workspaceId) continue;
+        const existing = await tx.role.findFirst({
+          where: { workspaceId, key: custom.key },
+          select: { id: true },
+        });
+        if (existing) {
+          customRoleIds.set(`${custom.workspace}:${custom.key}`, existing.id);
+          continue;
+        }
+        const permissions = await tx.permission.findMany({
+          where: { key: { in: [...custom.permissions] } },
+          select: { id: true },
+        });
+        const created = await tx.role.create({
+          data: {
+            workspaceId,
+            key: custom.key,
+            name: custom.name,
+            description: custom.description,
+            isSystem: false,
+            permissions: {
+              create: permissions.map(({ id }) => ({ permissionId: id })),
+            },
+          },
+          select: { id: true },
+        });
+        customRoleIds.set(`${custom.workspace}:${custom.key}`, created.id);
+        result.customRolesCreated++;
+      }
+      const roleId = (workspace: DemoSlug, key: string): string => {
+        const id =
+          systemRoleId(key) ?? customRoleIds.get(`${workspace}:${key}`);
+        if (!id) throw new Error(`Role ${key} missing: seed roles first`);
+        return id;
+      };
+
       for (const demo of DEMO_USERS) {
         const userId = userIds.get(demo.email);
         if (!userId) continue;
@@ -174,7 +259,11 @@ export async function seedDemoData(
               status,
               deactivatedAt: status === 'DEACTIVATED' ? now : null,
               invitedById: userId === owner ? null : (owner ?? null),
-              roles: { create: { roleId: roleId(membership.role) } },
+              roles: {
+                create: {
+                  roleId: roleId(membership.workspace, membership.role),
+                },
+              },
             },
           });
           result.membershipsCreated++;

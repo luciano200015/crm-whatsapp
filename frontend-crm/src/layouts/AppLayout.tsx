@@ -1,4 +1,5 @@
 import CreditCardOutlined from '@mui/icons-material/CreditCardOutlined'
+import GroupsOutlined from '@mui/icons-material/GroupsOutlined'
 import HomeOutlined from '@mui/icons-material/HomeOutlined'
 import LockOutlined from '@mui/icons-material/LockOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
@@ -29,16 +30,31 @@ import { es } from '../i18n/es'
 import { ColorModeToggle } from '../theme/ColorModeToggle'
 import { themeConfig } from '../theme/theme.config'
 import { ActiveWorkspaceProvider } from '../workspace/active-workspace'
+import { useActiveWorkspace } from '../workspace/active-workspace-context'
 import { WorkspaceSwitcher } from '../workspace/WorkspaceSwitcher'
 
 const DRAWER_WIDTH = 248
 
-const NAV = [
+/** `anyOf`: shown only with one of these permissions in the active workspace. */
+const NAV: {
+  to: string
+  label: string
+  icon: typeof HomeOutlined
+  end: boolean
+  anyOf?: string[]
+}[] = [
   { to: '/', label: es.app.nav.home, icon: HomeOutlined, end: true },
+  {
+    to: '/team',
+    label: es.app.nav.team,
+    icon: GroupsOutlined,
+    end: false,
+    anyOf: ['members.read', 'roles.read'],
+  },
   { to: '/billing', label: es.app.nav.billing, icon: CreditCardOutlined, end: false },
   { to: '/account/profile', label: es.app.nav.profile, icon: PersonOutlined, end: false },
   { to: '/account/security', label: es.app.nav.security, icon: LockOutlined, end: false },
-] as const
+]
 
 export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -49,31 +65,7 @@ export function AppLayout() {
         <Logo height={32} />
       </Box>
       <Divider />
-      <List sx={{ px: 1.5, pt: 1.5 }}>
-        {NAV.map(({ to, label, icon: Icon, end }) => (
-          <ListItemButton
-            key={to}
-            component={NavLink}
-            to={to}
-            end={end}
-            onClick={() => setMobileOpen(false)}
-            sx={{
-              borderRadius: 2,
-              mb: 0.5,
-              '&.active': {
-                bgcolor: 'action.selected',
-                color: 'primary.main',
-                '& .MuiListItemIcon-root': { color: 'primary.main' },
-              },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 38 }}>
-              <Icon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText primary={label} />
-          </ListItemButton>
-        ))}
-      </List>
+      <NavList onNavigate={() => setMobileOpen(false)} />
     </Box>
   )
 
@@ -137,6 +129,41 @@ export function AppLayout() {
         </Box>
       </Box>
     </ActiveWorkspaceProvider>
+  )
+}
+
+/** Rendered inside ActiveWorkspaceProvider: items depend on the active workspace's permissions. */
+function NavList({ onNavigate }: { onNavigate: () => void }) {
+  const { active } = useActiveWorkspace()
+  const permissions = new Set(active?.permissions ?? [])
+  const items = NAV.filter((item) => !item.anyOf || item.anyOf.some((p) => permissions.has(p)))
+
+  return (
+    <List sx={{ px: 1.5, pt: 1.5 }}>
+      {items.map(({ to, label, icon: Icon, end }) => (
+        <ListItemButton
+          key={to}
+          component={NavLink}
+          to={to}
+          end={end}
+          onClick={onNavigate}
+          sx={{
+            borderRadius: 2,
+            mb: 0.5,
+            '&.active': {
+              bgcolor: 'action.selected',
+              color: 'primary.main',
+              '& .MuiListItemIcon-root': { color: 'primary.main' },
+            },
+          }}
+        >
+          <ListItemIcon sx={{ minWidth: 38 }}>
+            <Icon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary={label} />
+        </ListItemButton>
+      ))}
+    </List>
   )
 }
 

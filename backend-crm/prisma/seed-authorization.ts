@@ -11,6 +11,8 @@ export interface SeedAuthorizationResult {
   grantsAdded: number;
   grantsRemoved: number;
   unknownPermissions: string[];
+  /** System roles in the database that the catalog no longer defines. */
+  retiredSystemRoles: string[];
 }
 
 /**
@@ -107,12 +109,22 @@ export async function seedAuthorization(
       }
     }
 
+    // Retiring a system role means moving its members first (see the
+    // team_members_roles migration), so the seed only reports leftovers.
+    const retiredSystemRoles = (
+      await tx.role.findMany({
+        where: { workspaceId: null, key: { notIn: [...SYSTEM_ROLE_KEYS] } },
+        select: { key: true },
+      })
+    ).map((role) => role.key);
+
     return {
       permissions: permissionIdByKey.size,
       roles: SYSTEM_ROLE_KEYS.length,
       grantsAdded,
       grantsRemoved,
       unknownPermissions,
+      retiredSystemRoles,
     };
   });
 }

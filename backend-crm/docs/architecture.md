@@ -43,13 +43,14 @@ No se crean carpetas ni archivos vacíos para "cumplir" la estructura.
 | `auth`           | Registro, login, refresh, logout, recuperación, sesiones | Hecho (Fase 2), ver [authentication.md](authentication.md) |
 | `users`          | Perfil propio (`/users/me`)                       | Hecho (Fase 2) |
 | `audit`          | Registro de operaciones sensibles                 | Hecho (servicio con saneado de metadata) |
-| `workspaces`, `memberships`, `invitations` | Espacios de trabajo y miembros | Fase 3 |
+| `team`           | Agentes del workspace (alta con contraseña temporal, rol, desactivar) y roles personalizados | Hecho, ver [team.md](team.md) |
+| `workspaces`, `invitations` | Crear y editar espacios de trabajo, invitaciones por enlace, transferencia de propiedad | Pendiente |
 
 Las sesiones viven dentro de `auth` (son la familia de refresh tokens); no justifican un módulo propio por ahora.
 
-Puertos actuales: `AuthStore`, `PasswordHasher`, `AccessTokens` (auth), `Mailer` (shared/mail) y `Clock` (shared/time). `UsersService` usa Prisma directamente porque solo hace lecturas y actualizaciones simples del propio perfil; si crece, se extraerá un puerto.
+Puertos actuales: `AuthStore`, `PasswordHasher`, `AccessTokens` (auth), `BillingStore`, `PaymentGateway` (billing), `TeamStore`, `WorkspaceEntitlements` (team), `Mailer` (shared/mail) y `Clock` (shared/time). `UsersService` usa Prisma directamente porque solo hace lecturas y actualizaciones simples del propio perfil; si crece, se extraerá un puerto.
 
-`auth` no depende de `billing`: depende del puerto `InitialSubscriptionProvider` (qué plan recibe un workspace nuevo), que implementa `BillingService`. Así el registro crea la suscripción en la misma transacción sin acoplar los módulos. Pagos reales y mensajería se añadirán como módulos o adaptadores propios.
+`auth` no depende de `billing`: depende del puerto `InitialSubscriptionProvider` (qué plan recibe un workspace nuevo), que implementa `BillingService`. Así el registro crea la suscripción en la misma transacción sin acoplar los módulos. Igual con `team`: lee los límites del plan a través del puerto `WorkspaceEntitlements`, que también implementa `BillingService`, y usa el `PasswordHasher` que exporta `auth`. Pagos reales y mensajería se añadirán como módulos o adaptadores propios.
 
 ## Capa HTTP (`src/bootstrap.ts`)
 

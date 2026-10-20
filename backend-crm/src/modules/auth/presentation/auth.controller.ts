@@ -41,7 +41,11 @@ import {
 } from '../../../shared/http/swagger';
 import { type AuthContext, AuthService } from '../application/auth.service';
 import { AuthCookies, REFRESH_COOKIE } from './auth-cookies';
-import { CurrentUser, Public } from './auth.decorators';
+import {
+  AllowPendingPasswordChange,
+  CurrentUser,
+  Public,
+} from './auth.decorators';
 import {
   AccessTokenResponseDto,
   ChangePasswordDto,
@@ -124,7 +128,14 @@ export class AuthController {
       result.refreshToken,
       result.refreshExpiresAt,
     );
-    const { id, email, displayName, status, emailVerifiedAt } = result.user;
+    const {
+      id,
+      email,
+      displayName,
+      status,
+      emailVerifiedAt,
+      mustChangePassword,
+    } = result.user;
     return {
       accessToken: result.accessToken,
       tokenType: 'Bearer',
@@ -135,6 +146,7 @@ export class AuthController {
         displayName,
         status,
         emailVerified: emailVerifiedAt !== null,
+        mustChangePassword,
       },
     };
   }
@@ -282,6 +294,7 @@ export class AuthController {
     await this.auth.resendVerification(auth, context);
   }
 
+  @AllowPendingPasswordChange()
   @Post('password/change')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth(SWAGGER_BEARER)
@@ -309,6 +322,7 @@ export class AuthController {
     );
   }
 
+  @AllowPendingPasswordChange()
   @Get('sessions')
   @ApiBearerAuth(SWAGGER_BEARER)
   @ApiOperation({ summary: 'List my active sessions (devices)' })
@@ -318,6 +332,7 @@ export class AuthController {
     return this.auth.listSessions(auth);
   }
 
+  @AllowPendingPasswordChange()
   @Delete('sessions/:sessionId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth(SWAGGER_BEARER)
@@ -337,6 +352,7 @@ export class AuthController {
     await this.auth.revokeSession(auth, sessionId, context);
   }
 
+  @AllowPendingPasswordChange()
   @Post('sessions/revoke-others')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth(SWAGGER_BEARER)

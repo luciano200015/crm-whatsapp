@@ -1,6 +1,8 @@
 import {
   ALL_PERMISSION_KEYS,
   isPermissionKey,
+  PERMISSION_GROUPS,
+  permissionGroup,
   PERMISSIONS,
   SYSTEM_ROLE_KEYS,
   SYSTEM_ROLES,
@@ -40,15 +42,15 @@ describe('permission catalog', () => {
   });
 
   it('keeps billing and role management exclusive to OWNER', () => {
-    for (const key of ['ADMIN', 'AGENT', 'VIEWER'] as const) {
+    for (const key of ['ADMIN', 'AGENT'] as const) {
       expect(SYSTEM_ROLES[key].permissions).not.toContain('billing.manage');
       expect(SYSTEM_ROLES[key].permissions).not.toContain('roles.manage');
     }
   });
 
-  it('keeps VIEWER read-only', () => {
-    for (const permission of SYSTEM_ROLES.VIEWER.permissions) {
-      expect(permission.endsWith('.read')).toBe(true);
+  it('assigns every permission to a known group', () => {
+    for (const key of ALL_PERMISSION_KEYS) {
+      expect(PERMISSION_GROUPS).toContain(permissionGroup(key));
     }
   });
 

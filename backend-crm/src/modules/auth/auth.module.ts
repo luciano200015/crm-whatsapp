@@ -49,6 +49,6 @@ import { JwtAuthGuard } from './presentation/jwt-auth.guard';
     // Secure by default: every route needs a token unless marked @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
-  exports: [AuthService],
+  exports: [AuthService, PasswordHasher],
 })
 export class AuthModule {}

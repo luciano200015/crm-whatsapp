@@ -120,6 +120,7 @@ const candidate = (
   passwordHash: '$argon2id$old',
   failedLoginCount: 0,
   lockedUntil: null,
+  mustChangePassword: false,
   ...overrides,
 });
 
@@ -341,6 +342,7 @@ describe('AuthService', () => {
       status: 'ACTIVE',
       expiresAt: seconds(60),
       userStatus: 'ACTIVE',
+      mustChangePassword: false,
     };
 
     it('accepts a valid token bound to an active session', async () => {
@@ -354,6 +356,23 @@ describe('AuthService', () => {
       await expect(service.authenticate('jwt')).resolves.toEqual({
         userId: 'user-1',
         sessionId: 'session-1',
+        mustChangePassword: false,
+      });
+    });
+
+    it('reports a pending temporary password so the guard can block the route', async () => {
+      const { service, store, accessTokens } = setup();
+      accessTokens.verify.mockResolvedValue({
+        userId: 'user-1',
+        sessionId: 'session-1',
+      });
+      store.findSessionForAuth.mockResolvedValue({
+        ...session,
+        mustChangePassword: true,
+      });
+
+      await expect(service.authenticate('jwt')).resolves.toMatchObject({
+        mustChangePassword: true,
       });
     });
 

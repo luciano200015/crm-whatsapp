@@ -1,11 +1,12 @@
 # Limitaciones y pendientes
 
-Estado tras las Fases 0, 1 y 2, más planes y suscripciones.
+Estado tras las Fases 0, 1 y 2, más planes y suscripciones y el módulo de equipo (agentes y roles).
 
 ## No implementado todavía
 
-- **Workspaces, membresías, invitaciones y transferencia de propiedad**: Fase 3.
-- **Autorización por workspace**: ya existen `WorkspaceAccessGuard`, `@RequirePermissions()` y `@CurrentWorkspace()` (los usa billing). Falta aplicarlos a los endpoints de workspaces y miembros (Fase 3). No hay caché de permisos: se consultan en cada petición.
+- **Workspaces**: crear workspaces adicionales, editarlos, abandonarlos y transferir la propiedad. Las **invitaciones por enlace** tampoco existen: hoy los agentes se dan de alta con contraseña temporal ([team.md](team.md)).
+- **Equipo**: los teléfonos asignados a cada agente llegarán con la mensajería. La contraseña temporal no caduca hasta que se cambia o se reenvía. Los correos del equipo están en inglés.
+- **Autorización por workspace**: `WorkspaceAccessGuard`, `@RequirePermissions()` y `@CurrentWorkspace()` protegen billing y equipo. No hay caché de permisos: se consultan en cada petición.
 - **Convenciones MongoDB** (`workspaceId` obligatorio, índices, paginación por cursor, plugin que impida consultas sin filtro de workspace): Fase 5. Solo existe la conexión.
 - **Rate limiting distribuido**: el actual (`@nestjs/throttler`) guarda los contadores en memoria, por proceso. Con varias instancias hay que pasarlo a Redis (Fase 7).
 - **Bloqueo por cuenta**: 5 fallos seguidos bloquean la cuenta 15 minutos. Esto permite que un tercero bloquee temporalmente una cuenta ajena; el throttling por IP lo limita. Pendiente valorar CAPTCHA o bloqueo progresivo.

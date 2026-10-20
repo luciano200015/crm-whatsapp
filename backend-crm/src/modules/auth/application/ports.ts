@@ -42,6 +42,7 @@ export interface LoginCandidate {
   passwordHash: string;
   failedLoginCount: number;
   lockedUntil: Date | null;
+  mustChangePassword: boolean;
 }
 
 export interface UserSummary {
@@ -72,6 +73,8 @@ export interface SessionForAuth {
   status: SessionStatus;
   expiresAt: Date;
   userStatus: UserStatus;
+  /** The user still has a temporary password (see UserCredential). */
+  mustChangePassword: boolean;
 }
 
 export interface SessionSummary {
@@ -211,6 +214,11 @@ export abstract class AuthStore {
     newPasswordHash: string,
     now: Date,
   ): Promise<string | null>;
+  /**
+   * Stores the new hash, clears mustChangePassword and revokes the other
+   * sessions. Replacing a temporary password (which was sent by email) also
+   * marks the email verified. Returns the number of sessions revoked.
+   */
   abstract changePassword(
     userId: string,
     newPasswordHash: string,

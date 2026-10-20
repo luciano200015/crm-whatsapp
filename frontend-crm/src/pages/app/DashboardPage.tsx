@@ -11,6 +11,7 @@ import { EmailVerificationBanner } from '../../components/EmailVerificationBanne
 import { PageHeader } from '../../components/PageHeader'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle'
 import { es } from '../../i18n/es'
+import { permissionLabel, roleName } from '../../lib/team'
 import { useActiveWorkspace } from '../../workspace/active-workspace-context'
 
 export function DashboardPage() {
@@ -45,8 +46,15 @@ export function DashboardPage() {
                       /{active.slug}
                     </Typography>
                   </Box>
-                  <ChipGroup label={es.dashboard.roles} items={active.roles} color="primary" />
-                  <ChipGroup label={es.dashboard.permissions} items={active.permissions} />
+                  <ChipGroup
+                    label={es.dashboard.roles}
+                    items={active.roles.map(roleName)}
+                    color="primary"
+                  />
+                  <ChipGroup
+                    label={es.dashboard.permissions}
+                    items={active.permissions.map(permissionLabel)}
+                  />
                 </Stack>
               ) : (
                 <Typography sx={{ color: 'text.secondary' }}>{es.dashboard.noWorkspace}</Typography>
@@ -92,7 +100,7 @@ export function DashboardPage() {
                           {workspace.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                          {workspace.roles.join(', ')}
+                          {workspace.roles.map(roleName).join(', ')}
                         </Typography>
                       </Box>
                       {!usable && <Chip size="small" label={es.dashboard.deactivated} />}

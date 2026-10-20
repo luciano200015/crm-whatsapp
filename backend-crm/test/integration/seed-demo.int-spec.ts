@@ -1,6 +1,7 @@
 import { seedAuthorization } from '../../prisma/seed-authorization';
 import { seedBilling } from '../../prisma/seed-billing';
 import {
+  DEMO_CUSTOM_ROLES,
   DEMO_USERS,
   DEMO_WORKSPACES,
   seedDemoData,
@@ -47,6 +48,7 @@ describe('demo seed (integration)', () => {
     expect(result).toEqual({
       usersCreated: DEMO_USERS.length,
       workspacesCreated: DEMO_WORKSPACES.length,
+      customRolesCreated: DEMO_CUSTOM_ROLES.length,
       membershipsCreated: expectedMemberships,
       subscriptionsCreated: DEMO_WORKSPACES.length,
     });
@@ -67,6 +69,7 @@ describe('demo seed (integration)', () => {
     expect(second).toEqual({
       usersCreated: 0,
       workspacesCreated: 0,
+      customRolesCreated: 0,
       membershipsCreated: 0,
       subscriptionsCreated: 0,
     });
@@ -95,6 +98,45 @@ describe('demo seed (integration)', () => {
       ['globex', 'OWNER'],
       ['initech', 'OWNER'],
     ]);
+  });
+
+  it('creates the custom roles inside their workspace only', async () => {
+    await seedDemoData(prisma, options);
+
+    const viewer = await prisma.workspaceMembership.findFirstOrThrow({
+      where: {
+        user: { email: 'viewer@example.com' },
+        workspace: { slug: 'acme' },
+      },
+      include: {
+        workspace: true,
+        roles: {
+          include: {
+            role: {
+              include: { permissions: { include: { permission: true } } },
+            },
+          },
+        },
+      },
+    });
+    const role = viewer.roles[0]?.role;
+    expect(role).toMatchObject({
+      key: 'viewer',
+      name: 'Solo lectura',
+      isSystem: false,
+      workspaceId: viewer.workspace.id,
+    });
+    expect(
+      role?.permissions.map(({ permission }) => permission.key).sort(),
+    ).toEqual([
+      'contacts.read',
+      'members.read',
+      'messages.read',
+      'workspace.read',
+    ]);
+    expect(
+      await prisma.role.count({ where: { workspace: { slug: 'globex' } } }),
+    ).toBe(0);
   });
 
   it('keeps a deactivated membership for the viewer in globex', async () => {

@@ -55,14 +55,17 @@ model User {
 
 /// Credentials are kept apart from the profile so profile reads never touch hashes.
 model UserCredential {
-  userId            String    @id @map("user_id") @db.Uuid
+  userId             String    @id @map("user_id") @db.Uuid
   /// Argon2id encoded hash (includes salt and parameters).
-  passwordHash      String    @map("password_hash") @db.VarChar(255)
-  passwordChangedAt DateTime  @default(now()) @map("password_changed_at") @db.Timestamptz(3)
-  failedLoginCount  Int       @default(0) @map("failed_login_count")
-  lockedUntil       DateTime? @map("locked_until") @db.Timestamptz(3)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  passwordChangedAt  DateTime  @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(3)
+  /// Set for temporary passwords (members created by an admin): the user must
+  /// choose a new password before using anything else.
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -247,8 +250,10 @@ model WorkspaceInvitation {
 
 // ─────────────────────────────── Authorization ───────────────────────────────
 
-/// System roles have workspaceId = null. Uniqueness of `key` is enforced per
-/// scope by two partial unique indexes (system / workspace).
+/// workspaceId decides the scope: null = system role (read-only, shared by
+/// every workspace); set = custom role owned by that workspace. `isSystem`
+/// mirrors it and a CHECK keeps both in sync. Uniqueness of `key` is enforced
+/// per scope by two partial unique indexes (system / workspace).
 model Role {
   id          String   @id @default(uuid(7)) @db.Uuid
   key         String   @db.VarChar(64)

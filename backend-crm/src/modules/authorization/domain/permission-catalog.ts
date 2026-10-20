@@ -9,7 +9,7 @@ export const PERMISSIONS = {
   'workspace.read': 'View workspace details and settings',
   'workspace.update': 'Change workspace name and settings',
   'members.read': 'List workspace members',
-  'members.invite': 'Invite new members to the workspace',
+  'members.invite': 'Add new members (agents) to the workspace',
   'members.manage': 'Change member roles, deactivate or reactivate members',
   'roles.read': 'View roles and their permissions',
   'roles.manage': 'Create, change and delete custom roles',
@@ -25,7 +25,26 @@ export type PermissionKey = keyof typeof PERMISSIONS;
 
 export const ALL_PERMISSION_KEYS = Object.keys(PERMISSIONS) as PermissionKey[];
 
-export const SYSTEM_ROLE_KEYS = ['OWNER', 'ADMIN', 'AGENT', 'VIEWER'] as const;
+/** Modules shown as groups when building a custom role. */
+export const PERMISSION_GROUPS = [
+  'workspace',
+  'members',
+  'roles',
+  'contacts',
+  'messages',
+  'billing',
+] as const;
+export type PermissionGroup = (typeof PERMISSION_GROUPS)[number];
+
+export function permissionGroup(key: PermissionKey): PermissionGroup {
+  return key.split('.')[0] as PermissionGroup;
+}
+
+/**
+ * Roles shared by every workspace (roles.workspace_id = null), read-only for
+ * customers. Workspaces add their own custom roles on top (see the team module).
+ */
+export const SYSTEM_ROLE_KEYS = ['OWNER', 'ADMIN', 'AGENT'] as const;
 export type SystemRoleKey = (typeof SYSTEM_ROLE_KEYS)[number];
 
 export interface SystemRoleDefinition {
@@ -62,16 +81,6 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'contacts.write',
       'messages.read',
       'messages.send',
-    ],
-  },
-  VIEWER: {
-    name: 'Viewer',
-    description: 'Read-only access to workspace data',
-    permissions: [
-      'workspace.read',
-      'members.read',
-      'contacts.read',
-      'messages.read',
     ],
   },
 };

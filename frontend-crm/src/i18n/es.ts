@@ -109,6 +109,7 @@ export const es = {
   app: {
     nav: {
       home: 'Inicio',
+      team: 'Equipo',
       billing: 'Plan y facturación',
       profile: 'Mi perfil',
       security: 'Seguridad',
@@ -164,6 +165,148 @@ export const es = {
     revokeOthers: 'Cerrar las demás sesiones',
     revokedOthers: (n: number) => (n === 1 ? 'Se cerró 1 sesión' : `Se cerraron ${n} sesiones`),
     unknownDevice: 'Dispositivo desconocido',
+  },
+  passwordRequired: {
+    title: 'Elige tu contraseña',
+    heading: 'Elige tu propia contraseña 🔑',
+    body: 'Entraste con una contraseña temporal. Antes de continuar, crea una contraseña que solo tú conozcas.',
+    current: 'Contraseña temporal (la del correo)',
+    submit: 'Guardar y continuar',
+    done: 'Listo, tu contraseña quedó guardada.',
+    logout: 'Salir',
+  },
+  roles: {
+    /** System roles are translated by key; custom roles show their own name. */
+    system: {
+      OWNER: {
+        name: 'Propietario',
+        description:
+          'Control total del espacio de trabajo, incluidos el plan, la facturación y los roles.',
+      },
+      ADMIN: {
+        name: 'Administrador',
+        description:
+          'Gestiona el espacio de trabajo y el equipo, sin cambiar el plan ni los roles.',
+      },
+      AGENT: {
+        name: 'Agente regular',
+        description: 'Atiende contactos y conversaciones.',
+      },
+    } as Record<string, { name: string; description: string } | undefined>,
+    groups: {
+      workspace: 'Espacio de trabajo',
+      members: 'Equipo',
+      roles: 'Roles',
+      contacts: 'Contactos',
+      messages: 'Conversaciones',
+      billing: 'Facturación',
+    } as Record<string, string | undefined>,
+    permissions: {
+      'workspace.read': 'Ver el espacio de trabajo',
+      'workspace.update': 'Editar el nombre y la configuración',
+      'members.read': 'Ver el equipo',
+      'members.invite': 'Registrar agentes',
+      'members.manage': 'Cambiar el rol, desactivar y reactivar agentes',
+      'roles.read': 'Ver los roles',
+      'roles.manage': 'Crear, editar y eliminar roles',
+      'contacts.read': 'Ver contactos',
+      'contacts.write': 'Crear, editar y eliminar contactos',
+      'messages.read': 'Ver conversaciones',
+      'messages.send': 'Enviar mensajes',
+      'billing.read': 'Ver el plan y la facturación',
+      'billing.manage': 'Cambiar el plan y los pagos',
+    } as Record<string, string | undefined>,
+  },
+  team: {
+    title: 'Equipo',
+    subtitle: 'Los agentes de este espacio de trabajo y lo que puede hacer cada uno.',
+    tabs: { members: 'Agentes', roles: 'Roles' },
+    noPermission: 'No tienes permiso para ver el equipo de este espacio de trabajo.',
+    // Members
+    newMember: 'Nuevo agente',
+    search: 'Buscar por nombre o correo',
+    statusFilter: 'Estado',
+    all: 'Todos',
+    usage: (active: number, limit: number | null) =>
+      limit === null ? `${active} agentes activos` : `${active} de ${limit} agentes`,
+    limitReached: (plan: string) =>
+      `Alcanzaste el límite de agentes del plan ${plan}. Mejora tu plan o desactiva a alguien.`,
+    planInactive: 'El plan no está activo: no puedes registrar ni reactivar agentes.',
+    upgrade: 'Mejorar plan',
+    columns: {
+      member: 'Agente',
+      role: 'Rol',
+      status: 'Estado',
+      lastLogin: 'Último acceso',
+      actions: 'Acciones',
+    },
+    status: {
+      ACTIVE: 'Activo',
+      DEACTIVATED: 'Desactivado',
+      pending: 'Pendiente de primer acceso',
+    },
+    you: 'Tú',
+    never: 'Nunca',
+    empty: 'No hay agentes que coincidan con la búsqueda.',
+    actionsFor: (name: string) => `Acciones para ${name}`,
+    changeRole: 'Cambiar rol',
+    deactivate: 'Desactivar',
+    reactivate: 'Reactivar',
+    resendAccess: 'Reenviar acceso',
+    deactivateTitle: '¿Desactivar agente?',
+    confirmDeactivate: (name: string) =>
+      `${name} dejará de tener acceso a este espacio de trabajo de inmediato. Podrás reactivarlo más tarde.`,
+    created: (email: string) => `Agente registrado. Enviamos sus datos de acceso a ${email}.`,
+    roleChanged: 'Rol actualizado',
+    deactivated: 'Agente desactivado',
+    reactivated: 'Agente reactivado',
+    accessResent: 'Enviamos una nueva contraseña temporal por correo.',
+    form: {
+      title: 'Registrar agente',
+      intro:
+        'Le enviaremos por correo una contraseña temporal. Al entrar por primera vez deberá elegir la suya.',
+      name: 'Nombre completo',
+      namePlaceholder: 'Carla Pérez',
+      email: 'Correo electrónico',
+      emailPlaceholder: 'agente@empresa.com',
+      role: 'Rol',
+      submit: 'Registrar agente',
+      existingNote:
+        'Si el correo ya tiene una cuenta, solo se añade a este espacio de trabajo y conserva su contraseña.',
+      changeRoleTitle: (name: string) => `Cambiar el rol de ${name}`,
+    },
+    // Roles
+    newRole: 'Nuevo rol',
+    systemRole: 'Sistema',
+    customRole: 'Personalizado',
+    systemHelp: 'Los roles del sistema no se pueden modificar.',
+    members: (n: number) => (n === 1 ? '1 miembro' : `${n} miembros`),
+    permissionsCount: (n: number) => (n === 1 ? '1 permiso' : `${n} permisos`),
+    view: 'Ver permisos',
+    edit: 'Editar',
+    delete: 'Eliminar',
+    deleteTitle: '¿Eliminar rol?',
+    confirmDelete: (name: string) => `Se eliminará el rol «${name}». No se puede deshacer.`,
+    roleCreated: 'Rol creado',
+    roleUpdated: 'Rol actualizado',
+    roleDeleted: 'Rol eliminado',
+    customRolesLocked: (plan: string) =>
+      `Tu plan ${plan} no incluye roles personalizados. Puedes usar los roles del sistema o mejorar tu plan.`,
+    roleForm: {
+      createTitle: 'Nuevo rol',
+      editTitle: 'Editar rol',
+      viewTitle: 'Permisos del rol',
+      name: 'Nombre del rol',
+      namePlaceholder: 'Supervisor',
+      description: 'Descripción',
+      descriptionPlaceholder: 'Qué hace este rol',
+      permissions: 'Permisos',
+      permissionsHelp: 'Solo puedes otorgar permisos que tú tienes.',
+      selectAll: 'Todos',
+      atLeastOne: 'Elige al menos un permiso',
+      close: 'Cerrar',
+      save: 'Guardar rol',
+    },
   },
   billing: {
     pricingTitle: 'Planes y precios',
@@ -245,6 +388,28 @@ export const es = {
     NO_PENDING_CANCELLATION: 'No hay ninguna cancelación pendiente.',
     PAYMENTS_UNAVAILABLE:
       'Los pagos en línea todavía no están disponibles. Durante la prueba puedes cambiar de plan sin pagar.',
+    MEMBER_NOT_FOUND: 'Ese agente no existe en este espacio de trabajo.',
+    ROLE_NOT_FOUND: 'Ese rol no existe en este espacio de trabajo.',
+    MEMBER_ALREADY_EXISTS: 'Esa persona ya es parte de este espacio de trabajo.',
+    MEMBER_DEACTIVATED:
+      'Esa persona ya está en el equipo pero desactivada. Reactívala desde la lista.',
+    CANNOT_MODIFY_SELF: 'No puedes cambiar tu propio rol ni desactivarte.',
+    LAST_OWNER: 'El espacio de trabajo debe tener al menos un propietario activo.',
+    ROLE_ESCALATION: 'No puedes otorgar ni gestionar permisos que tú no tienes.',
+    SYSTEM_ROLE_READ_ONLY: 'Los roles del sistema no se pueden modificar.',
+    ROLE_NAME_TAKEN: 'Ya existe un rol con ese nombre.',
+    ROLE_IN_USE: (details: Record<string, unknown>) =>
+      `El rol está asignado a ${String(details.members ?? '?')} miembro(s). Asígnales otro rol antes de eliminarlo.`,
+    ACCESS_ALREADY_SET:
+      'Este agente ya eligió su contraseña. Puede usar «¿Olvidaste tu contraseña?».',
+    MEMBER_INACTIVE: 'Este agente está desactivado.',
+    AGENT_LIMIT_REACHED: (details: Record<string, unknown>) =>
+      `El plan ${String(details.plan ?? '')} permite ${String(details.limit ?? '?')} agentes activos y ya tienes ${String(details.usage ?? '?')}. Mejora tu plan o desactiva a alguien.`,
+    FEATURE_NOT_IN_PLAN: (details: Record<string, unknown>) =>
+      `Tu plan ${String(details.plan ?? '')} no incluye esta función.`,
+    SUBSCRIPTION_INACTIVE:
+      'El plan de este espacio de trabajo no está activo. Elige un plan para continuar.',
+    PASSWORD_CHANGE_REQUIRED: 'Primero debes cambiar tu contraseña temporal.',
     PLAN_LIMIT_EXCEEDED: (details: Record<string, unknown>) =>
       `El plan ${String(details.plan ?? '')} permite ${String(details.limit ?? '?')} agentes y este espacio de trabajo tiene ${String(details.usage ?? '?')} miembros activos. Desactiva miembros antes de cambiar.`,
   },

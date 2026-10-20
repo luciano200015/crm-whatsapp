@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router'
 import { SplashScreen } from '../components/SplashScreen'
 import { safeRedirect } from '../lib/redirect'
 import { useAuth } from './auth-context'
+import { useMe } from './useMe'
 
 /** Only lets signed-in users through; others go to /login?redirect=… */
 export function ProtectedRoute() {
@@ -14,6 +15,17 @@ export function ProtectedRoute() {
     const target = redirect === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirect)}`
     return <Navigate to={target} replace />
   }
+  return <Outlet />
+}
+
+/**
+ * Inside the app: a user who still has the temporary password from their
+ * admin must choose their own first (the API blocks everything else anyway).
+ */
+export function RequirePasswordChanged() {
+  const { data: me, isPending } = useMe()
+  if (isPending) return <SplashScreen />
+  if (me?.mustChangePassword) return <Navigate to="/account/password-required" replace />
   return <Outlet />
 }
 

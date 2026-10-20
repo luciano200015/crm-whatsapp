@@ -27,6 +27,12 @@ async function main(): Promise<void> {
           result.unknownPermissions.join(', '),
       );
     }
+    if (result.retiredSystemRoles.length > 0) {
+      console.warn(
+        `System roles no longer in the catalog (left untouched): ` +
+          result.retiredSystemRoles.join(', '),
+      );
+    }
     const billing = await seedBilling(prisma);
     console.log(
       `Billing: ${billing.features} features, ${billing.plans} plans, ${billing.prices} prices, ` +
@@ -62,7 +68,7 @@ async function seedDemo(prisma: PrismaClient): Promise<void> {
     hashPassword: (value) => hasher.hash(value),
   });
   console.log(
-    `Demo data: ${demo.usersCreated} users, ${demo.workspacesCreated} workspaces, ` +
+    `Demo data: ${demo.usersCreated} users, ${demo.workspacesCreated} workspaces, ${demo.customRolesCreated} custom roles, ` +
       `${demo.membershipsCreated} memberships, ${demo.subscriptionsCreated} subscriptions created. ` +
       `Users: ${DEMO_USERS.map((user) => user.email).join(', ')} ` +
       '(password: SEED_DEMO_PASSWORD in your .env).',

@@ -2,7 +2,7 @@
 
 Frontend del CRM SaaS: React 19 + TypeScript + Vite + MUI. Consume la API de [`backend-crm`](../backend-crm).
 
-Incluye autenticación completa: login, registro, verificación de email, recuperación y cambio de contraseña, gestión de sesiones, perfil y selector de espacio de trabajo. El diseño de las pantallas de acceso sigue el estilo de wasapi.io (fondo animado, tarjeta con barra en degradado y etiquetas con asterisco). Los colores y logos por defecto son los de Vite y se configuran en un único archivo.
+Incluye autenticación completa (login, registro, verificación de email, recuperación y cambio de contraseña, sesiones, perfil y selector de espacio de trabajo), planes y facturación, y el módulo **Equipo**: agentes y roles. El diseño de las pantallas de acceso sigue el estilo de wasapi.io (fondo animado, tarjeta con barra en degradado y etiquetas con asterisco). Los colores y logos por defecto son los de Vite y se configuran en un único archivo.
 
 ## Requisitos
 
@@ -27,9 +27,9 @@ Si en el backend ejecutaste `npm run db:seed` con `SEED_DEMO_DATA=true`, existen
 | Email | Rol |
 | ----- | --- |
 | `superadmin@example.com` | OWNER de Acme Corp, Globex Industries e Initech |
-| `admin@example.com` | ADMIN en Acme Corp |
-| `agent@example.com` | AGENT en Acme Corp y Globex |
-| `viewer@example.com` | VIEWER en Acme Corp (membresía desactivada en Globex) |
+| `admin@example.com` | Administrador en Acme Corp |
+| `agent@example.com` | Agente regular en Acme Corp y Globex |
+| `viewer@example.com` | Rol personalizado «Solo lectura» en Acme Corp (membresía desactivada en Globex) |
 
 Los emails de registro, verificación y recuperación llegan a **Mailpit**: http://localhost:8025. Sus enlaces abren directamente las pantallas del frontend (`/verify-email`, `/reset-password`).
 
@@ -93,6 +93,9 @@ Los mensajes de la API se muestran en español. Los `401` de login siempre muest
 | `/` | autenticado | Inicio: workspace activo, roles y permisos |
 | `/account/profile` | autenticado | Perfil (nombre, idioma, zona horaria) |
 | `/account/security` | autenticado | Cambiar contraseña y gestionar sesiones |
+| `/team/members` | `members.read` | Equipo → Agentes |
+| `/team/roles` | `roles.read` | Equipo → Roles |
+| `/account/password-required` | autenticado | Cambio obligatorio de la contraseña temporal |
 | `/billing` | autenticado | Plan y facturación del workspace activo |
 | `/pricing` | todos | Planes y precios públicos (mensual/anual) |
 
@@ -113,6 +116,25 @@ Permisos: ver el plan requiere `billing.read` (OWNER, ADMIN) y cambiarlo `billin
 
 Con `BILLING_PAYMENTS_MODE=simulated` en el backend, los pagos se aprueban al instante (se avisa en la pantalla). Con `disabled`, solo se puede cambiar de plan durante la prueba.
 
+## Equipo (agentes y roles)
+
+Menú **Equipo**, visible con `members.read` o `roles.read` en el workspace activo. Tiene dos pestañas, como en wasapi. Reglas y API en `docs/team.md` del backend.
+
+| Pantalla | Qué hace |
+| -------- | -------- |
+| **Agentes** | Tabla con nombre, correo, rol, estado (Activo / Desactivado / Pendiente de primer acceso) y último acceso. Búsqueda y filtro por estado, indicador «N de M agentes» del plan. **Nuevo agente** pide nombre, correo y rol, y el backend envía una contraseña temporal por correo. Menú por fila: cambiar rol, reenviar acceso, desactivar (con confirmación) y reactivar |
+| **Roles** | Tarjetas con los roles del sistema (Propietario, Administrador, Agente regular), de solo lectura con «Ver permisos», y los personalizados del workspace con Editar y Eliminar. **Nuevo rol** muestra los permisos agrupados por módulo, con «Todos» por grupo. Si el plan no incluye roles personalizados aparece un aviso con enlace a planes |
+| **Contraseña obligatoria** | Si `/users/me` trae `mustChangePassword`, cualquier ruta de la app redirige a `/account/password-required` hasta que el agente cambie la contraseña temporal |
+
+La interfaz solo ofrece lo que la API va a aceptar, con la misma regla anti-escalada:
+
+- solo se pueden asignar roles cuyos permisos tengas;
+- nunca hay acciones sobre tu propia fila;
+- un Administrador no ve acciones sobre un Propietario;
+- el botón de alta se desactiva al llegar al límite del plan.
+
+Aun así, la API valida todo de nuevo. Los nombres de los roles del sistema y de los permisos están traducidos en `es.roles`; los roles personalizados muestran el nombre que les dio el workspace.
+
 ## Scripts
 
 | Comando | Qué hace |
@@ -123,7 +145,7 @@ Con `BILLING_PAYMENTS_MODE=simulated` en el backend, los pagos se aprueban al in
 | `npm run typecheck` | `tsc -b` |
 | `npm run lint` | oxlint |
 | `npm run format` / `format:check` | Prettier |
-| `npm test` | Vitest: cliente API (refresh, CSRF), validaciones, flujo de login, página de precios y registro con plan (MSW), formato de precios y errores |
+| `npm test` | Vitest: cliente API (refresh, CSRF), validaciones, flujo de login, página de precios y registro con plan, equipo (agentes, roles, límite del plan, contraseña obligatoria) con MSW, formato de precios y errores |
 
 ## Estructura
 
@@ -138,9 +160,12 @@ src/
   layouts/        AuthLayout (pantallas de acceso) y AppLayout (barra + menú lateral)
   pages/auth/     Login, registro, recuperación, verificación
   pages/app/      Inicio, plan y facturación, perfil, seguridad
+  pages/app/team/ Equipo: TeamPage (pestañas), MembersPage, RolesPage
   pages/          PricingPage (pública), NotFound
   components/     Logo, campos de formulario, botón en degradado, banners, ConfirmDialog
   components/billing/  PlanCard, IntervalToggle, FeatureComparison, PlanBanner, useCatalog
+  components/team/     Diálogos de agente y de rol, useTeamAccess (permisos y plan)
+  lib/team.ts     Nombres de roles y permisos, regla anti-escalada en cliente
   test/           Setup de Vitest y pruebas de integración
 ```
 
@@ -154,5 +179,6 @@ src/
 
 - Login con Google: la API todavía no tiene OAuth.
 - Selector de idioma: los textos ya están centralizados en `src/i18n/es.ts`.
-- Gestión de miembros e invitaciones: llegará con la Fase 3 del backend.
+- Invitaciones por enlace y transferencia de propiedad (pendientes en el backend).
+- Teléfonos asignados a cada agente: llegarán con la mensajería.
 - Pago real: la pantalla de facturación está lista para un checkout cuando el backend tenga una pasarela.

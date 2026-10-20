@@ -36,6 +36,8 @@ const BLOCKED_STATUSES: readonly UserStatus[] = ['SUSPENDED', 'DISABLED'];
 export interface AuthContext {
   userId: string;
   sessionId: string;
+  /** Temporary password: everything except changing it is blocked. */
+  mustChangePassword: boolean;
 }
 
 export interface IssuedTokens {
@@ -47,7 +49,7 @@ export interface IssuedTokens {
 }
 
 export interface LoginResult extends IssuedTokens {
-  user: UserSummary;
+  user: UserSummary & { mustChangePassword: boolean };
 }
 
 export interface RegisterInput {
@@ -200,6 +202,7 @@ export class AuthService {
         displayName,
         status,
         emailVerifiedAt,
+        mustChangePassword: candidate.mustChangePassword,
       },
     };
   }
@@ -383,7 +386,11 @@ export class AuthService {
     ) {
       return null;
     }
-    return claims;
+    return {
+      userId: claims.userId,
+      sessionId: claims.sessionId,
+      mustChangePassword: session.mustChangePassword,
+    };
   }
 
   // ─────────────────────────── Passwords ───────────────────────────

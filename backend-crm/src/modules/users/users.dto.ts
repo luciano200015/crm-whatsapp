@@ -50,6 +50,27 @@ export class WorkspacePlanDto {
   trialDaysLeft: number;
 }
 
+export class MyRoleDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({
+    example: 'OWNER',
+    description:
+      'System roles: OWNER, ADMIN, AGENT. Custom roles: a slug of their name.',
+  })
+  key: string;
+
+  @ApiProperty({ example: 'Owner' })
+  name: string;
+
+  @ApiProperty({
+    description:
+      'System role (workspaceId null, read-only) or a custom role of this workspace.',
+  })
+  system: boolean;
+}
+
 export class MyWorkspaceDto {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -66,8 +87,8 @@ export class MyWorkspaceDto {
   @ApiProperty({ enum: MembershipStatus, enumName: 'MembershipStatus' })
   membershipStatus: MembershipStatus;
 
-  @ApiProperty({ example: ['OWNER'], type: [String] })
-  roles: string[];
+  @ApiProperty({ type: [MyRoleDto] })
+  roles: MyRoleDto[];
 
   @ApiProperty({
     example: ['workspace.read', 'members.invite'],
@@ -96,6 +117,12 @@ export class MeDto {
 
   @ApiProperty()
   emailVerified: boolean;
+
+  @ApiProperty({
+    description:
+      'Temporary password: the user must change it (POST /auth/password/change) before using the app.',
+  })
+  mustChangePassword: boolean;
 
   @ApiProperty({ nullable: true, type: String })
   avatarUrl: string | null;

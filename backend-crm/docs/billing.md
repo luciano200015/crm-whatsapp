@@ -88,6 +88,10 @@ ACTIVE ──(cancelar)──► ACTIVE + cancel_at_period_end ──(fin del pe
 - **Cambiar de plan durante la prueba** no cobra nada y mantiene la fecha de fin de la prueba.
 - **Fuera de la prueba**, cambiar de plan o activar requiere un **pago**: con `simulated` se aprueba al instante y empieza un periodo nuevo (mes o año de calendario; 31 de enero + 1 mes = 28/29 de febrero). Con `disabled` responde `402 PAYMENTS_UNAVAILABLE`.
 - **Bajar de plan** se rechaza (`409 PLAN_LIMIT_EXCEEDED`) si el uso actual no cabe en los nuevos límites. Hoy se mide el número de agentes (membresías activas).
+- **Límites en el equipo** ([team.md](team.md)):
+  - registrar o reactivar un agente exige acceso completo (`402 SUBSCRIPTION_INACTIVE`) y caber en `limits.agents` (`409 AGENT_LIMIT_REACHED`);
+  - los roles personalizados requieren `features.custom_roles`.
+  - El módulo de equipo lee el plan a través del puerto `WorkspaceEntitlements`, que implementa `BillingService`.
 
 ## API
 
@@ -145,6 +149,6 @@ Cualquier otro workspace sin suscripción (por ejemplo, creado antes de existir 
 ## Pendiente
 
 - Job periódico que pase a `EXPIRED`/`PAST_DUE`/`CANCELED` sin esperar a una lectura, y envíe avisos por email antes de que termine la prueba.
-- Aplicar los límites en los módulos que aún no existen (líneas, contactos, créditos IA…) y restringir la escritura cuando no hay acceso completo (`hasFullAccess=false`).
+- Aplicar los límites en los módulos que aún no existen (líneas, contactos, créditos IA…) y restringir la escritura cuando no hay acceso completo (`hasFullAccess=false`). Agentes y roles personalizados ya se validan.
 - Pasarela de pago real, facturas, impuestos y prorrateo al cambiar de plan a mitad de periodo.
 - Complementos de pago por uso (agente adicional, paquetes de contactos o créditos).

@@ -20,6 +20,7 @@ const me: Me = {
   displayName: 'Super Admin',
   status: 'ACTIVE',
   emailVerified: true,
+  mustChangePassword: false,
   avatarUrl: null,
   locale: null,
   timezone: null,
@@ -32,7 +33,7 @@ const me: Me = {
       slug: 'acme',
       status: 'ACTIVE',
       membershipStatus: 'ACTIVE',
-      roles: ['OWNER'],
+      roles: [{ id: 'r-owner', key: 'OWNER', name: 'Owner', system: true }],
       permissions: ['workspace.read'],
       plan: {
         code: 'team',

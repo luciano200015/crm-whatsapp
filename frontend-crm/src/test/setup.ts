@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 
 // jsdom has no matchMedia; MUI's color-scheme detection needs it.
@@ -18,6 +18,10 @@ if (!window.matchMedia) {
     })),
   })
 }
+
+// Routes are lazy-loaded: the first render of a test file compiles the page
+// on demand, which can exceed the 1 s default when several files run at once.
+configure({ asyncUtilTimeout: 5000 })
 
 afterEach(() => {
   cleanup()

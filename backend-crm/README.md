@@ -32,7 +32,7 @@ Está corriendo si http://localhost:3000/api/v1/health/ready devuelve `"status":
 
 Guía paso a paso para probar registro, login, refresh y logout desde Swagger: [sección 4](#4-probar-la-api-con-swagger). Usuarios de prueba: [datos demo](#datos-demo-desarrollo).
 
-> Estado actual: Fases **0** (infraestructura), **1** (modelo PostgreSQL), **2** (autenticación), **planes y suscripciones** con prueba gratuita ([docs/billing.md](docs/billing.md)) y el guard de permisos por workspace. Workspaces e invitaciones (Fase 3) están pendientes. Ver [docs/limitations.md](docs/limitations.md).
+> Estado actual: Fases **0** (infraestructura), **1** (modelo PostgreSQL) y **2** (autenticación); **planes y suscripciones** con prueba gratuita ([docs/billing.md](docs/billing.md)); el guard de permisos por workspace, y el **equipo**: agentes con contraseña temporal, roles del sistema y roles personalizados ([docs/team.md](docs/team.md)). Las invitaciones por enlace y la transferencia de propiedad están pendientes. Ver [docs/limitations.md](docs/limitations.md).
 
 ---
 
@@ -143,6 +143,13 @@ Abre http://localhost:3000/docs. Arriba de la página está la misma guía resum
 6. **Refresh**: `POST /auth/refresh` → `200`. Rota el refresh token y renueva el access token en Authorize. El header `X-CSRF-Token` lo añade Swagger por ti.
 7. **Logout**: `POST /auth/logout` → `204`. Revoca la sesión y quita la autorización; los endpoints protegidos vuelven a dar `401`.
 
+**Equipo** (con el `workspaceId` de `GET /users/me`):
+
+1. `GET /workspaces/{workspaceId}/roles`: copia el `id` del rol que quieras asignar.
+2. `POST /workspaces/{workspaceId}/members` con `{ "email", "displayName", "roleId" }` → `201`. En Mailpit llega *You have been added to …* con la **contraseña temporal**.
+3. Inicia sesión con ese agente: todo responde `403 PASSWORD_CHANGE_REQUIRED` hasta que la cambie en `POST /auth/password/change`.
+4. Roles propios: `POST /workspaces/{workspaceId}/roles` con `{ "name", "permissions": [...] }`. Requiere un plan con roles personalizados; el catálogo de permisos está en `GET …/permissions`.
+
 **Recuperar contraseña**: `POST /auth/password/forgot` → copia el token del email *Reset your password* en Mailpit → `POST /auth/password/reset` con `{ "token": "...", "newPassword": "..." }`. Cierra todas las sesiones de esa cuenta.
 
 Comportamientos que vas a notar (son intencionados):
@@ -177,11 +184,12 @@ Con `SEED_DEMO_DATA=true` y `SEED_DEMO_PASSWORD=<12 caracteres o más>` en tu `.
 | Usuario | Membresías |
 | ------- | ---------- |
 | `superadmin@example.com` (el "super usuario") | OWNER de **Acme Corp** (`acme`), **Globex Industries** (`globex`) e **Initech** (`initech`) |
-| `admin@example.com` | ADMIN en Acme Corp |
-| `agent@example.com` | AGENT en Acme Corp y Globex |
-| `viewer@example.com` | VIEWER en Acme Corp; membresía **desactivada** en Globex |
+| `admin@example.com` | Administrador (ADMIN) en Acme Corp |
+| `agent@example.com` | Agente regular (AGENT) en Acme Corp y Globex |
+| `viewer@example.com` | Rol personalizado «Solo lectura» en Acme Corp; membresía **desactivada** en Globex |
 
 - Todos están `ACTIVE`, con el email verificado, y usan la contraseña de `SEED_DEMO_PASSWORD`.
+- Acme Corp tiene además el rol personalizado «Supervisor» ([docs/team.md](docs/team.md#datos-demo)).
 - Cada workspace tiene un plan en un estado distinto: **Acme** Empresa anual activo, **Globex** Equipo en prueba (7 días), **Initech** Corporativo con la prueba vencida. Ver [docs/billing.md](docs/billing.md#datos-demo).
 - Es idempotente: si vuelves a ejecutarlo no duplica nada ni cambia contraseñas que ya existan.
 - Se niega a ejecutarse con `NODE_ENV=production`.
@@ -248,6 +256,7 @@ src/
       infrastructure/     Argon2id, JWT ES256, almacén Prisma
       presentation/       Controlador, DTOs, guards (JWT global, CSRF), cookies
     users/                GET/PATCH /users/me (incluye el plan de cada workspace)
+    team/                 Equipo: agentes (alta con contraseña temporal, rol, desactivar) y roles personalizados
     billing/              Planes, precios, límites, suscripciones y prueba gratuita
       domain/             plan-catalog.ts (catálogo editable) y reglas de estados/periodos
       application/        BillingService, puertos (almacén, pasarela de pago), códigos de error
@@ -269,6 +278,7 @@ Documentación técnica:
 - [docs/authentication.md](docs/authentication.md) — flujos de autenticación, tokens, cookies, CSRF y decisiones de seguridad.
 - [docs/data-model.md](docs/data-model.md) — entidades, índices y decisiones del modelo.
 - [docs/authorization.md](docs/authorization.md) — permisos, roles, guard por workspace y reglas de propietario.
+- [docs/team.md](docs/team.md) — agentes, roles del sistema y personalizados, contraseña temporal, reglas anti-escalada.
 - [docs/billing.md](docs/billing.md) — planes, precios, límites, prueba gratuita, estados y API de suscripciones.
 - [docs/limitations.md](docs/limitations.md) — pendientes y limitaciones conocidas.
 

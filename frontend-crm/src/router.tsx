@@ -1,8 +1,9 @@
-import { createBrowserRouter } from 'react-router'
-import { ProtectedRoute, PublicOnlyRoute } from './auth/routes'
+import { createBrowserRouter, Navigate } from 'react-router'
+import { ProtectedRoute, PublicOnlyRoute, RequirePasswordChanged } from './auth/routes'
 import { AuthLayout } from './layouts/AuthLayout'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
 import { LoginPage } from './pages/auth/LoginPage'
+import { PasswordRequiredPage } from './pages/auth/PasswordRequiredPage'
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage'
 import { SignUpDonePage } from './pages/auth/SignUpDonePage'
 import { SignUpPage } from './pages/auth/SignUpPage'
@@ -32,32 +33,61 @@ export const routes = [
     element: <ProtectedRoute />,
     children: [
       {
-        // The signed-in area is loaded on demand so the login screen stays light.
-        lazy: async () => ({ Component: (await import('./layouts/AppLayout')).AppLayout }),
+        element: <AuthLayout />,
+        children: [{ path: '/account/password-required', element: <PasswordRequiredPage /> }],
+      },
+      {
+        element: <RequirePasswordChanged />,
         children: [
           {
-            path: '/',
-            lazy: async () => ({
-              Component: (await import('./pages/app/DashboardPage')).DashboardPage,
-            }),
-          },
-          {
-            path: '/billing',
-            lazy: async () => ({
-              Component: (await import('./pages/app/BillingPage')).BillingPage,
-            }),
-          },
-          {
-            path: '/account/profile',
-            lazy: async () => ({
-              Component: (await import('./pages/app/ProfilePage')).ProfilePage,
-            }),
-          },
-          {
-            path: '/account/security',
-            lazy: async () => ({
-              Component: (await import('./pages/app/SecurityPage')).SecurityPage,
-            }),
+            // The signed-in area is loaded on demand so the login screen stays light.
+            lazy: async () => ({ Component: (await import('./layouts/AppLayout')).AppLayout }),
+            children: [
+              {
+                path: '/',
+                lazy: async () => ({
+                  Component: (await import('./pages/app/DashboardPage')).DashboardPage,
+                }),
+              },
+              { path: '/team', element: <Navigate to="/team/members" replace /> },
+              {
+                lazy: async () => ({
+                  Component: (await import('./pages/app/team/TeamPage')).TeamPage,
+                }),
+                children: [
+                  {
+                    path: '/team/members',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/team/MembersPage')).MembersPage,
+                    }),
+                  },
+                  {
+                    path: '/team/roles',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/team/RolesPage')).RolesPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                path: '/billing',
+                lazy: async () => ({
+                  Component: (await import('./pages/app/BillingPage')).BillingPage,
+                }),
+              },
+              {
+                path: '/account/profile',
+                lazy: async () => ({
+                  Component: (await import('./pages/app/ProfilePage')).ProfilePage,
+                }),
+              },
+              {
+                path: '/account/security',
+                lazy: async () => ({
+                  Component: (await import('./pages/app/SecurityPage')).SecurityPage,
+                }),
+              },
+            ],
           },
         ],
       },

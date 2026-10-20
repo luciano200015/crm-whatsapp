@@ -261,13 +261,19 @@ describe('Auth (e2e)', () => {
 
       const response = await me(session.accessToken).expect(200);
 
-      expect(response.body).toMatchObject({ email, emailVerified: false });
+      expect(response.body).toMatchObject({
+        email,
+        emailVerified: false,
+        mustChangePassword: false,
+      });
       const [workspace] = (response.body as { workspaces: unknown })
         .workspaces as {
-        roles: string[];
+        roles: { key: string; name: string; system: boolean }[];
         permissions: string[];
       }[];
-      expect(workspace?.roles).toEqual(['OWNER']);
+      expect(workspace?.roles).toEqual([
+        expect.objectContaining({ key: 'OWNER', name: 'Owner', system: true }),
+      ]);
       expect(workspace?.permissions).toContain('billing.manage');
     });
 

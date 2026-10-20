@@ -32,6 +32,7 @@ export class UsersService {
         timezone: true,
         createdAt: true,
         lastLoginAt: true,
+        credential: { select: { mustChangePassword: true } },
         memberships: {
           orderBy: { joinedAt: 'asc' },
           select: {
@@ -57,7 +58,10 @@ export class UsersService {
               select: {
                 role: {
                   select: {
+                    id: true,
                     key: true,
+                    name: true,
+                    workspaceId: true,
                     permissions: {
                       select: { permission: { select: { key: true } } },
                     },
@@ -72,24 +76,41 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
 
     const now = new Date();
-    const { emailVerifiedAt, memberships, ...profile } = user;
+    const { emailVerifiedAt, memberships, credential, ...profile } = user;
     return {
       ...profile,
       emailVerified: emailVerifiedAt !== null,
+      mustChangePassword: credential?.mustChangePassword ?? false,
       workspaces: memberships.map(
-        ({ workspace: { subscription, ...workspace }, ...membership }) => ({
-          ...workspace,
-          plan: subscription ? planSummary(subscription, now) : null,
-          membershipStatus: membership.status,
-          roles: membership.roles.map(({ role }) => role.key).sort(),
-          permissions: [
-            ...new Set(
-              membership.roles.flatMap(({ role }) =>
-                role.permissions.map(({ permission }) => permission.key),
+        ({ workspace: { subscription, ...workspace }, ...membership }) => {
+          // Same rule as AuthorizationService: a custom role only counts in its own workspace.
+          const roles = membership.roles
+            .map(({ role }) => role)
+            .filter(
+              (role) =>
+                role.workspaceId === null || role.workspaceId === workspace.id,
+            );
+          return {
+            ...workspace,
+            plan: subscription ? planSummary(subscription, now) : null,
+            membershipStatus: membership.status,
+            roles: roles
+              .map((role) => ({
+                id: role.id,
+                key: role.key,
+                name: role.name,
+                system: role.workspaceId === null,
+              }))
+              .sort((a, b) => a.key.localeCompare(b.key)),
+            permissions: [
+              ...new Set(
+                roles.flatMap((role) =>
+                  role.permissions.map(({ permission }) => permission.key),
+                ),
               ),
-            ),
-          ].sort(),
-        }),
+            ].sort(),
+          };
+        },
       ),
     };
   }

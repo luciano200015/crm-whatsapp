@@ -14,7 +14,10 @@ import {
 } from '../../shared/http/request-context';
 import { SWAGGER_BEARER } from '../../shared/http/swagger';
 import type { AuthContext } from '../auth/application/auth.service';
-import { CurrentUser } from '../auth/presentation/auth.decorators';
+import {
+  AllowPendingPasswordChange,
+  CurrentUser,
+} from '../auth/presentation/auth.decorators';
 import { MeDto, UpdateMeDto } from './users.dto';
 import { UsersService } from './users.service';
 
@@ -25,6 +28,7 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
+  @AllowPendingPasswordChange()
   @Get('me')
   @ApiOperation({
     summary: 'My profile, workspaces, roles and effective permissions',

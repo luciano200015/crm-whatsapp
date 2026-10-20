@@ -17,7 +17,7 @@ Definido en [`prisma/schema.prisma`](../prisma/schema.prisma). Migración inicia
 | Tabla | Propósito | Claves / restricciones |
 | ----- | --------- | ---------------------- |
 | `users` | Perfil y estado (`PENDING_VERIFICATION`, `ACTIVE`, `SUSPENDED`, `DISABLED`) | `email` único + `CHECK` de normalización |
-| `user_credentials` | Hash Argon2id, fecha de cambio, intentos fallidos, bloqueo | PK = `user_id` (1:1). Separado del perfil para que las lecturas de perfil nunca toquen hashes |
+| `user_credentials` | Hash Argon2id, fecha de cambio, intentos fallidos, bloqueo y `must_change_password` (contraseña temporal de un agente creado por un administrador) | PK = `user_id` (1:1). Separado del perfil para que las lecturas de perfil nunca toquen hashes |
 | `user_sessions` | Una por login; agrupa la familia de refresh tokens. Caducidad absoluta, motivo de revocación | índice `(user_id, status)` |
 | `refresh_tokens` | Tokens rotativos de una sesión | `token_hash` único; `parent_id` **único** (un token solo puede rotarse una vez); `used_at` marca el canje → presentarlo de nuevo = reutilización |
 | `password_reset_tokens` | Recuperación de contraseña, uso único | `token_hash` único, `expires_at`, `used_at` |
@@ -35,7 +35,7 @@ Definido en [`prisma/schema.prisma`](../prisma/schema.prisma). Migración inicia
 
 | Tabla | Propósito | Claves / restricciones |
 | ----- | --------- | ---------------------- |
-| `roles` | Roles de sistema (`workspace_id IS NULL`) y, en el futuro, roles propios de un workspace | Índices únicos parciales: `key` donde `workspace_id IS NULL`; `(workspace_id, key)` donde no es nulo |
+| `roles` | Roles del sistema (`workspace_id IS NULL`: OWNER, ADMIN, AGENT) y roles personalizados de un workspace (`workspace_id` con valor) | Índices únicos parciales: `key` donde `workspace_id IS NULL`; `(workspace_id, key)` donde no es nulo. `CHECK roles_system_scope_check`: `is_system = (workspace_id IS NULL)` |
 | `permissions` | Catálogo de permisos (`contacts.read`, …) | `key` único |
 | `role_permissions` | Rol ↔ permiso | PK `(role_id, permission_id)` |
 | `membership_roles` | Rol asignado a una membresía, con quién y cuándo | PK `(membership_id, role_id)` |
@@ -66,6 +66,17 @@ Añadidas al final de la migración inicial porque Prisma no las modela: `CHECK`
 2. `npm run prisma:migrate:dev -- --name <cambio> --create-only`.
 3. Revisar el SQL; añadir a mano lo que Prisma no modele. Las migraciones destructivas (borrar columnas/tablas, cambiar tipos con pérdida) requieren aprobación explícita.
 4. `npm run prisma:migrate:dev` para aplicarla, y `npm run test:int`.
+
+## Equipo (migración `team_members_roles`)
+
+- `user_credentials.must_change_password` (`boolean`, por defecto `false`).
+- `CHECK roles_system_scope_check`: `workspace_id` decide si un rol es del sistema y `is_system` no puede contradecirlo.
+- **Retiro del rol del sistema `VIEWER` sin perder accesos.** Por cada workspace que lo tenía asignado (en membresías o invitaciones), la migración:
+  1. crea un rol personalizado `viewer` («Solo lectura») con los mismos permisos;
+  2. mueve las asignaciones a ese rol;
+  3. borra el rol del sistema. Si algo lo siguiera referenciando, el `ON DELETE RESTRICT` haría fallar la migración en lugar de quitar accesos en silencio.
+
+Ver [team.md](team.md).
 
 ## Billing (migración `billing_plans_subscriptions`)
 

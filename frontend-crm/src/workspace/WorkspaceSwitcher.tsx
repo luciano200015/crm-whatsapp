@@ -4,6 +4,7 @@ import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { es } from '../i18n/es'
+import { roleName } from '../lib/team'
 import { useActiveWorkspace } from './active-workspace-context'
 
 export function WorkspaceSwitcher() {
@@ -38,7 +39,7 @@ export function WorkspaceSwitcher() {
           <Stack>
             <Typography>{workspace.name}</Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              {workspace.slug} · {workspace.roles.join(', ')}
+              {workspace.slug} · {workspace.roles.map(roleName).join(', ')}
             </Typography>
           </Stack>
         </MenuItem>

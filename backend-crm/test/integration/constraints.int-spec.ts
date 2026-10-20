@@ -193,6 +193,25 @@ describe('PostgreSQL constraints (integration)', () => {
       );
     });
 
+    it('keeps is_system consistent with workspace_id (null = system role)', async () => {
+      const workspace = await createWorkspace('acme');
+      await expect(
+        prisma.role.create({
+          data: { key: 'X', name: 'X', workspaceId: null, isSystem: false },
+        }),
+      ).rejects.toThrow(/roles_system_scope_check/);
+      await expect(
+        prisma.role.create({
+          data: {
+            key: 'x',
+            name: 'x',
+            workspaceId: workspace.id,
+            isSystem: true,
+          },
+        }),
+      ).rejects.toThrow(/roles_system_scope_check/);
+    });
+
     it('rejects assigning the same role twice to a membership', async () => {
       const user = await createUser('roles@example.com');
       const workspace = await createWorkspace('acme');

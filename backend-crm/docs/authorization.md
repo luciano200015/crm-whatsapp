@@ -16,23 +16,35 @@ User ──< WorkspaceMembership >── Workspace
 
 Fuente única: [`src/modules/authorization/domain/permission-catalog.ts`](../src/modules/authorization/domain/permission-catalog.ts). `npm run db:seed` lo sincroniza con la base de datos.
 
-| Permiso            | OWNER | ADMIN | AGENT | VIEWER |
-| ------------------ | :---: | :---: | :---: | :----: |
-| `workspace.read`   | ✓ | ✓ | ✓ | ✓ |
-| `workspace.update` | ✓ | ✓ |   |   |
-| `members.read`     | ✓ | ✓ | ✓ | ✓ |
-| `members.invite`   | ✓ | ✓ |   |   |
-| `members.manage`   | ✓ | ✓ |   |   |
-| `roles.read`       | ✓ | ✓ |   |   |
-| `roles.manage`     | ✓ |   |   |   |
-| `contacts.read`    | ✓ | ✓ | ✓ | ✓ |
-| `contacts.write`   | ✓ | ✓ | ✓ |   |
-| `messages.read`    | ✓ | ✓ | ✓ | ✓ |
-| `messages.send`    | ✓ | ✓ | ✓ |   |
-| `billing.read`     | ✓ | ✓ |   |   |
-| `billing.manage`   | ✓ |   |   |   |
+| Permiso            | Propietario (`OWNER`) | Administrador (`ADMIN`) | Agente regular (`AGENT`) |
+| ------------------ | :---: | :---: | :---: |
+| `workspace.read`   | ✓ | ✓ | ✓ |
+| `workspace.update` | ✓ | ✓ |   |
+| `members.read`     | ✓ | ✓ | ✓ |
+| `members.invite`   | ✓ | ✓ |   |
+| `members.manage`   | ✓ | ✓ |   |
+| `roles.read`       | ✓ | ✓ |   |
+| `roles.manage`     | ✓ |   |   |
+| `contacts.read`    | ✓ | ✓ | ✓ |
+| `contacts.write`   | ✓ | ✓ | ✓ |
+| `messages.read`    | ✓ | ✓ | ✓ |
+| `messages.send`    | ✓ | ✓ | ✓ |
+| `billing.read`     | ✓ | ✓ |   |
+| `billing.manage`   | ✓ |   |   |
 
-Las pruebas unitarias del catálogo verifican: OWNER tiene todos los permisos; `billing.manage` y `roles.manage` son exclusivos de OWNER; VIEWER solo tiene permisos `.read`; AGENT no puede invitar ni gestionar miembros.
+Las pruebas unitarias del catálogo verifican:
+
+- OWNER tiene todos los permisos.
+- `billing.manage` y `roles.manage` son exclusivos de OWNER.
+- AGENT no puede invitar ni gestionar miembros.
+- Cada permiso pertenece a un grupo conocido (`PERMISSION_GROUPS`), que la interfaz usa para construir roles.
+
+**Roles del sistema y roles personalizados.** `roles.workspace_id` decide el alcance:
+
+- `NULL`: rol del sistema, compartido y de solo lectura.
+- Con valor: rol personalizado de ese workspace.
+
+Un `CHECK` mantiene `is_system` coherente. El rol `VIEWER` se retiró en la migración `team_members_roles`: cada workspace que lo usaba recibió un rol personalizado «Solo lectura» con los mismos permisos. Ver [team.md](team.md).
 
 ## Añadir un permiso
 
@@ -70,16 +82,25 @@ export class WorkspaceSubscriptionController {
 - Un usuario que no es miembro, o un `workspaceId` mal formado: **404** (no se revela si el workspace existe). Un miembro sin el permiso: **403**.
 - `@CurrentWorkspace()` entrega `{ workspaceId, membershipId, roles, permissions }` al controlador.
 
-## Regla del último propietario (Fase 3)
+## Regla del último propietario
 
-Todo workspace activo debe tener al menos una membresía `ACTIVE` con rol `OWNER`. Las operaciones que pueden romperlo (quitar el rol OWNER, desactivar la membresía, abandonar el workspace, transferir la propiedad) se ejecutarán en una transacción que:
+Todo workspace activo debe tener al menos una membresía `ACTIVE` con rol `OWNER`. Ya la aplican el cambio de rol y la desactivación del módulo de equipo; abandonar el workspace y transferir la propiedad la aplicarán cuando existan. Cada operación se ejecuta en una transacción que:
 
 1. Bloquea la fila del workspace (`SELECT … FROM workspaces WHERE id = $1 FOR UPDATE`) para serializar cambios concurrentes sobre sus propietarios.
 2. Cuenta los propietarios activos restantes tras el cambio.
-3. Rechaza la operación si el resultado es 0.
+3. Rechaza la operación (`409 LAST_OWNER`) y deshace la transacción si el resultado es 0.
 
 La transferencia de propiedad será explícita: añadir OWNER al destinatario y, en la misma transacción, opcionalmente retirárselo al emisor.
 
-## Roles personalizados (futuro)
+## Anti-escalada de privilegios
 
-El esquema ya admite roles con `workspace_id` (clave única por workspace). Requisitos cuando se implementen: solo con `roles.manage`; un rol de un workspace solo se puede asignar a membresías de ese mismo workspace (validado en el caso de uso); los roles de sistema no son editables.
+Un miembro con `members.*` o `roles.manage` solo puede:
+
+- asignar, crear o editar roles cuyos permisos tenga él mismo;
+- actuar sobre miembros cuyos permisos tenga.
+
+Si no, recibe `403 ROLE_ESCALATION`. Por eso un Administrador gestiona agentes pero no puede tocar a un Propietario ni darle a nadie el rol Propietario. Detalle en [team.md](team.md#reglas-de-autorización).
+
+## Roles personalizados
+
+Implementados en el módulo de equipo: requieren `roles.manage` y un plan con `features.custom_roles`. Un rol de un workspace solo se ve y se asigna dentro de ese workspace (`404 ROLE_NOT_FOUND` desde otro), y los roles del sistema no son editables. Ver [team.md](team.md).

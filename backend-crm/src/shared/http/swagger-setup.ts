@@ -23,7 +23,9 @@ Recuperar contraseña: **POST /auth/password/forgot**, luego el token de Mailpit
 
 **Planes:** \`GET /billing/plans\` (público). La suscripción de un workspace está en \`/workspaces/{workspaceId}/subscription\`; el \`workspaceId\` sale de \`GET /users/me\`.
 
-Los errores siguen siempre el formato \`{ statusCode, error, message, requestId, timestamp, path }\`.
+**Equipo:** agentes en \`/workspaces/{workspaceId}/members\` y roles en \`/workspaces/{workspaceId}/roles\`. Un agente nuevo recibe una contraseña temporal por email (Mailpit); al iniciar sesión con ella, todo responde \`403 PASSWORD_CHANGE_REQUIRED\` hasta que la cambie en **POST /auth/password/change**.
+
+Los errores siguen siempre el formato \`{ statusCode, error, message, requestId, timestamp, path }\`, con \`code\` (y a veces \`details\`) cuando el cliente debe tratarlos de forma específica.
 `;
 
 /**
@@ -116,6 +118,10 @@ export function setupSwagger(app: INestApplication): void {
       .addTag(
         'billing',
         'Planes, precios, prueba gratuita y suscripción de cada workspace',
+      )
+      .addTag(
+        'team',
+        'Equipo del workspace: agentes (alta, rol, desactivar) y roles personalizados',
       )
       .addTag('health', 'Disponibilidad del servicio y sus dependencias')
       .build(),

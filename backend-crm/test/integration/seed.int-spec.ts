@@ -74,8 +74,8 @@ describe('authorization seed (integration)', () => {
 
   it('repairs drift: restores missing grants and removes extra ones', async () => {
     await seedAuthorization(prisma);
-    const viewer = await prisma.role.findFirstOrThrow({
-      where: { key: 'VIEWER', workspaceId: null },
+    const agent = await prisma.role.findFirstOrThrow({
+      where: { key: 'AGENT', workspaceId: null },
     });
     const owner = await prisma.role.findFirstOrThrow({
       where: { key: 'OWNER', workspaceId: null },
@@ -85,7 +85,7 @@ describe('authorization seed (integration)', () => {
     });
 
     await prisma.rolePermission.create({
-      data: { roleId: viewer.id, permissionId: billingManage.id },
+      data: { roleId: agent.id, permissionId: billingManage.id },
     });
     await prisma.rolePermission.delete({
       where: {
@@ -100,6 +100,17 @@ describe('authorization seed (integration)', () => {
 
     expect(result).toMatchObject({ grantsAdded: 1, grantsRemoved: 1 });
     expect(await counts()).toMatchObject({ grants: expectedGrantCount });
+  });
+
+  it('reports system roles that are no longer in the catalog without deleting them', async () => {
+    await prisma.role.create({
+      data: { key: 'LEGACY', name: 'Legacy', isSystem: true },
+    });
+
+    const result = await seedAuthorization(prisma);
+
+    expect(result.retiredSystemRoles).toEqual(['LEGACY']);
+    expect(await prisma.role.count({ where: { key: 'LEGACY' } })).toBe(1);
   });
 
   it('reports permissions that are no longer in the catalog without deleting them', async () => {

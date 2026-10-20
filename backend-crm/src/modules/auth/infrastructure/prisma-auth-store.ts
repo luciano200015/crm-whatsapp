@@ -152,6 +152,7 @@ export class PrismaAuthStore extends AuthStore {
       passwordHash: credential.passwordHash,
       failedLoginCount: credential.failedLoginCount,
       lockedUntil: credential.lockedUntil,
+      mustChangePassword: credential.mustChangePassword,
     };
   }
 
@@ -234,12 +235,21 @@ export class PrismaAuthStore extends AuthStore {
         userId: true,
         status: true,
         expiresAt: true,
-        user: { select: { status: true } },
+        user: {
+          select: {
+            status: true,
+            credential: { select: { mustChangePassword: true } },
+          },
+        },
       },
     });
     if (!session) return null;
     const { user, ...rest } = session;
-    return { ...rest, userStatus: user.status };
+    return {
+      ...rest,
+      userStatus: user.status,
+      mustChangePassword: user.credential?.mustChangePassword ?? false,
+    };
   }
 
   listActiveSessions(userId: string, now: Date): Promise<SessionSummary[]> {
@@ -409,6 +419,7 @@ export class PrismaAuthStore extends AuthStore {
           passwordChangedAt: now,
           failedLoginCount: 0,
           lockedUntil: null,
+          mustChangePassword: false,
         },
       });
       await this.revokeUserSessionsIn(
@@ -428,10 +439,25 @@ export class PrismaAuthStore extends AuthStore {
     now: Date,
   ): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
+      const previous = await tx.userCredential.findUniqueOrThrow({
+        where: { userId },
+        select: { mustChangePassword: true },
+      });
       await tx.userCredential.update({
         where: { userId },
-        data: { passwordHash: newPasswordHash, passwordChangedAt: now },
+        data: {
+          passwordHash: newPasswordHash,
+          passwordChangedAt: now,
+          mustChangePassword: false,
+        },
       });
+      if (previous.mustChangePassword) {
+        // Only the mailbox owner could know the emailed temporary password.
+        await tx.user.updateMany({
+          where: { id: userId, emailVerifiedAt: null },
+          data: { emailVerifiedAt: now },
+        });
+      }
       return this.revokeUserSessionsIn(
         tx,
         userId,
