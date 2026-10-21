@@ -13,7 +13,7 @@ Estado con autenticación, planes, equipo, contactos, canales y bandeja de mensa
 - **Limpieza de sesiones y tokens caducados**: las filas caducadas quedan en la base de datos (se rechazan por fecha). Falta un job periódico de limpieza y de marcado `EXPIRED`.
 - **Rotación de claves JWT**: hay un solo par de claves; rotarlas invalida todos los access tokens (máx. 15 min de impacto). Falta soporte de `kid`/JWKS con varias claves.
 - **Billing**: no hay pasarela de pago real (`BILLING_PAYMENTS_MODE` solo admite `disabled` y `simulated`), ni job que expire pruebas o periodos (el estado se recalcula y persiste al leerlo), ni emails de aviso de fin de prueba. Los límites solo se aplican a los agentes al bajar de plan; el resto se aplicará cuando existan contactos, líneas y créditos IA. Detalle en [billing.md](billing.md#pendiente).
-- **Mensajería**: pendiente conexión real verificada con Meta, descarga/envío de multimedia, plantillas y Embedded Signup. SSE funciona en una instancia; varias instancias requieren Redis. No hay cola persistente/outbox para recuperar fallos parciales entre PostgreSQL y MongoDB.
+- **Mensajería**: pendientes las plantillas (escribir fuera de las 24 h) y Embedded Signup. Los archivos se conservan en GridFS sin caducidad, y no se borran al eliminar una línea o un contacto. El límite propio de envío es 16 MB. SSE funciona en una instancia; varias instancias requieren Redis. No hay cola persistente/outbox para recuperar fallos parciales entre PostgreSQL y MongoDB. Las notificaciones solo funcionan con la aplicación abierta (no hay push).
 
 ## Decisiones con contrapartidas
 

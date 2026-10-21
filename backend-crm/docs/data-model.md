@@ -93,7 +93,9 @@ Datos operativos del CRM. Todas las colecciones usan el plugin `workspaceScoped`
 | `contacts` | Contactos: teléfono E.164, nombre, email, notas, `tagIds`, origen | `(workspaceId, phone)` único; `(workspaceId, tagIds, _id)`; `(workspaceId, _id)` |
 | `tags` | Etiquetas con color | `(workspaceId, normalizedName)` único |
 | `conversations` | Chat de un contacto en una línea: copia del contacto, estado `OPEN`/`CLOSED`, agente asignado, último mensaje, `lastInboundAt` (ventana de 24 h), no leídos | `(workspaceId, lineId, contactId)` único **solo para `OPEN`** (índice parcial); `(workspaceId, status, lastActivityAt, _id)`; por agente y por línea |
-| `messages` | Mensajes entrantes (`IN`), salientes (`OUT`) y notas internas (`NOTE`) con estado de entrega | `(workspaceId, conversationId, _id)`; `(workspaceId, waMessageId)` único parcial: un webhook repetido no duplica |
+| `messages` | Mensajes entrantes (`IN`), salientes (`OUT`), notas internas (`NOTE`) y movimientos (`EVENT`, con `event: { kind, by, from, to }`), con estado de entrega. Los archivos guardan el id de Meta y, una vez copiados, `media.fileId` (GridFS) y `media.size`. Las ubicaciones guardan `location` | `(workspaceId, conversationId, _id)`; `(workspaceId, waMessageId)` único parcial: un webhook repetido no duplica |
+| `quick_replies` | Respuestas rápidas: `shortcut` y `text` | `(workspaceId, shortcut)` único |
+| `media.files` / `media.chunks` | Archivos de los chats en **GridFS**, con `metadata.workspaceId` y `metadata.mimeType`. Toda lectura filtra por workspace | Índices propios de GridFS |
 
 ## Equipo (migración `team_members_roles`)
 

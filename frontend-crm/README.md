@@ -93,6 +93,9 @@ Los mensajes de la API se muestran en español. Los `401` de login siempre muest
 | `/` | autenticado | Inicio: workspace activo, roles y permisos |
 | `/account/profile` | autenticado | Perfil (nombre, idioma, zona horaria) |
 | `/account/security` | autenticado | Cambiar contraseña y gestionar sesiones |
+| `/inbox` | `messages.read` | Bandeja de mensajes (`?conversation=` abre un chat, `?contactId=` filtra por contacto) |
+| `/inbox/auto-assignment` | `channels.manage` | Autoasignación |
+| `/quick-replies` | `quick_replies.manage` | Respuestas rápidas |
 | `/team/agents` | `members.read` | Equipo → Agentes (`/team/members` redirige aquí) |
 | `/team/roles` | `roles.read` | Equipo → Roles |
 | `/forbidden` | autenticado | «No autorizado»: adonde se redirige al abrir una página sin permiso |
@@ -199,9 +202,29 @@ src/
 - Invitaciones por enlace y transferencia de propiedad (pendientes en el backend).
 - Teléfonos asignados a cada agente: llegarán con la mensajería.
 - Pago real: la pantalla de facturación está lista para un checkout cuando el backend tenga una pasarela.
-# Mensajes
+## Bandeja de mensajes
 
-`/inbox` muestra la bandeja (`messages.read`); `/inbox/auto-assignment` configura líneas y agentes (`channels.manage`). Los controles verifican los permisos del workspace activo, y el servidor valida cada operación. Cambiar workspace o cerrar sesión desconecta el stream anterior.
+**Menú:** **Bandeja**, **Autoasignación** y **Respuestas rápidas** son entradas de primer nivel, cada una con su permiso. La bandeja imita WhatsApp Web y wasapi:
 
-Para pruebas sin WhatsApp real, activar el modo simulado y cargar el seed del backend. La guía completa está en [Bandeja y autoasignación](../backend-crm/docs/inbox.md).
+- **Lista de chats:** filtros Abiertos / Cerrados / Todos, pestañas Mis chats / Sin asignar / Todos y contador verde de no leídos.
+- **Chat:**
+  - burbujas con fondo de chat, separadores por día y avisos centrados de cada movimiento (asignado, transferido, cerrado…);
+  - visores de imagen, sticker, audio, video, documento y ubicación.
+- **Cabecera:** transferir, cerrar, reabrir, marcar como no leído y bloquear contacto.
+- **Editor:** emojis, adjuntos con vista previa, notas de voz y respuestas rápidas con «/».
+- **Avisos:**
+  - sonido y notificación de escritorio al llegar un mensaje, configurables con la campanita;
+  - «(N)» en el título de la pestaña.
 
+| Pieza | Dónde |
+| ----- | ----- |
+| Página y lista | [`src/pages/app/inbox/InboxPage.tsx`](src/pages/app/inbox/InboxPage.tsx), [`ConversationList.tsx`](src/components/inbox/ConversationList.tsx) |
+| Chat | [`ConversationPanel.tsx`](src/components/inbox/ConversationPanel.tsx), [`ChatHeader.tsx`](src/components/inbox/ChatHeader.tsx), [`MessageBubble.tsx`](src/components/inbox/MessageBubble.tsx), [`MediaViewer.tsx`](src/components/inbox/MediaViewer.tsx), [`Composer.tsx`](src/components/inbox/Composer.tsx) |
+| Tiempo real y avisos | [`InboxRealtime.tsx`](src/components/inbox/InboxRealtime.tsx) (SSE con `fetch`), [`notifications.ts`](src/components/inbox/notifications.ts) |
+| Colores claro/oscuro del chat | [`chat-colors.ts`](src/components/inbox/chat-colors.ts) |
+
+**Archivos:** se descargan con el token de sesión y se muestran desde URLs `blob:` (un `<img src>` no puede enviar el token).
+
+**Autorización:** los controles verifican los permisos del workspace activo y el servidor valida cada operación. Cambiar de workspace o cerrar sesión desconecta el stream anterior.
+
+Para probar sin WhatsApp real, activa el modo simulado y carga el seed del backend. La guía completa está en [Bandeja de mensajes](../backend-crm/docs/inbox.md).
