@@ -49,6 +49,8 @@ export interface ConversationDocument {
     type: string;
     direction: 'IN' | 'OUT' | 'NOTE' | 'EVENT';
     at: Date;
+    messageId?: string | null;
+    status?: string | null;
   } | null;
   lastActivityAt: Date;
   lastInboundAt: Date | null;
@@ -147,6 +149,8 @@ export const ConversationSchema = new Schema<ConversationDocument>(
           type: { type: String, enum: MESSAGE_TYPES, required: true },
           direction: { type: String, enum: DIRECTIONS, required: true },
           at: { type: Date, required: true },
+          messageId: { type: String, default: null },
+          status: { type: String, default: null },
         },
         { _id: false },
       ),

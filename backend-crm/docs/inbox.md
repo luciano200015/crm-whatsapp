@@ -2,14 +2,17 @@
 
 En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones del workspace activo, al estilo de WhatsApp Web y wasapi:
 
+- **Barra superior:** avatar, Ayuda, Configuración (avisos), Pantalla completa, **botón de agentes**, Sincronizar y ⋮.
+- **Botón de agentes** («Mostrar mis conversaciones abiertas y las de mis agentes»):
+  - encendido (`view=all`, por defecto): mis chats, los de mis agentes y **los sin asignar**;
+  - apagado (`view=mine`): solo los míos;
+  - sin `conversations.view_all`, «mis agentes» no aplica: se ven los propios y los sin asignar de las líneas que atiende el agente.
+- **Pestañas** **Abierto** (contador rojo) / **En espera** / **Cerrado**, con los números de la vista actual. Los chats sin asignar son abiertos: no hay pestaña aparte.
+- **Filtros** (embudo junto al buscador, se aplican al pulsar «Aplicar filtros»): etiquetas del contacto, agentes (incluye «Sin asignar», solo con `conversations.view_all`), línea, rango de fechas de la última actividad y orden (recientes o antiguas primero). Búsqueda por nombre o teléfono.
 - **Lista de chats:**
-  - avatar, hora, vista previa («📷 Foto», «🎤 Audio», «👤 Contacto»…) y contador verde de no leídos;
-  - abajo, el **agente que atiende** el chat en letra pequeña y con color propio («Sin asignar» en naranja);
+  - avatar con el distintivo de la línea, hora («2:21 pm»), vista previa («📷 Foto», «🎤 Audio», «👤 Contacto»…) con ✓ / ✓✓ / leído si el último mensaje es nuestro, y contador verde de no leídos;
+  - etiquetas del contacto y, abajo a la derecha, **quién atiende**: «Tú» o el nombre corto («C. Arze»); «Sin asignar» en naranja;
   - se carga sola al bajar.
-- **Filtros:**
-  - pestañas **Mis chats / Sin asignar / Todos** (esta última solo con `conversations.view_all`);
-  - estado **Abiertos / En espera / Cerrados**;
-  - línea y búsqueda por nombre o teléfono.
 - **Un solo chat por contacto** (en cada línea). Al abrirlo carga los mensajes más recientes y, al subir, va trayendo los anteriores sin saltar de posición, como en wasapi.
 - **Chat:**
   - fondo y burbujas estilo WhatsApp, con separadores por día y ✓ / ✓✓ / leído;
@@ -167,8 +170,8 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 
 Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/api/v1/workspaces/:workspaceId`.
 
-- `GET /conversations`: `view` (`mine|unassigned|all`), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `cursor` y `limit`.
-- `GET /conversations/options` · `GET /conversations/counts` (`mine`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
+- `GET /conversations`: `view` (`mine|all`; `unassigned` se mantiene para clientes anteriores), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `tagIds`, `assigneeIds` (ids de membresía o `none`; solo con `conversations.view_all`, si no `403 AGENT_FILTER_FORBIDDEN`), `from`, `to`, `sort` (`recent|oldest`), `cursor` y `limit`. Cada chat trae `contactTagIds` y `lastMessage.status`.
+- `GET /conversations/options` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
 - `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.

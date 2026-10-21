@@ -292,6 +292,39 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
     return docs.map(toTag);
   }
 
+  async contactIdsWithTags(
+    workspaceId: string,
+    tagIds: string[],
+  ): Promise<string[]> {
+    const ids = tagIds
+      .map(objectId)
+      .filter((id): id is Types.ObjectId => id !== null);
+    if (ids.length === 0) return [];
+    const docs = await this.contacts
+      .find({ workspaceId, tagIds: { $in: ids } }, { _id: 1 })
+      .lean<{ _id: Types.ObjectId }[]>();
+    return docs.map((doc) => doc._id.toHexString());
+  }
+
+  async tagIdsOf(
+    workspaceId: string,
+    contactIds: string[],
+  ): Promise<Map<string, string[]>> {
+    const ids = contactIds
+      .map(objectId)
+      .filter((id): id is Types.ObjectId => id !== null);
+    if (ids.length === 0) return new Map();
+    const docs = await this.contacts
+      .find({ workspaceId, _id: { $in: ids } }, { _id: 1, tagIds: 1 })
+      .lean<{ _id: Types.ObjectId; tagIds: Types.ObjectId[] }[]>();
+    return new Map(
+      docs.map((doc) => [
+        doc._id.toHexString(),
+        doc.tagIds.map((id) => id.toHexString()),
+      ]),
+    );
+  }
+
   async countContactsByTag(workspaceId: string): Promise<Map<string, number>> {
     const rows = await this.contacts.aggregate<{
       _id: Types.ObjectId;

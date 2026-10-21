@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   NotFoundException,
@@ -16,6 +17,12 @@ export const InboxErrors = {
       },
       HttpStatus.PAYMENT_REQUIRED,
     ),
+  agentFilterForbidden: () =>
+    new ForbiddenException({
+      message:
+        'Filtering by agent requires conversations.view_all: you only see your own chats and the unassigned ones',
+      code: 'AGENT_FILTER_FORBIDDEN',
+    }),
   conversationNotFound: () =>
     new NotFoundException({
       message: 'Conversation not found',

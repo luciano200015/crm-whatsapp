@@ -206,11 +206,15 @@ src/
 
 **Menú:** **Bandeja**, **Autoasignación** y **Respuestas rápidas** son entradas de primer nivel, cada una con su permiso. La bandeja imita WhatsApp Web y wasapi:
 
-- **Lista de chats:** filtros Abiertos / Cerrados / Todos, pestañas Mis chats / Sin asignar / Todos y contador verde de no leídos.
+- **Barra de la lista** (como wasapi): tu avatar, Ayuda, Configuración (sonido y notificaciones), Pantalla completa, botón de agentes (encendido: tus chats, los de tus agentes y los sin asignar; apagado: solo los tuyos; se recuerda por navegador), Sincronizar y ⋮ con accesos a Respuestas rápidas, Autoasignación y Líneas.
+- **Filtros:** el embudo junto al buscador abre «Filtros de conversaciones» (etiquetas, agentes, línea, rango de fechas y orden). Se aplican con «Aplicar filtros» y se quitan con «Limpiar filtros».
+- **Pestañas** Abierto (contador rojo) / En espera / Cerrado. Los chats sin asignar están dentro de Abierto, no en una pestaña aparte.
+- **Fila del chat:** distintivo de la línea en el avatar, hora «2:21 pm», ✓ / ✓✓ / leído del último mensaje, no leídos, etiquetas del contacto y quién atiende («Tú» o «C. Arze»).
 - **Chat:**
   - burbujas con fondo de chat, separadores por día y avisos centrados de cada movimiento (asignado, transferido, cerrado…);
   - visores de imagen, sticker, audio, video, documento y ubicación.
 - **Cabecera:** transferir, cerrar, reabrir, marcar como no leído y bloquear contacto.
+- **No entregado:** explica el error de Meta en palabras simples y ofrece **Reintentar**.
 - **Editor:** emojis, adjuntos con vista previa, notas de voz y respuestas rápidas con «/».
 - **Avisos:**
   - sonido y notificación de escritorio al llegar un mensaje, configurables con la campanita;
@@ -218,7 +222,7 @@ src/
 
 | Pieza | Dónde |
 | ----- | ----- |
-| Página y lista | [`src/pages/app/inbox/InboxPage.tsx`](src/pages/app/inbox/InboxPage.tsx), [`ConversationList.tsx`](src/components/inbox/ConversationList.tsx) |
+| Página y lista | [`src/pages/app/inbox/InboxPage.tsx`](src/pages/app/inbox/InboxPage.tsx), [`InboxToolbar.tsx`](src/components/inbox/InboxToolbar.tsx), [`ConversationFilters.tsx`](src/components/inbox/ConversationFilters.tsx), [`ConversationList.tsx`](src/components/inbox/ConversationList.tsx) |
 | Chat | [`ConversationPanel.tsx`](src/components/inbox/ConversationPanel.tsx), [`ChatHeader.tsx`](src/components/inbox/ChatHeader.tsx), [`MessageBubble.tsx`](src/components/inbox/MessageBubble.tsx), [`MediaViewer.tsx`](src/components/inbox/MediaViewer.tsx), [`Composer.tsx`](src/components/inbox/Composer.tsx) |
 | Tiempo real y avisos | [`InboxRealtime.tsx`](src/components/inbox/InboxRealtime.tsx) (SSE con `fetch`), [`notifications.ts`](src/components/inbox/notifications.ts) |
 | Colores claro/oscuro del chat | [`chat-colors.ts`](src/components/inbox/chat-colors.ts) |

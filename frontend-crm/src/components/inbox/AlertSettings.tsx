@@ -10,8 +10,10 @@ import {
   Switch,
   Tooltip,
   Typography,
+  type SxProps,
+  type Theme,
 } from '@mui/material'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   desktopSupported,
   enableDesktopAlerts,
@@ -20,8 +22,17 @@ import {
   useAlertPreferences,
 } from './notifications'
 
-/** Bell of the inbox: sound and desktop notifications for new messages (per browser). */
-export function AlertSettings() {
+/** Settings of the inbox: sound and desktop notifications for new messages (per browser). */
+export function AlertSettings({
+  label = 'Avisos de mensajes nuevos',
+  icon,
+  buttonSx,
+}: {
+  label?: string
+  /** Replaces the bell (which shows whether alerts are on). */
+  icon?: ReactNode
+  buttonSx?: SxProps<Theme>
+}) {
   const preferences = useAlertPreferences()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [denied, setDenied] = useState(
@@ -30,12 +41,13 @@ export function AlertSettings() {
   const on = preferences.sound || preferences.desktop
   return (
     <>
-      <Tooltip title="Avisos de mensajes nuevos">
+      <Tooltip title={label}>
         <IconButton
-          aria-label="Avisos de mensajes nuevos"
+          aria-label={label}
           onClick={(event) => setAnchor(event.currentTarget)}
+          sx={buttonSx}
         >
-          {on ? <NotificationsActiveOutlined /> : <NotificationsOffOutlined />}
+          {icon ?? (on ? <NotificationsActiveOutlined /> : <NotificationsOffOutlined />)}
         </IconButton>
       </Tooltip>
       <Popover

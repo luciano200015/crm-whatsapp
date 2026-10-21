@@ -54,6 +54,9 @@ export interface LastMessage {
   type: MessageType;
   direction: MessageDirection;
   at: Date;
+  /** The message itself, to follow its delivery status in the list (✓✓). */
+  messageId?: string | null;
+  status?: MessageStatus | null;
 }
 
 export interface ConversationRecord {
@@ -101,6 +104,15 @@ export interface ConversationQuery {
   contactId?: string;
   /** Part of the contact name or phone. */
   search?: string;
+  /** Only these contacts (resolved from tag filters). */
+  contactIds?: string[];
+  /** Assigned to these memberships; 'none' = unassigned. */
+  assigneeIds?: string[];
+  /** Last activity within [from, to]. */
+  from?: Date;
+  to?: Date;
+  /** recent (default): newest activity first; oldest: the other way round. */
+  sort?: 'recent' | 'oldest';
   cursor?: string;
   limit: number;
 }
@@ -108,6 +120,10 @@ export interface ConversationQuery {
 export interface InboxCounts {
   /** Open conversations assigned to me. */
   mine: number;
+  /** On hold and assigned to me. */
+  mineOnHold: number;
+  /** Closed and assigned to me. */
+  mineClosed: number;
   /** Open, unassigned and visible to me. */
   unassigned: number;
   /** Open and visible to me. */
@@ -180,6 +196,16 @@ export abstract class InboxStore {
     workspaceId: string,
     conversationId: string,
     activity: { lastMessage: LastMessage; inbound: boolean },
+  ): Promise<ConversationRecord | null>;
+  /**
+   * The delivery status of the conversation's last message changed: the
+   * list shows it (✓✓). Null when that message is no longer the last one.
+   */
+  abstract setLastMessageStatus(
+    workspaceId: string,
+    conversationId: string,
+    messageId: string,
+    status: MessageStatus,
   ): Promise<ConversationRecord | null>;
   abstract updateMessage(
     workspaceId: string,

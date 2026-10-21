@@ -69,6 +69,8 @@ function toConversation(doc: ConversationDocument): ConversationRecord {
           type: doc.lastMessage.type as MessageType,
           direction: doc.lastMessage.direction,
           at: doc.lastMessage.at,
+          messageId: doc.lastMessage.messageId ?? null,
+          status: (doc.lastMessage.status as MessageStatus | null) ?? null,
         }
       : null,
     lastActivityAt: doc.lastActivityAt,
@@ -116,16 +118,37 @@ function scopeFilter(scope: InboxScope): ConversationFilter | null {
   };
 }
 
-/** Newest activity first; the cursor is "<lastActivityAt ms>_<id>". */
-function activityCursor(cursor: string | undefined): ConversationFilter | null {
+/**
+ * Newest activity first (or oldest first); the cursor is
+ * "<lastActivityAt ms>_<id>" of the last row of the previous page.
+ */
+function activityCursor(
+  cursor: string | undefined,
+  sort: 'recent' | 'oldest',
+): ConversationFilter | null {
   const [ms, id] = cursor?.split('_') ?? [];
   const at = Number(ms);
   if (!id || !Number.isFinite(at) || !isValidObjectId(id)) return null;
   const date = new Date(at);
+  const after = sort === 'oldest' ? '$gt' : '$lt';
   return {
     $or: [
-      { lastActivityAt: { $lt: date } },
-      { lastActivityAt: date, _id: { $lt: new Types.ObjectId(id) } },
+      { lastActivityAt: { [after]: date } },
+      { lastActivityAt: date, _id: { [after]: new Types.ObjectId(id) } },
+    ],
+  };
+}
+
+/** Assigned to some of these memberships; 'none' stands for unassigned. */
+function assigneeFilter(ids: string[] | undefined): ConversationFilter | null {
+  if (!ids?.length) return null;
+  const members = ids.filter((id) => id !== 'none');
+  return {
+    $or: [
+      ...(members.length > 0
+        ? [{ 'assignee.membershipId': { $in: members } }]
+        : []),
+      ...(ids.includes('none') ? [{ assignee: null }] : []),
     ],
   };
 }
@@ -182,6 +205,15 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         : query.view === 'unassigned'
           ? { assignee: null }
           : null,
+      assigneeFilter(query.assigneeIds),
+      query.from || query.to
+        ? {
+            lastActivityAt: {
+              ...(query.from && { $gte: query.from }),
+              ...(query.to && { $lte: query.to }),
+            },
+          }
+        : null,
       search
         ? {
             $or: [
@@ -192,7 +224,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
             ],
           }
         : null,
-      activityCursor(query.cursor),
+      activityCursor(query.cursor, query.sort ?? 'recent'),
     ].filter(
       (condition): condition is ConversationFilter => condition !== null,
     );
@@ -203,9 +235,14 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         ...(query.status !== 'ALL' && { status: query.status }),
         ...(query.lineId && { lineId: query.lineId }),
         ...(query.contactId && { contactId: query.contactId }),
+        ...(query.contactIds && { contactId: { $in: query.contactIds } }),
         ...(conditions.length > 0 && { $and: conditions }),
       })
-      .sort({ lastActivityAt: -1, _id: -1 })
+      .sort(
+        query.sort === 'oldest'
+          ? { lastActivityAt: 1, _id: 1 }
+          : { lastActivityAt: -1, _id: -1 },
+      )
       .limit(query.limit + 1)
       .lean<ConversationDocument[]>();
 
@@ -227,11 +264,18 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       workspaceId,
       status: { $in: ['OPEN', 'ON_HOLD'] as ConversationStatus[] },
     };
-    const [mine, unassigned, all, unread, onHold, closed] = await Promise.all([
-      this.conversations.countDocuments({
-        ...open,
-        'assignee.membershipId': scope.membershipId,
-      }),
+    const mineOnly = { 'assignee.membershipId': scope.membershipId };
+    const [
+      mine,
+      unassigned,
+      all,
+      unread,
+      onHold,
+      closed,
+      mineOnHold,
+      mineClosed,
+    ] = await Promise.all([
+      this.conversations.countDocuments({ ...open, ...mineOnly }),
       this.conversations.countDocuments({
         ...open,
         $and: [visible, { assignee: null }],
@@ -251,9 +295,21 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         status: 'CLOSED',
         ...visible,
       }),
+      this.conversations.countDocuments({
+        workspaceId,
+        status: 'ON_HOLD',
+        ...mineOnly,
+      }),
+      this.conversations.countDocuments({
+        workspaceId,
+        status: 'CLOSED',
+        ...mineOnly,
+      }),
     ]);
     return {
       mine,
+      mineOnHold,
+      mineClosed,
       unassigned,
       all,
       onHold,
@@ -528,6 +584,24 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       .limit(limit + 1)
       .lean<MessageDocument[]>();
     return toPage(rows, limit, toMessage);
+  }
+
+  async setLastMessageStatus(
+    workspaceId: string,
+    conversationId: string,
+    messageId: string,
+    status: MessageStatus,
+  ): Promise<ConversationRecord | null> {
+    const _id = objectId(conversationId);
+    if (!_id) return null;
+    const doc = await this.conversations
+      .findOneAndUpdate(
+        { workspaceId, _id, 'lastMessage.messageId': messageId },
+        { $set: { 'lastMessage.status': status } },
+        { returnDocument: 'after' },
+      )
+      .lean<ConversationDocument>();
+    return doc ? toConversation(doc) : null;
   }
 
   async updateMessage(

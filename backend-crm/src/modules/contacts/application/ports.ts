@@ -108,6 +108,17 @@ export abstract class ContactsStore {
   /** Contacts with a message since `since` (limits.active_contacts). */
   abstract countActiveSince(workspaceId: string, since: Date): Promise<number>;
 
+  /** Ids of the contacts with any of these tags (inbox tag filter). */
+  abstract contactIdsWithTags(
+    workspaceId: string,
+    tagIds: string[],
+  ): Promise<string[]>;
+  /** The tag ids of each of these contacts (missing contacts are left out). */
+  abstract tagIdsOf(
+    workspaceId: string,
+    contactIds: string[],
+  ): Promise<Map<string, string[]>>;
+
   abstract listTags(workspaceId: string): Promise<TagRecord[]>;
   /** Number of contacts per tag id. */
   abstract countContactsByTag(

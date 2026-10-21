@@ -32,7 +32,13 @@ interface ConversationBody {
   status: string;
   contact: { name: string | null; phone: string };
   assignee: { membershipId: string; name: string } | null;
-  lastMessage: { text: string | null; direction: string } | null;
+  lastMessage: {
+    text: string | null;
+    direction: string;
+    messageId?: string | null;
+    status?: string | null;
+  } | null;
+  contactTagIds?: string[];
   unreadCount: number;
   windowOpen: boolean;
 }
@@ -390,6 +396,91 @@ describe('Inbox (e2e)', () => {
     await api(owner).post(`/conversations/${chat?.id}/take`).expect(409);
   });
 
+  it('lists mine or mine plus my agents, and filters by tag, agent, dates and order', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+    const outsider = await agentOf(owner, 'Otro');
+    const line = await lineWithAgents(owner, [ana], false);
+    await incoming(line, '59170000041', 'uno');
+    await incoming(line, '59170000042', 'dos');
+    await incoming(line, '59170000043', 'tres');
+    const byPhone = async (session: Session, query: string) =>
+      (await conversations(session, query)).map((c) => c.contact.phone);
+    const [newest, middle, oldest] = await conversations(owner, '?view=all');
+    await api(ana).post(`/conversations/${newest?.id}/take`).expect(200);
+    await api(owner).post(`/conversations/${middle?.id}/take`).expect(200);
+
+    // Only mine; mine + my agents + the unassigned (agents: theirs + unassigned of their lines).
+    expect(await byPhone(ana, '?view=mine')).toEqual(['+59170000043']);
+    expect(await byPhone(ana, '?view=all')).toEqual([
+      '+59170000043',
+      '+59170000041',
+    ]);
+    expect(await byPhone(owner, '?view=all')).toEqual([
+      '+59170000043',
+      '+59170000042',
+      '+59170000041',
+    ]);
+    expect(await byPhone(outsider, '?view=all')).toEqual([]);
+
+    // By agent ('none' = unassigned), only with conversations.view_all.
+    expect(
+      await byPhone(owner, `?view=all&assigneeIds=${ana.membershipId},none`),
+    ).toEqual(['+59170000043', '+59170000041']);
+    const forbidden = await api(ana)
+      .get(`/conversations?view=all&assigneeIds=${owner.membershipId}`)
+      .expect(403);
+    expect(forbidden.body).toMatchObject({ code: 'AGENT_FILTER_FORBIDDEN' });
+
+    // By tag of the contact; the list says the tags of each chat.
+    const tag = (
+      await api(owner)
+        .post('/tags', { name: 'VIP', color: '#22c55e' })
+        .expect(201)
+    ).body as { id: string };
+    await api(owner)
+      .put(`/contacts/${middle?.contactId}/tags`, { tagIds: [tag.id] })
+      .expect(200);
+    const tagged = await conversations(owner, `?view=all&tagIds=${tag.id}`);
+    expect(tagged.map((c) => [c.contact.phone, c.contactTagIds])).toEqual([
+      ['+59170000042', [tag.id]],
+    ]);
+
+    // Oldest first, page by page.
+    const first = (
+      await api(owner)
+        .get('/conversations?view=all&sort=oldest&limit=2')
+        .expect(200)
+    ).body as { items: ConversationBody[]; nextCursor: string };
+    const second = (
+      await api(owner)
+        .get(
+          `/conversations?view=all&sort=oldest&limit=2&cursor=${first.nextCursor}`,
+        )
+        .expect(200)
+    ).body as { items: ConversationBody[] };
+    expect(
+      [...first.items, ...second.items].map((c) => c.contact.phone),
+    ).toEqual(['+59170000041', '+59170000042', '+59170000043']);
+    expect(oldest?.contact.phone).toBe('+59170000041');
+
+    // Date range on the last activity.
+    const future = new Date(Date.now() + 60_000).toISOString();
+    expect(await byPhone(owner, `?view=all&from=${future}`)).toEqual([]);
+    expect(await byPhone(owner, `?view=all&to=${future}&limit=1`)).toHaveLength(
+      1,
+    );
+
+    const counts = (await api(ana).get('/conversations/counts').expect(200))
+      .body as Record<string, number>;
+    expect(counts).toMatchObject({
+      mine: 1,
+      mineOnHold: 0,
+      mineClosed: 0,
+      all: 2,
+    });
+  });
+
   it('replies through WhatsApp, records notes and follows delivery statuses', async () => {
     const owner = await signUp();
     const line = await lineWithAgents(owner, [], false);
@@ -425,6 +516,12 @@ describe('Inbox (e2e)', () => {
       await api(owner).get(`/conversations/${chat?.id}/messages`).expect(200)
     ).body as { items: MessageBody[] };
     expect(messages.items[0]).toMatchObject({ id: reply.id, status: 'read' });
+    const [listed] = await conversations(owner, '?view=all');
+    expect(listed?.lastMessage).toMatchObject({
+      messageId: reply.id,
+      status: 'read',
+      direction: 'OUT',
+    });
 
     await api(owner)
       .post(`/conversations/${chat?.id}/notes`, { text: 'Cliente VIP' })

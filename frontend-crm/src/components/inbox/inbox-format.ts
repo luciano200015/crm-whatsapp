@@ -3,6 +3,13 @@ import type { ChatMessage, Conversation, ConversationEvent } from '../../lib/api
 /** Name of the contact, or the phone when WhatsApp did not send one. */
 export const contactName = (contact: Conversation['contact']) => contact.name ?? contact.phone
 
+/** "Carlos Arze" → "C. Arze": who attends a chat, short enough for the list. */
+export function shortName(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length < 2) return words[0] ?? name
+  return `${words[0]?.[0]?.toUpperCase()}. ${words.at(-1)}`
+}
+
 export function initials(name: string): string {
   const words = name
     .replace(/[^\p{L}\p{N} ]/gu, '')
@@ -39,11 +46,18 @@ const daysAgo = (date: Date, now: Date) =>
 
 const time = (date: Date) => date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
 
-/** "10:42", "Ayer", "lunes" or "12/10/2026", as in the chat list of WhatsApp. */
+/** "2:21 pm", as wasapi shows the time in the chat list. */
+const shortTime = (date: Date) => {
+  const hours = date.getHours()
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours % 12 || 12}:${minutes} ${hours < 12 ? 'am' : 'pm'}`
+}
+
+/** "2:21 pm", "Ayer", "lunes" or "12/10/2026", as in the chat list of WhatsApp. */
 export function listTime(iso: string, now = new Date()): string {
   const date = new Date(iso)
   const days = daysAgo(date, now)
-  if (days <= 0) return time(date)
+  if (days <= 0) return shortTime(date)
   if (days === 1) return 'Ayer'
   if (days < 7) return date.toLocaleDateString('es', { weekday: 'long' })
   return date.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -80,7 +94,9 @@ export function preview(last: Conversation['lastMessage']): string {
   const label = MEDIA_LABELS[last.type]
   const body =
     last.type === 'text' ? (last.text ?? '') : last.text ? `${label} · ${last.text}` : label
-  const prefix = last.direction === 'OUT' ? 'Tú: ' : last.direction === 'NOTE' ? 'Nota: ' : ''
+  // With its ✓✓ the list already shows the message is ours, as in WhatsApp.
+  const prefix =
+    last.direction === 'OUT' && !last.status ? 'Tú: ' : last.direction === 'NOTE' ? 'Nota: ' : ''
   return `${prefix}${body ?? ''}`
 }
 

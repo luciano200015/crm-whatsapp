@@ -17,7 +17,17 @@ export interface Conversation {
   /** OPEN: abierto. ON_HOLD: en espera. CLOSED: cerrado. */
   status: 'OPEN' | 'ON_HOLD' | 'CLOSED'
   assignee: Assignee | null
-  lastMessage: { text: string | null; type: string; direction: string; at: string } | null
+  /** Tags of the contact (ids of the workspace tags). */
+  contactTagIds?: string[]
+  lastMessage: {
+    text: string | null
+    type: string
+    direction: string
+    at: string
+    messageId?: string | null
+    /** Delivery status of that message, for the ✓✓ in the list. */
+    status?: ChatMessage['status'] | null
+  } | null
   lastActivityAt: string
   lastInboundAt: string | null
   windowOpen: boolean
@@ -85,11 +95,19 @@ export interface ChatMessage {
 }
 
 export interface InboxFilter {
-  view: 'mine' | 'unassigned' | 'all'
+  /** mine: only my chats. all: mine, my agents' and the unassigned ones I can see. */
+  view: 'mine' | 'all'
   status: 'OPEN' | 'ON_HOLD' | 'CLOSED' | 'ALL'
   search?: string
   lineId?: string
   contactId?: string
+  tagIds?: string[]
+  /** Membership ids; 'none' = unassigned (needs conversations.view_all). */
+  assigneeIds?: string[]
+  /** Last activity from / to (ISO). */
+  from?: string
+  to?: string
+  sort?: 'recent' | 'oldest'
 }
 
 export interface InboxOptions {
@@ -110,6 +128,8 @@ export interface AutoAssignmentOptions {
 
 export interface InboxCounts {
   mine: number
+  mineOnHold?: number
+  mineClosed?: number
   unassigned: number
   all: number
   onHold: number
@@ -136,9 +156,11 @@ export const inboxKeys = {
 export const inboxApi = {
   list(workspaceId: string, filter: InboxFilter, cursor?: string, signal?: AbortSignal) {
     const query = new URLSearchParams({ view: filter.view, status: filter.status, limit: '30' })
-    for (const key of ['search', 'lineId', 'contactId'] as const) {
+    for (const key of ['search', 'lineId', 'contactId', 'from', 'to', 'sort'] as const) {
       if (filter[key]) query.set(key, filter[key])
     }
+    if (filter.tagIds?.length) query.set('tagIds', filter.tagIds.join(','))
+    if (filter.assigneeIds?.length) query.set('assigneeIds', filter.assigneeIds.join(','))
     if (cursor) query.set('cursor', cursor)
     return apiRequest<CursorPage<Conversation>>(`${inboxBase(workspaceId)}?${query}`, { signal })
   },

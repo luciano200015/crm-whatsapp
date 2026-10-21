@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDate,
   IsIn,
   IsInt,
   IsMongoId,
@@ -21,6 +22,21 @@ import {
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
+
+/** `?ids=a,b` or `?ids=a&ids=b` → ['a', 'b']. */
+const list = ({ value }: { value: unknown }): unknown => {
+  const items: unknown[] = Array.isArray(value)
+    ? (value as unknown[])
+    : [value];
+  return items
+    .flatMap((item): unknown[] =>
+      typeof item === 'string' ? item.split(',') : [item],
+    )
+    .map((item) => (typeof item === 'string' ? item.trim() : item))
+    .filter((item) => item !== '');
+};
+
+const SORTS = ['recent', 'oldest'] as const;
 
 const VIEWS = ['mine', 'unassigned', 'all'] as const;
 const STATUSES = ['OPEN', 'ON_HOLD', 'CLOSED'] as const;
@@ -47,7 +63,7 @@ export class ListConversationsQueryDto {
     enum: VIEWS,
     default: 'mine',
     description:
-      'mine: assigned to me. unassigned: nobody has it. all: everything I can see (all of the workspace with conversations.view_all).',
+      'mine: assigned to me. all: mine, those of my agents and the unassigned ones I can see (all of the workspace with conversations.view_all; without it, mine and the unassigned of the lines I attend). unassigned: nobody has it (kept for older clients).',
   })
   @IsOptional()
   @IsIn(VIEWS)
@@ -74,6 +90,57 @@ export class ListConversationsQueryDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Contacts with any of these tags (ids, comma separated).',
+  })
+  @IsOptional()
+  @Transform(list)
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsMongoId({ each: true })
+  tagIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Assigned to these membership ids; `none` = unassigned. Requires conversations.view_all (403 AGENT_FILTER_FORBIDDEN).',
+  })
+  @IsOptional()
+  @Transform(list)
+  @IsArray()
+  @ArrayMaxSize(50)
+  @Matches(
+    /^(none|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+    { each: true, message: 'each assigneeIds must be a membership id or none' },
+  )
+  assigneeIds?: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description: 'Last activity from this moment.',
+  })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  from?: Date;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description: 'Last activity up to this moment.',
+  })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  to?: Date;
+
+  @ApiPropertyOptional({ enum: SORTS, default: 'recent' })
+  @IsOptional()
+  @IsIn(SORTS)
+  sort: (typeof SORTS)[number] = 'recent';
 
   @ApiPropertyOptional({ description: '`nextCursor` of the previous page.' })
   @IsOptional()
@@ -225,6 +292,16 @@ export class LastMessageDto {
 
   @ApiProperty()
   at: Date;
+
+  @ApiPropertyOptional({ nullable: true, type: String })
+  messageId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    description: 'Delivery status of that message (✓, ✓✓, read, failed).',
+  })
+  status?: string | null;
 }
 
 export class ConversationContactDto {
@@ -256,6 +333,12 @@ export class ConversationDto {
 
   @ApiProperty({ type: AssigneeDto, nullable: true })
   assignee: AssigneeDto | null;
+
+  @ApiProperty({
+    type: [String],
+    description: 'Tag ids of the contact (GET /tags has their names).',
+  })
+  contactTagIds: string[];
 
   @ApiProperty({ type: LastMessageDto, nullable: true })
   lastMessage: LastMessageDto | null;
@@ -295,6 +378,12 @@ export class ConversationPageDto {
 export class InboxCountsDto {
   @ApiProperty({ description: 'Open conversations assigned to me.' })
   mine: number;
+
+  @ApiProperty({ description: 'On hold and assigned to me.' })
+  mineOnHold: number;
+
+  @ApiProperty({ description: 'Closed and assigned to me.' })
+  mineClosed: number;
 
   @ApiProperty({ description: 'Open, unassigned and visible to me.' })
   unassigned: number;

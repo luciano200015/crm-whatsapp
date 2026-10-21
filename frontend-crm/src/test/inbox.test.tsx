@@ -20,6 +20,7 @@ let history: ChatMessage[]
 let actions: { name: string; body: unknown }[]
 let streamCount: number
 let listQueries: string[]
+let listUrls: URL[]
 let quickReplies: { id: string; shortcut: string; text: string }[]
 
 const me = (): Me => ({
@@ -60,7 +61,16 @@ const server = setupServer(
     })
   }),
   http.get(api(`${base}/counts`), () =>
-    HttpResponse.json({ mine: 1, unassigned: 0, all: 1, unread: chat.unreadCount }),
+    HttpResponse.json({
+      mine: 1,
+      mineOnHold: 0,
+      mineClosed: 0,
+      unassigned: 0,
+      all: 3,
+      onHold: 2,
+      closed: 0,
+      unread: chat.unreadCount,
+    }),
   ),
   http.get(api(`${base}/options`), () =>
     HttpResponse.json({
@@ -71,7 +81,9 @@ const server = setupServer(
     }),
   ),
   http.get(api(base), ({ request }) => {
-    listQueries.push(new URL(request.url).searchParams.get('status') ?? '')
+    const url = new URL(request.url)
+    listQueries.push(url.searchParams.get('status') ?? '')
+    listUrls.push(url)
     return HttpResponse.json({ items: [chat], nextCursor: null })
   }),
   http.get(api(`${base}/c1`), () => HttpResponse.json(chat)),
@@ -105,6 +117,12 @@ const server = setupServer(
     return HttpResponse.json(chat)
   }),
   http.get(api('/workspaces/w1/quick-replies'), () => HttpResponse.json(quickReplies)),
+  http.get(api('/workspaces/w1/tags'), () =>
+    HttpResponse.json([
+      { id: 't1', name: 'VENTAS', color: '#1565c0', description: null, contactCount: 1 },
+      { id: 't2', name: 'VIP', color: '#2e7d32', description: null, contactCount: 1 },
+    ]),
+  ),
   http.post(api('/workspaces/w1/quick-replies'), async ({ request }) => {
     const body = (await request.json()) as { shortcut: string; text: string }
     actions.push({ name: 'quick-reply', body })
@@ -134,6 +152,7 @@ beforeEach(() => {
   permissions = ['messages.read', 'messages.send']
   actions = []
   listQueries = []
+  listUrls = []
   quickReplies = []
   streamCount = 0
   chat = {
@@ -320,11 +339,52 @@ describe('Inbox', () => {
     expect(
       await screen.findByRole('button', { name: 'Chat con Lucía Cliente' }),
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /En espera/ }))
-    await user.click(screen.getByRole('button', { name: 'Cerrados' }))
+    await user.click(screen.getByRole('tab', { name: 'En espera' }))
+    await user.click(screen.getByRole('tab', { name: 'Cerrado' }))
     await waitFor(() =>
       expect(listQueries).toEqual(expect.arrayContaining(['OPEN', 'ON_HOLD', 'CLOSED'])),
     )
+    // No «Sin asignar» tab: unassigned chats are part of the open ones.
+    expect(screen.queryByRole('tab', { name: /Sin asignar/ })).not.toBeInTheDocument()
+  })
+
+  it('switches between my chats and those of my agents and filters only when applying', async () => {
+    permissions = ['messages.read', 'messages.send', 'contacts.read', 'conversations.view_all']
+    renderAt('/inbox')
+    const user = userEvent.setup()
+    await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
+    expect(listUrls.at(-1)?.searchParams.get('view')).toBe('all')
+    // The open tab counts the chats of the current view.
+    expect(within(screen.getByRole('tab', { name: 'Abierto' })).getByText('3')).toBeInTheDocument()
+
+    const team = screen.getByRole('button', {
+      name: 'Mostrar mis conversaciones abiertas y las de mis agentes',
+    })
+    expect(team).toHaveAttribute('aria-pressed', 'true')
+    await user.click(team)
+    await waitFor(() => expect(listUrls.at(-1)?.searchParams.get('view')).toBe('mine'))
+
+    await user.click(screen.getByRole('button', { name: 'Filtros' }))
+    const panel = await screen.findByRole('region', { name: 'Filtros de conversaciones' })
+    expect(screen.queryByRole('list', { name: 'Lista de chats' })).not.toBeInTheDocument()
+    await user.click(within(panel).getByLabelText('Etiquetas'))
+    await user.click(await screen.findByRole('option', { name: 'VIP' }))
+    await user.click(within(panel).getByLabelText('Agentes'))
+    await user.click(await screen.findByRole('option', { name: 'Sin asignar' }))
+    // Nothing is filtered until «Aplicar filtros».
+    expect(listUrls.some((url) => url.searchParams.has('tagIds'))).toBe(false)
+    await user.click(within(panel).getByRole('button', { name: /Aplicar filtros/ }))
+
+    await waitFor(() => {
+      const query = listUrls.at(-1)?.searchParams
+      expect(query?.get('tagIds')).toBe('t2')
+      expect(query?.get('assigneeIds')).toBe('none')
+    })
+    expect(await screen.findByRole('button', { name: 'Filtros (2 activos)' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Filtros (2 activos)' }))
+    await user.click(await screen.findByRole('button', { name: /Limpiar filtros/ }))
+    await waitFor(() => expect(listUrls.at(-1)?.searchParams.get('tagIds')).toBeNull())
   })
 
   it('shows the movements of the chat as centered notices', async () => {
@@ -601,7 +661,8 @@ describe('Inbox', () => {
     const user = userEvent.setup()
 
     const row = await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
-    expect(within(row).getByText('Uma Agente')).toBeInTheDocument()
+    // The signed-in user's own chats say «Tú».
+    expect(within(row).getByText('Tú')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Poner en espera' }))
     await waitFor(() => expect(actions.map((action) => action.name)).toContain('hold'))
     expect(await screen.findByRole('button', { name: 'Reabrir chat' })).toBeInTheDocument()

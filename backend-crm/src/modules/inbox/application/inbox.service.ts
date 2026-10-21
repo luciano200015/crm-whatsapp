@@ -56,6 +56,8 @@ export interface ConversationView extends Omit<
 > {
   /** Null when the line was deleted. */
   lineName: string | null;
+  /** Tags of the contact (ids of GET /tags), for the chat list. */
+  contactTagIds: string[];
   /** WhatsApp's 24 h customer-service window. */
   windowOpen: boolean;
   windowExpiresAt: Date | null;
@@ -78,6 +80,13 @@ export interface ConversationListQuery {
   lineId?: string;
   contactId?: string;
   search?: string;
+  /** Contacts with any of these tags. */
+  tagIds?: string[];
+  /** Membership ids; 'none' = unassigned. Requires conversations.view_all. */
+  assigneeIds?: string[];
+  from?: Date;
+  to?: Date;
+  sort?: 'recent' | 'oldest';
   cursor?: string;
   limit: number;
 }
@@ -154,12 +163,31 @@ export class InboxService {
   ): Promise<CursorPage<ConversationView>> {
     const { workspaceId } = actor.access;
     const scope = await this.scope(actor);
+    // Agents only see their chats and the unassigned ones: other agents'
+    // names would reveal nothing they can open.
+    if (query.assigneeIds?.length && !scope.viewAll) {
+      throw InboxErrors.agentFilterForbidden();
+    }
+    const { tagIds, ...rest } = query;
+    const contactIds = tagIds?.length
+      ? await this.contacts.contactIdsWithTags(workspaceId, tagIds)
+      : undefined;
     const [page, names] = await Promise.all([
-      this.store.listConversations(workspaceId, { ...query, scope }),
+      this.store.listConversations(workspaceId, {
+        ...rest,
+        scope,
+        ...(contactIds && { contactIds }),
+      }),
       this.assignments.lineNames(workspaceId),
     ]);
+    const tags = await this.contacts.tagIdsOf(
+      workspaceId,
+      page.items.map((conversation) => conversation.contactId),
+    );
     return {
-      items: page.items.map((c) => this.toView(c, names)),
+      items: page.items.map((c) =>
+        this.toView(c, names, tags.get(c.contactId) ?? []),
+      ),
       nextCursor: page.nextCursor,
     };
   }
@@ -454,11 +482,17 @@ export class InboxService {
     }
     const message = sent ?? pending;
     if (outgoing.retry) {
-      // The chat keeps its place: only the message changes.
+      // The chat keeps its place: only the message (and its ✓ in the list) changes.
+      const synced = await this.store.setLastMessageStatus(
+        workspaceId,
+        conversationId,
+        message.id,
+        message.status,
+      );
       this.events.emit({
         workspaceId,
         type: 'message.updated',
-        conversation,
+        conversation: synced ?? conversation,
         message,
       });
       return toMessageView(message);
@@ -470,6 +504,8 @@ export class InboxService {
           type: outgoing.type,
           direction: 'OUT',
           at: now,
+          messageId: message.id,
+          status: message.status,
         },
         inbound: false,
       })) ?? conversation;
@@ -683,18 +719,29 @@ export class InboxService {
   }
 
   private async view(conversation: ConversationRecord) {
-    const names = await this.assignments.lineNames(conversation.workspaceId);
-    return this.toView(conversation, names);
+    const [names, tags] = await Promise.all([
+      this.assignments.lineNames(conversation.workspaceId),
+      this.contacts.tagIdsOf(conversation.workspaceId, [
+        conversation.contactId,
+      ]),
+    ]);
+    return this.toView(
+      conversation,
+      names,
+      tags.get(conversation.contactId) ?? [],
+    );
   }
 
   toView(
     conversation: ConversationRecord,
     lineNames: Map<string, string>,
+    contactTagIds: string[] = [],
   ): ConversationView {
     const { workspaceId: _workspaceId, ...rest } = conversation;
     return {
       ...rest,
       lineName: lineNames.get(conversation.lineId) ?? null,
+      contactTagIds,
       windowOpen: isWindowOpen(conversation.lastInboundAt, this.clock.now()),
       windowExpiresAt: windowExpiresAt(conversation.lastInboundAt),
     };

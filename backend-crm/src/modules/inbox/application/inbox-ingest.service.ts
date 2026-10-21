@@ -102,6 +102,8 @@ export class InboxIngestService extends WhatsAppEventsSink {
           type: inbound.type,
           direction: 'IN',
           at: inbound.timestamp,
+          messageId: message.id,
+          status: 'received',
         },
         inbound: true,
       })) ?? conversation;
@@ -152,10 +154,15 @@ export class InboxIngestService extends WhatsAppEventsSink {
       status,
       ...(status === 'failed' && { error: update.error }),
     });
-    const conversation = await this.store.findConversation(
-      workspaceId,
-      message.conversationId,
-    );
+    // The list shows ✓✓ of the last message: keep it in step.
+    const conversation =
+      (await this.store.setLastMessageStatus(
+        workspaceId,
+        message.conversationId,
+        message.id,
+        status,
+      )) ??
+      (await this.store.findConversation(workspaceId, message.conversationId));
     if (updated && conversation) {
       this.events.emit({
         workspaceId,

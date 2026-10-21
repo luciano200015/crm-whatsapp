@@ -1,34 +1,47 @@
 import ChatOutlined from '@mui/icons-material/ChatOutlined'
+import FilterAltOutlined from '@mui/icons-material/FilterAltOutlined'
+import MailOutlineRounded from '@mui/icons-material/MailOutlineRounded'
+import ScheduleRounded from '@mui/icons-material/ScheduleRounded'
 import SearchRounded from '@mui/icons-material/SearchRounded'
+import TaskAltRounded from '@mui/icons-material/TaskAltRounded'
 import {
   Alert,
+  Badge,
   Box,
   Chip,
+  IconButton,
   InputAdornment,
   LinearProgress,
   List,
-  MenuItem,
   Paper,
   Stack,
   Tab,
   Tabs,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from '@mui/material'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useDeferredValue, useState, type ReactNode } from 'react'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useDeferredValue, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
+import { useMe } from '../../../auth/useMe'
 import { usePermissions } from '../../../auth/usePermissions'
-import { AlertSettings } from '../../../components/inbox/AlertSettings'
 import { useChatColors } from '../../../components/inbox/chat-colors'
+import { ConversationFilters } from '../../../components/inbox/ConversationFilters'
+import {
+  activeFilters,
+  NO_FILTERS,
+  toQuery,
+  type ListFilters,
+} from '../../../components/inbox/list-filters'
 import { ConversationListItem } from '../../../components/inbox/ConversationList'
 import { ConversationPanel } from '../../../components/inbox/ConversationPanel'
+import { InboxToolbar } from '../../../components/inbox/InboxToolbar'
 import { useInboxCounts } from '../../../components/inbox/useInboxCounts'
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { useFillHeight } from '../../../hooks/useFillHeight'
 import { useWhenVisible } from '../../../hooks/useWhenVisible'
+import { contactKeys, contactsApi } from '../../../lib/api/contacts'
 import { errorMessage } from '../../../lib/api/errors'
 import { inboxApi, inboxKeys, type InboxFilter } from '../../../lib/api/inbox'
 import { useActiveWorkspace } from '../../../workspace/active-workspace-context'
@@ -39,41 +52,96 @@ export function InboxPage() {
   return <WorkspaceInbox key={active?.id} workspaceId={active?.id ?? ''} />
 }
 
-/** Tab label with its counter, e.g. "Mis chats 3". */
-function counted(label: string, count: number | undefined): ReactNode {
+type Status = Exclude<InboxFilter['status'], 'ALL'>
+
+const TEAM_VIEW_KEY = 'inbox.teamView'
+
+/** "Mis conversaciones y las de mis agentes": on unless this browser turned it off. */
+function readTeamView(): boolean {
+  try {
+    return localStorage.getItem(TEAM_VIEW_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function saveTeamView(value: boolean) {
+  try {
+    localStorage.setItem(TEAM_VIEW_KEY, String(value))
+  } catch {
+    // Private mode: the choice lasts until the page is reloaded.
+  }
+}
+
+const subscribeFullscreen = (onChange: () => void) => {
+  document.addEventListener('fullscreenchange', onChange)
+  return () => document.removeEventListener('fullscreenchange', onChange)
+}
+const isFullscreen = () => !!document.fullscreenElement
+
+/** Tab of a status with its icon and counter (red on «Abierto», as in wasapi). */
+function statusTab(icon: ReactNode, label: string, count: number | undefined, alert: boolean) {
   return (
     <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', whiteSpace: 'nowrap' }}>
+      {icon}
       <span>{label}</span>
-      {!!count && <Chip size="small" label={count > 99 ? '99+' : count} sx={{ height: 20 }} />}
+      {!!count && (
+        <Chip
+          size="small"
+          label={count > 99 ? '99+' : count}
+          color={alert ? 'error' : 'default'}
+          sx={{ height: 20, fontSize: 12, fontWeight: 700 }}
+        />
+      )}
     </Stack>
   )
 }
 
 function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
   const { has } = usePermissions()
+  const client = useQueryClient()
   const colors = useChatColors()
+  const meId = useMe().data?.id
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLDivElement>()
   const [params, setParams] = useSearchParams()
   const contactId = params.get('contactId') ?? undefined
   const selected = params.get('conversation') ?? ''
-  const [view, setView] = useState<InboxFilter['view']>(contactId ? 'all' : 'mine')
-  const [status, setStatus] = useState<Exclude<InboxFilter['status'], 'ALL'>>('OPEN')
+  const [teamView, setTeamView] = useState(readTeamView)
+  const [status, setStatus] = useState<Status>('OPEN')
   const [search, setSearch] = useState('')
-  const [lineId, setLineId] = useState('')
+  const [filters, setFilters] = useState<ListFilters>(NO_FILTERS)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const fullscreen = useSyncExternalStore(subscribeFullscreen, isFullscreen, () => false)
+  const canFilterAgents = has('conversations.view_all')
+
   const filter: InboxFilter = {
-    view: has('conversations.view_all') || contactId ? view : view === 'all' ? 'mine' : view,
     // The chats of one contact (from Contactos) show every status.
+    view: contactId || teamView ? 'all' : 'mine',
     status: contactId ? 'ALL' : status,
     search: useDeferredValue(search),
-    lineId: lineId || undefined,
     contactId,
+    ...toQuery(canFilterAgents ? filters : { ...filters, assigneeIds: [] }),
   }
   const counts = useInboxCounts()
+  const tabCounts = teamView
+    ? { OPEN: counts.data?.all, ON_HOLD: counts.data?.onHold, CLOSED: counts.data?.closed }
+    : {
+        OPEN: counts.data?.mine,
+        ON_HOLD: counts.data?.mineOnHold,
+        CLOSED: counts.data?.mineClosed,
+      }
   const options = useQuery({
     queryKey: inboxKeys.options(workspaceId),
     queryFn: ({ signal }) => inboxApi.options(workspaceId, signal),
     enabled: !!workspaceId,
   })
+  const tags = useQuery({
+    queryKey: contactKeys.tags(workspaceId),
+    queryFn: () => contactsApi.tags(workspaceId),
+    enabled: !!workspaceId && has('contacts.read'),
+  })
+  const tagsById = new Map((tags.data ?? []).map((tag) => [tag.id, tag]))
   const conversations = useInfiniteQuery({
     queryKey: [...inboxKeys.all(workspaceId), 'list', filter],
     queryFn: ({ pageParam, signal }) => inboxApi.list(workspaceId, filter, pageParam, signal),
@@ -99,16 +167,29 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
     else next.delete('conversation')
     setParams(next, { replace: true })
   }
+  const sync = () => {
+    setSyncing(true)
+    void client
+      .invalidateQueries({ queryKey: inboxKeys.all(workspaceId) })
+      .finally(() => setSyncing(false))
+  }
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void fillRef.current?.requestFullscreen?.()
+  }
+  const filtered = activeFilters(filters)
+
   return (
     <Paper
       ref={fillRef}
       variant="outlined"
       sx={{
         display: 'grid',
-        gridTemplateColumns: { xs: '1fr', md: '360px minmax(0, 1fr)', xl: '400px minmax(0, 1fr)' },
+        gridTemplateColumns: { xs: '1fr', md: '380px minmax(0, 1fr)', xl: '420px minmax(0, 1fr)' },
         // The page fills the screen below the top bar, like a chat app.
-        height: fillHeight ?? 'calc(100dvh - 128px)',
+        height: fullscreen ? '100dvh' : (fillHeight ?? 'calc(100dvh - 128px)'),
         overflow: 'hidden',
+        bgcolor: 'background.paper',
       }}
     >
       <Box
@@ -116,122 +197,153 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
           display: { xs: selected ? 'none' : 'flex', md: 'flex' },
           flexDirection: 'column',
           minWidth: 0,
+          minHeight: 0,
           borderRight: 1,
           borderColor: 'divider',
         }}
       >
-        <Stack spacing={1.25} sx={{ p: 1.5 }}>
-          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="h6" component="h1">
-              Chats
-            </Typography>
-            <AlertSettings />
-          </Stack>
-          {contactId && (
-            <Chip
-              label="Conversaciones del contacto"
-              onDelete={() => {
-                setParams({})
-                setView('mine')
-              }}
-            />
-          )}
-          <TextField
-            size="small"
-            placeholder="Buscar nombre o teléfono"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            slotProps={{
-              htmlInput: { 'aria-label': 'Buscar nombre o teléfono' },
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRounded fontSize="small" />
-                  </InputAdornment>
-                ),
-                sx: { borderRadius: 3, bgcolor: 'action.hover' },
-              },
+        <InboxToolbar
+          teamView={teamView}
+          onTeamViewChange={(value) => {
+            setTeamView(value)
+            saveTeamView(value)
+          }}
+          fullscreen={fullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          syncing={syncing}
+          onSync={sync}
+        />
+        {filtersOpen ? (
+          <ConversationFilters
+            applied={filters}
+            onApply={(next) => {
+              setFilters(next)
+              setFiltersOpen(false)
             }}
+            onClose={() => setFiltersOpen(false)}
+            tags={tags.data ?? []}
+            members={options.data?.members ?? []}
+            canFilterAgents={canFilterAgents}
+            lines={options.data?.lines ?? []}
           />
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        ) : (
+          <>
+            <Stack spacing={1} sx={{ px: 1.5, pt: 1.25, pb: contactId ? 1 : 0.5 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <Tooltip title="Filtros de conversaciones">
+                  <IconButton
+                    aria-label={filtered ? `Filtros (${filtered} activos)` : 'Filtros'}
+                    onClick={() => setFiltersOpen(true)}
+                    sx={{ color: filtered ? colors.agent : 'text.secondary' }}
+                  >
+                    <Badge
+                      variant="dot"
+                      invisible={!filtered}
+                      sx={{ '& .MuiBadge-badge': { bgcolor: colors.unread } }}
+                    >
+                      <FilterAltOutlined />
+                    </Badge>
+                  </IconButton>
+                </Tooltip>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Buscar por nombre o teléfono"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  slotProps={{
+                    htmlInput: { 'aria-label': 'Buscar nombre o teléfono' },
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchRounded fontSize="small" />
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                />
+              </Stack>
+              {contactId && (
+                <Chip
+                  label="Conversaciones del contacto"
+                  onDelete={() => setParams({})}
+                  sx={{ alignSelf: 'flex-start' }}
+                />
+              )}
+            </Stack>
             {!contactId && (
-              <ToggleButtonGroup
-                exclusive
-                size="small"
+              <Tabs
                 value={status}
-                aria-label="Estado"
-                onChange={(_, value: typeof status | null) => {
-                  if (value) setStatus(value)
+                onChange={(_, value: Status) => setStatus(value)}
+                variant="fullWidth"
+                aria-label="Estado de las conversaciones"
+                sx={{
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  minHeight: 44,
+                  '& .MuiTab-root': { minHeight: 44, px: 1, textTransform: 'none' },
                 }}
-                sx={{ flexShrink: 0 }}
               >
-                <ToggleButton value="OPEN">Abiertos</ToggleButton>
-                <ToggleButton value="ON_HOLD">
-                  En espera{counts.data?.onHold ? ` (${counts.data.onHold})` : ''}
-                </ToggleButton>
-                <ToggleButton value="CLOSED">Cerrados</ToggleButton>
-              </ToggleButtonGroup>
+                <Tab
+                  value="OPEN"
+                  aria-label="Abierto"
+                  label={statusTab(
+                    <MailOutlineRounded fontSize="small" />,
+                    'Abierto',
+                    tabCounts.OPEN,
+                    true,
+                  )}
+                />
+                <Tab
+                  value="ON_HOLD"
+                  aria-label="En espera"
+                  label={statusTab(
+                    <ScheduleRounded fontSize="small" />,
+                    'En espera',
+                    tabCounts.ON_HOLD,
+                    false,
+                  )}
+                />
+                <Tab
+                  value="CLOSED"
+                  aria-label="Cerrado"
+                  label={statusTab(
+                    <TaskAltRounded fontSize="small" />,
+                    'Cerrado',
+                    tabCounts.CLOSED,
+                    false,
+                  )}
+                />
+              </Tabs>
             )}
-            <TextField
-              select
-              size="small"
-              label="Línea"
-              value={lineId}
-              onChange={(event) => setLineId(event.target.value)}
-              fullWidth
-            >
-              <MenuItem value="">Todas</MenuItem>
-              {options.data?.lines.map((line) => (
-                <MenuItem key={line.id} value={line.id}>
-                  {line.name}
-                </MenuItem>
+            {conversations.isFetching && <LinearProgress />}
+            {conversations.error && (
+              <Alert severity="error">{errorMessage(conversations.error)}</Alert>
+            )}
+            <List disablePadding sx={{ flex: 1, overflowY: 'auto' }} aria-label="Lista de chats">
+              {rows.map((conversation) => (
+                <ConversationListItem
+                  key={conversation.id}
+                  conversation={conversation}
+                  selected={selected === conversation.id}
+                  onSelect={() => select(conversation.id)}
+                  meId={meId}
+                  tags={tagsById}
+                />
               ))}
-            </TextField>
-          </Stack>
-        </Stack>
-        {!contactId && (
-          <Tabs
-            value={filter.view}
-            onChange={(_, value: InboxFilter['view']) => setView(value)}
-            variant="fullWidth"
-            aria-label="Conversaciones"
-            sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40 }}
-          >
-            <Tab
-              value="mine"
-              label={counted('Mis chats', counts.data?.mine)}
-              sx={{ minHeight: 40 }}
-            />
-            <Tab
-              value="unassigned"
-              label={counted('Sin asignar', counts.data?.unassigned)}
-              sx={{ minHeight: 40 }}
-            />
-            {has('conversations.view_all') && (
-              <Tab value="all" label={counted('Todos', counts.data?.all)} sx={{ minHeight: 40 }} />
-            )}
-          </Tabs>
+              {!conversations.isPending && !conversations.error && rows.length === 0 && (
+                <Typography color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
+                  {filtered
+                    ? 'Ningún chat coincide con los filtros.'
+                    : 'No hay conversaciones aquí.'}
+                </Typography>
+              )}
+              {/* More chats load on their own when scrolling to the end. */}
+              <Box ref={moreChats} sx={{ height: 1 }} />
+              {conversations.isFetchingNextPage && <LinearProgress />}
+            </List>
+          </>
         )}
-        {conversations.isFetching && <LinearProgress />}
-        {conversations.error && <Alert severity="error">{errorMessage(conversations.error)}</Alert>}
-        <List disablePadding sx={{ flex: 1, overflowY: 'auto' }} aria-label="Lista de chats">
-          {rows.map((conversation) => (
-            <ConversationListItem
-              key={conversation.id}
-              conversation={conversation}
-              selected={selected === conversation.id}
-              onSelect={() => select(conversation.id)}
-            />
-          ))}
-          {!conversations.isPending && !conversations.error && rows.length === 0 && (
-            <Typography color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
-              No hay conversaciones en esta vista.
-            </Typography>
-          )}
-          {/* More chats load on their own when scrolling to the end. */}
-          <Box ref={moreChats} sx={{ height: 1 }} />
-          {conversations.isFetchingNextPage && <LinearProgress />}
-        </List>
       </Box>
       <Box
         sx={{
