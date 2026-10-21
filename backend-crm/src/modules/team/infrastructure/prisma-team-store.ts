@@ -55,6 +55,14 @@ const MEMBER_SELECT = {
     orderBy: { assignedAt: 'asc' },
     select: { role: { select: ROLE_SELECT } },
   },
+  lines: {
+    orderBy: { assignedAt: 'asc' },
+    select: {
+      line: {
+        select: { id: true, name: true, displayPhone: true, workspaceId: true },
+      },
+    },
+  },
 } as const satisfies Prisma.WorkspaceMembershipSelect;
 
 type MemberRow = Prisma.WorkspaceMembershipGetPayload<{
@@ -120,6 +128,10 @@ function toMember(row: MemberRow): MemberRecord {
       system: role.workspaceId === null,
     })),
     permissions: [...new Set(roles.flatMap(permissionsOf))].sort(),
+    lines: row.lines
+      .map(({ line }) => line)
+      .filter((line) => line.workspaceId === row.workspaceId)
+      .map(({ id, name, displayPhone }) => ({ id, name, displayPhone })),
   };
 }
 
@@ -478,6 +490,37 @@ export class PrismaTeamStore extends TeamStore {
       data: { passwordHash, failedLoginCount: 0, lockedUntil: null },
     });
     return count === 1;
+  }
+
+  setMemberLines(
+    workspaceId: string,
+    memberId: string,
+    lineIds: string[],
+  ): Promise<MemberRecord | 'member_not_found' | 'line_not_found'> {
+    const unique = [...new Set(lineIds)];
+    return this.prisma.$transaction(async (tx) => {
+      const member = await tx.workspaceMembership.findFirst({
+        where: { id: memberId, workspaceId, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!member) return 'member_not_found' as const;
+      const lines = await tx.channelLine.count({
+        where: { id: { in: unique }, workspaceId },
+      });
+      if (lines !== unique.length) return 'line_not_found' as const;
+      await tx.channelLineAgent.deleteMany({
+        where: { membershipId: memberId, lineId: { notIn: unique } },
+      });
+      await tx.channelLineAgent.createMany({
+        data: unique.map((lineId) => ({ lineId, membershipId: memberId })),
+        skipDuplicates: true,
+      });
+      const row = await tx.workspaceMembership.findUniqueOrThrow({
+        where: { id: memberId },
+        select: MEMBER_SELECT,
+      });
+      return toMember(row);
+    });
   }
 
   /**

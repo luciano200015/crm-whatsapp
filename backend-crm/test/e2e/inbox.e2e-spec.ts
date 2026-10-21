@@ -756,7 +756,8 @@ describe('Inbox (e2e)', () => {
     const owner = await signUp();
     const ana = await agentOf(owner, 'Ana');
     const beto = await agentOf(owner, 'Beto');
-    const line = await lineWithAgents(owner, [ana], true);
+    // Beto attends the line too; turns start with Ana.
+    const line = await lineWithAgents(owner, [ana, beto], true);
     await incoming(line, '59170000050', 'Hola');
     const [chat] = await conversations(owner, '?view=all');
     const id = chat?.id ?? '';
@@ -805,6 +806,84 @@ describe('Inbox (e2e)', () => {
     // Movements never replace the preview of the last message.
     const [after] = await conversations(owner, '?view=all');
     expect(after?.lastMessage).toMatchObject({ text: 'Hola', direction: 'IN' });
+  });
+
+  it('limits agents to the lines they attend, set from Agentes', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+    const ventas = await lineWithAgents(owner, [ana], false);
+    const soporte = await lineWithAgents(owner, [], false);
+    await incoming(soporte, '59170000060', 'Soporte');
+    const [chat] = await conversations(owner, '?view=all');
+    const id = chat?.id ?? '';
+
+    // Ana does not attend Soporte: she cannot receive its chats.
+    const refused = await api(owner)
+      .post(`/conversations/${id}/assign`, { membershipId: ana.membershipId })
+      .expect(409);
+    expect(refused.body).toMatchObject({ code: 'AGENT_NOT_ON_LINE' });
+
+    // Only who manages channels assigns lines, and only lines of the workspace.
+    await api(ana)
+      .put(`/members/${ana.membershipId}/lines`, { lineIds: [ventas.id] })
+      .expect(403);
+    const other = await signUp();
+    const foreign = await lineWithAgents(other, [], false);
+    const missing = await api(owner)
+      .put(`/members/${ana.membershipId}/lines`, { lineIds: [foreign.id] })
+      .expect(404);
+    expect(missing.body).toMatchObject({ code: 'LINE_NOT_FOUND' });
+
+    const both = await api(owner)
+      .put(`/members/${ana.membershipId}/lines`, {
+        lineIds: [ventas.id, soporte.id],
+      })
+      .expect(200);
+    expect(
+      (both.body as { lines: { id: string }[] }).lines.map((l) => l.id).sort(),
+    ).toEqual([ventas.id, soporte.id].sort());
+    await api(owner)
+      .post(`/conversations/${id}/assign`, { membershipId: ana.membershipId })
+      .expect(200);
+    expect(await conversations(ana, '?view=mine')).toHaveLength(1);
+
+    const transfer = (
+      await api(owner).get('/conversations/options').expect(200)
+    ).body as {
+      viewAll: boolean;
+      members: { membershipId: string; lineIds: string[]; viewAll: boolean }[];
+    };
+    expect(transfer.viewAll).toBe(true);
+    expect(
+      transfer.members.find((m) => m.membershipId === ana.membershipId),
+    ).toMatchObject({ viewAll: false });
+
+    // Without Soporte she stops seeing its chats, even the ones assigned to her.
+    await api(owner)
+      .put(`/members/${ana.membershipId}/lines`, { lineIds: [ventas.id] })
+      .expect(200);
+    expect(await conversations(ana, '?view=all')).toEqual([]);
+    await api(ana).get(`/conversations/${id}`).expect(404);
+    const counts = (await api(ana).get('/conversations/counts').expect(200))
+      .body as Record<string, number>;
+    expect(counts).toMatchObject({ mine: 0, all: 0, unread: 0 });
+    const mine = (await api(ana).get('/conversations/options').expect(200))
+      .body as {
+      viewAll: boolean;
+      myLineIds: string[];
+      lines: { id: string; displayPhone: string | null; status: string }[];
+    };
+    expect(mine).toMatchObject({ viewAll: false, myLineIds: [ventas.id] });
+    expect(mine.lines.map((l) => l.id)).toEqual([ventas.id]);
+    expect(mine.lines[0]).toHaveProperty('status');
+
+    // Without lines, an agent has an empty inbox.
+    await api(owner)
+      .put(`/members/${ana.membershipId}/lines`, { lineIds: [] })
+      .expect(200);
+    await incoming(ventas, '59170000061', 'Ventas');
+    expect(await conversations(ana, '?view=all')).toEqual([]);
+    expect(await conversations(owner, '?view=all')).toHaveLength(2);
   });
 
   it('filters by open, closed or all and marks conversations as unread', async () => {

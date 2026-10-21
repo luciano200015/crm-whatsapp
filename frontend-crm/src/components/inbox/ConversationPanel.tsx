@@ -239,7 +239,11 @@ export function ConversationPanel({
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <ChatHeader
           conversation={conversation}
-          members={options.data?.members ?? []}
+          // Only who attends the line of the chat (or sees every line) can receive it.
+          members={(options.data?.members ?? []).filter(
+            (member) =>
+              member.viewAll !== false || (member.lineIds ?? []).includes(conversation.lineId),
+          )}
           busy={action.isPending}
           onAction={(chosen) => action.mutate(chosen)}
           onBack={onBack}

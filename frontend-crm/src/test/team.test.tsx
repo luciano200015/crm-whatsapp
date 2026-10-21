@@ -8,7 +8,15 @@ import { AppProviders } from '../AppProviders'
 import { es } from '../i18n/es'
 import { API_BASE_URL } from '../lib/api/client'
 import { tokenStore } from '../lib/api/token-store'
-import type { Me, Member, MemberList, PermissionInfo, PlanCatalog, Role } from '../lib/api/types'
+import type {
+  Line,
+  Me,
+  Member,
+  MemberList,
+  PermissionInfo,
+  PlanCatalog,
+  Role,
+} from '../lib/api/types'
 import { createQueryClient } from '../lib/query-client'
 import { routes } from '../router'
 
@@ -96,6 +104,7 @@ const member = (overrides: Partial<Member>): Member => ({
   deactivatedAt: null,
   role: { id: 'r-owner', key: 'OWNER', name: 'Owner', system: true },
   permissions: ALL_PERMISSIONS,
+  lines: [],
   ...overrides,
 })
 
@@ -133,6 +142,11 @@ let me: Me
 let memberList: MemberList
 let posted: unknown[]
 
+const whatsappLines = [
+  { id: 'l-ventas', name: 'Ventas', displayPhone: '+591 70000001', status: 'CONNECTED' },
+  { id: 'l-soporte', name: 'Soporte', displayPhone: '+591 70000002', status: 'ERROR' },
+] as Line[]
+
 const server = setupServer(
   http.post(api('/auth/refresh'), () =>
     HttpResponse.json({ accessToken: 'jwt', tokenType: 'Bearer', expiresIn: 900 }),
@@ -149,6 +163,16 @@ const server = setupServer(
       member({ id: 'm-new', userId: 'u-new', ...body, pendingFirstAccess: true }),
       { status: 201 },
     )
+  }),
+  http.get(api(`${WS}/channels/lines`), () => HttpResponse.json(whatsappLines)),
+  http.put(api(`${WS}/members/:memberId/lines`), async ({ request, params }) => {
+    const body = (await request.json()) as { lineIds: string[] }
+    posted.push({ memberId: params.memberId, ...body })
+    const updated = memberList.items.find((item) => item.id === params.memberId)
+    return HttpResponse.json({
+      ...updated,
+      lines: whatsappLines.filter((line) => body.lineIds.includes(line.id)),
+    })
   }),
   http.post(api(`${WS}/roles`), async ({ request }) => {
     posted.push(await request.json())
@@ -204,6 +228,7 @@ function renderAt(path: string) {
 describe('Team: members', () => {
   it('lists agents with their role, status and the plan usage', async () => {
     renderAt('/team/members')
+    const user = userEvent.setup()
 
     const row = (await screen.findByText('Andrés Agente')).closest('tr')
     expect(row).not.toBeNull()
@@ -211,10 +236,11 @@ describe('Team: members', () => {
     expect(cells.getByText(es.roles.system.AGENT?.name ?? '')).toBeInTheDocument()
     expect(cells.getByText(es.team.status.pending)).toBeInTheDocument()
     expect(screen.getByText(es.team.usage(2, 10))).toBeInTheDocument()
-    // No actions on your own row.
-    expect(
-      screen.queryByRole('button', { name: es.team.actionsFor('Olga Owner') }),
-    ).not.toBeInTheDocument()
+    // On your own row you can only pick your lines.
+    await user.click(screen.getByRole('button', { name: es.team.actionsFor('Olga Owner') }))
+    expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual([
+      es.team.assignLines,
+    ])
   })
 
   it('registers a new agent', async () => {
@@ -234,6 +260,28 @@ describe('Team: members', () => {
     expect(posted).toEqual([
       { displayName: 'Carla Pérez', email: 'carla@example.com', roleId: 'r-agent' },
     ])
+  })
+
+  it('shows the lines of each agent and assigns them', async () => {
+    renderAt('/team/members')
+    const user = userEvent.setup()
+
+    const agentRow = (await screen.findByText('Andrés Agente')).closest('tr') as HTMLElement
+    expect(within(agentRow).getByText(es.team.noLines)).toBeInTheDocument()
+    const ownerRow = screen.getByText('Olga Owner').closest('tr') as HTMLElement
+    expect(within(ownerRow).getByText(es.team.allLines)).toBeInTheDocument()
+
+    await user.click(
+      within(agentRow).getByRole('button', { name: es.team.actionsFor('Andrés Agente') }),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: es.team.assignLines }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(es.lines.status.ERROR)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Ventas' }))
+    await user.click(within(dialog).getByRole('button', { name: es.team.linesDialog.save }))
+
+    expect(await screen.findByText(es.team.linesSaved)).toBeInTheDocument()
+    expect(posted).toEqual([{ memberId: 'm-agent', lineIds: ['l-ventas'] }])
   })
 
   it('blocks new agents when the plan limit is reached', async () => {

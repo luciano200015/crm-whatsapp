@@ -253,12 +253,44 @@ export class InboxLineOptionDto {
   name: string;
 }
 
-export class InboxOptionsDto {
-  @ApiProperty({ type: [InboxLineOptionDto] })
-  lines: InboxLineOptionDto[];
+export class InboxVisibleLineDto extends InboxLineOptionDto {
+  @ApiProperty({ nullable: true, type: String, example: '+591 70000000' })
+  displayPhone: string | null;
 
-  @ApiProperty({ type: [AssigneeDto] })
-  members: AssigneeDto[];
+  @ApiProperty({ example: 'CONNECTED' })
+  status: string;
+}
+
+export class MemberReachDto extends AssigneeDto {
+  @ApiProperty({ type: [String], description: 'Lines the member attends.' })
+  lineIds: string[];
+
+  @ApiProperty({ description: 'Their role sees every conversation.' })
+  viewAll: boolean;
+}
+
+export class InboxOptionsDto {
+  @ApiProperty({
+    description: 'conversations.view_all: the member sees every line.',
+  })
+  viewAll: boolean;
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Lines the member attends. Without view_all they only see chats of these lines; none means an empty inbox.',
+  })
+  myLineIds: string[];
+
+  @ApiProperty({ type: [InboxVisibleLineDto] })
+  lines: InboxVisibleLineDto[];
+
+  @ApiProperty({
+    type: [MemberReachDto],
+    description:
+      'With conversations.assign: who a chat can go to (members of its line, or with view_all).',
+  })
+  members: MemberReachDto[];
 }
 
 export class AssignmentLineDto extends InboxLineOptionDto {

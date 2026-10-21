@@ -48,6 +48,14 @@ export interface MemberRecord {
   roles: { id: string; key: string; name: string; system: boolean }[];
   /** Union of the permissions of the member's roles. */
   permissions: PermissionKey[];
+  /** WhatsApp lines the member attends (channel_line_agents). */
+  lines: MemberLine[];
+}
+
+export interface MemberLine {
+  id: string;
+  name: string;
+  displayPhone: string | null;
 }
 
 export interface MemberFilter {
@@ -164,4 +172,13 @@ export abstract class TeamStore {
     userId: string,
     passwordHash: string,
   ): Promise<boolean>;
+  /**
+   * Replaces the lines an active member attends; every line must belong to
+   * the workspace.
+   */
+  abstract setMemberLines(
+    workspaceId: string,
+    memberId: string,
+    lineIds: string[],
+  ): Promise<MemberRecord | 'member_not_found' | 'line_not_found'>;
 }

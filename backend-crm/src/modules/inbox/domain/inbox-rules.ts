@@ -35,18 +35,19 @@ export interface InboxScope {
 }
 
 /**
- * Without conversations.view_all a member sees the conversations assigned
- * to them and the unassigned ones of the lines they attend.
+ * Without conversations.view_all a member only sees the lines they attend:
+ * there, the conversations assigned to them and the unassigned ones. A
+ * member without lines sees nothing.
  */
 export function canSee(
   conversation: { lineId: string; assignee: { membershipId: string } | null },
   scope: InboxScope,
 ): boolean {
   if (scope.viewAll) return true;
-  if (conversation.assignee?.membershipId === scope.membershipId) return true;
+  if (!scope.lineIds.includes(conversation.lineId)) return false;
   return (
-    conversation.assignee === null &&
-    scope.lineIds.includes(conversation.lineId)
+    conversation.assignee === null ||
+    conversation.assignee.membershipId === scope.membershipId
   );
 }
 

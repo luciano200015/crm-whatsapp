@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/postgres/prisma.service';
 import type { UserStatus } from '../../../generated/prisma/client';
 import { pickNextAgent } from '../domain/inbox-rules';
-import { AssignmentStore, type Assignee } from '../application/ports';
+import {
+  AssignmentStore,
+  type Assignee,
+  type MemberReach,
+} from '../application/ports';
 
 /**
  * Users who cannot sign in. Unverified users (PENDING_VERIFICATION) can, so
@@ -29,6 +33,40 @@ export class PrismaAssignmentStore extends AssignmentStore {
       membershipId: member.id,
       userId: member.user.id,
       name: member.user.displayName,
+    }));
+  }
+
+  async membersReach(workspaceId: string): Promise<MemberReach[]> {
+    const members = await this.prisma.workspaceMembership.findMany({
+      where: {
+        workspaceId,
+        status: 'ACTIVE',
+        user: { status: { notIn: BLOCKED_USER_STATUSES } },
+      },
+      select: {
+        id: true,
+        user: { select: { id: true, displayName: true } },
+        lines: { select: { lineId: true } },
+        roles: {
+          select: {
+            role: {
+              select: {
+                permissions: {
+                  where: { permission: { key: 'conversations.view_all' } },
+                  select: { permissionId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    return members.map((member) => ({
+      membershipId: member.id,
+      userId: member.user.id,
+      name: member.user.displayName,
+      lineIds: member.lines.map((line) => line.lineId),
+      viewAll: member.roles.some(({ role }) => role.permissions.length > 0),
     }));
   }
 

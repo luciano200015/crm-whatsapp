@@ -68,6 +68,12 @@ Si el agente no recibió el correo o lo perdió: `POST …/members/:memberId/res
 - **Reactivar** vuelve a contar para `limits.agents` y necesita un plan activo.
 - Los miembros desactivados no cuentan para el límite del plan.
 
+### Líneas asignadas
+
+- Cada agente tiene las **líneas de WhatsApp que atiende** (`channel_line_agents`). La tabla de Agentes las muestra en la columna «Líneas»: «Todas» si su rol tiene `conversations.view_all`, y «Sin líneas» en naranja si no recibirá chats.
+- Se asignan con **⋮ → Asignar líneas** o al registrar al agente. Hace falta `channels.manage` (Propietario y Administrador); `PUT …/members/:memberId/lines` reemplaza todas sus líneas. Una línea de otro workspace da `404 LINE_NOT_FOUND`, y un miembro desactivado, `404 MEMBER_NOT_FOUND`.
+- Sin `conversations.view_all`, un agente **solo ve y recibe los chats de sus líneas**; sin líneas, ninguno. La autoasignación reparte entre los agentes de cada línea. Más detalles en [inbox.md](inbox.md#líneas-por-agente).
+
 ## Reglas de autorización
 
 | Regla | Error |
@@ -89,6 +95,7 @@ Todas bajo `/api/v1/workspaces/:workspaceId`, con `WorkspaceAccessGuard`.
 | `GET members/:memberId` | `members.read` | Un miembro |
 | `POST members` | `members.invite` | Registrar agente |
 | `PATCH members/:memberId { roleId }` | `members.manage` | Cambiar rol |
+| `PUT members/:memberId/lines { lineIds }` | `channels.manage` | Líneas de WhatsApp que atiende (reemplaza las actuales) |
 | `POST members/:memberId/deactivate` | `members.manage` | Desactivar |
 | `POST members/:memberId/reactivate` | `members.manage` | Reactivar |
 | `POST members/:memberId/resend-access` | `members.invite` | Nueva contraseña temporal |
@@ -102,7 +109,7 @@ Con los roles del sistema: OWNER puede todo. ADMIN gestiona agentes (`members.*`
 
 ## Auditoría
 
-- `team.member.created` (cuenta nueva), `team.member.added` (cuenta existente), `team.member.role_changed`, `team.member.deactivated`, `team.member.reactivated` y `team.member.access_resent`.
+- `team.member.created` (cuenta nueva), `team.member.added` (cuenta existente), `team.member.role_changed`, `team.member.lines_changed`, `team.member.deactivated`, `team.member.reactivated` y `team.member.access_resent`.
 - `team.role.created`, `team.role.updated` y `team.role.deleted`.
 
 ## Datos demo
@@ -113,7 +120,6 @@ Con los roles del sistema: OWNER puede todo. ADMIN gestiona agentes (`members.*`
 
 ## Pendiente
 
-- **Teléfonos asignados:** se añadirán con la fase de mensajería, cuando existan las líneas de WhatsApp (`limits.whatsapp_lines`).
 - La contraseña temporal no caduca: sigue valiendo hasta que el agente la cambie o se reenvíe el acceso. Falta una caducidad configurable.
 - Los correos del equipo están en inglés, igual que los de autenticación. Falta localizarlos.
 - Transferir la propiedad y abandonar un workspace.

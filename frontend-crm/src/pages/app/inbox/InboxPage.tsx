@@ -178,6 +178,8 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
     else void fillRef.current?.requestFullscreen?.()
   }
   const filtered = activeFilters(filters)
+  // Agents only see the chats of their lines: without lines, nothing arrives.
+  const noLines = options.data?.viewAll === false && options.data.myLineIds?.length === 0
 
   return (
     <Paper
@@ -203,6 +205,7 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
         }}
       >
         <InboxToolbar
+          options={options.data}
           teamView={teamView}
           onTeamViewChange={(value) => {
             setTeamView(value)
@@ -331,12 +334,21 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                   tags={tagsById}
                 />
               ))}
-              {!conversations.isPending && !conversations.error && rows.length === 0 && (
-                <Typography color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
-                  {filtered
-                    ? 'Ningún chat coincide con los filtros.'
-                    : 'No hay conversaciones aquí.'}
-                </Typography>
+              {noLines ? (
+                <Alert severity="warning" sx={{ m: 1.5 }}>
+                  Aún no tienes números asignados. Pide al propietario o a un administrador que te
+                  asigne una línea en Equipo → Agentes.
+                </Alert>
+              ) : (
+                !conversations.isPending &&
+                !conversations.error &&
+                rows.length === 0 && (
+                  <Typography color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
+                    {filtered
+                      ? 'Ningún chat coincide con los filtros.'
+                      : 'No hay conversaciones aquí.'}
+                  </Typography>
+                )
               )}
               {/* More chats load on their own when scrolling to the end. */}
               <Box ref={moreChats} sx={{ height: 1 }} />

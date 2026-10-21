@@ -111,10 +111,8 @@ function toMessage(doc: MessageDocument): MessageRecord {
 function scopeFilter(scope: InboxScope): ConversationFilter | null {
   if (scope.viewAll) return null;
   return {
-    $or: [
-      { 'assignee.membershipId': scope.membershipId },
-      { assignee: null, lineId: { $in: [...scope.lineIds] } },
-    ],
+    lineId: { $in: [...scope.lineIds] },
+    $or: [{ 'assignee.membershipId': scope.membershipId }, { assignee: null }],
   };
 }
 
@@ -264,7 +262,11 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       workspaceId,
       status: { $in: ['OPEN', 'ON_HOLD'] as ConversationStatus[] },
     };
-    const mineOnly = { 'assignee.membershipId': scope.membershipId };
+    // Mine, but only on the lines the member still attends.
+    const mineOnly = {
+      ...visible,
+      'assignee.membershipId': scope.membershipId,
+    };
     const [
       mine,
       unassigned,

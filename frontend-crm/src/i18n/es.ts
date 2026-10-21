@@ -411,6 +411,7 @@ export const es = {
     columns: {
       member: 'Agente',
       role: 'Rol',
+      lines: 'Líneas',
       status: 'Estado',
       lastLogin: 'Último acceso',
       actions: 'Acciones',
@@ -425,6 +426,20 @@ export const es = {
     empty: 'No hay agentes que coincidan con la búsqueda.',
     actionsFor: (name: string) => `Acciones para ${name}`,
     changeRole: 'Cambiar rol',
+    assignLines: 'Asignar líneas',
+    allLines: 'Todas',
+    allLinesHelp: 'Su rol ve los chats de todas las líneas.',
+    noLines: 'Sin líneas',
+    noLinesHelp: 'No verá ni recibirá chats hasta que le asignes una línea.',
+    linesSaved: 'Líneas actualizadas',
+    linesDialog: {
+      title: (name: string) => `Líneas de ${name}`,
+      help: 'Solo verá y recibirá los chats de los números marcados. La autoasignación también usa estas líneas.',
+      viewAllNote:
+        'Su rol ve los chats de todas las líneas; las marcadas solo cuentan para la autoasignación.',
+      empty: 'Aún no hay líneas de WhatsApp. Conéctalas en Canales → Líneas.',
+      save: 'Guardar líneas',
+    },
     deactivate: 'Desactivar',
     reactivate: 'Reactivar',
     resendAccess: 'Reenviar acceso',
@@ -445,6 +460,8 @@ export const es = {
       email: 'Correo electrónico',
       emailPlaceholder: 'agente@empresa.com',
       role: 'Rol',
+      lines: 'Líneas de WhatsApp',
+      linesHelp: 'Solo verá y recibirá los chats de estos números. Puedes cambiarlo después.',
       submit: 'Registrar agente',
       existingNote:
         'Si el correo ya tiene una cuenta, solo se añade a este espacio de trabajo y conserva su contraseña.',

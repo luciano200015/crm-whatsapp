@@ -127,16 +127,31 @@ export class InboxService {
     };
   }
 
+  /**
+   * Lines the member sees (all of them with conversations.view_all), the
+   * ones they attend, and who a chat can be transferred to.
+   */
   async options(actor: InboxActor) {
-    const scope = await this.scope(actor);
-    const names = await this.assignments.lineNames(actor.access.workspaceId);
-    return {
-      lines: [...names]
-        .filter(([id]) => scope.viewAll || scope.lineIds.includes(id))
-        .map(([id, name]) => ({ id, name })),
-      members: actor.access.permissions.has('conversations.assign')
-        ? await this.assignments.activeMembers(actor.access.workspaceId)
+    const { workspaceId, permissions } = actor.access;
+    const [scope, lines, members] = await Promise.all([
+      this.scope(actor),
+      this.lines.listLines(workspaceId),
+      permissions.has('conversations.assign')
+        ? this.assignments.membersReach(workspaceId)
         : [],
+    ]);
+    return {
+      viewAll: scope.viewAll,
+      myLineIds: [...scope.lineIds],
+      lines: lines
+        .filter((line) => scope.viewAll || scope.lineIds.includes(line.id))
+        .map((line) => ({
+          id: line.id,
+          name: line.name,
+          displayPhone: line.displayPhone,
+          status: line.status,
+        })),
+      members,
     };
   }
 
@@ -554,7 +569,10 @@ export class InboxService {
     return toMessageView(note);
   }
 
-  /** conversations.assign: assign to any active member, or unassign (null). */
+  /**
+   * conversations.assign: assign to an active member who attends the line
+   * (or sees every chat), or unassign (null).
+   */
   async assign(
     actor: InboxActor,
     conversationId: string,
@@ -562,10 +580,20 @@ export class InboxService {
   ): Promise<ConversationView> {
     const { workspaceId } = actor.access;
     const conversation = await this.requireVisible(actor, conversationId);
-    const assignee = membershipId
-      ? await this.assignments.activeMember(workspaceId, membershipId)
-      : null;
-    if (membershipId && !assignee) throw InboxErrors.memberNotFound();
+    let assignee: Assignee | null = null;
+    if (membershipId) {
+      const members = await this.assignments.membersReach(workspaceId);
+      const member = members.find((m) => m.membershipId === membershipId);
+      if (!member) throw InboxErrors.memberNotFound();
+      if (!member.viewAll && !member.lineIds.includes(conversation.lineId)) {
+        throw InboxErrors.agentNotOnLine();
+      }
+      assignee = {
+        membershipId: member.membershipId,
+        userId: member.userId,
+        name: member.name,
+      };
+    }
     const updated = await this.store.setAssignee(
       workspaceId,
       conversationId,
@@ -718,7 +746,8 @@ export class InboxService {
     });
   }
 
-  private async view(conversation: ConversationRecord) {
+  /** The view of a conversation with its line name and contact tags. */
+  async view(conversation: ConversationRecord) {
     const [names, tags] = await Promise.all([
       this.assignments.lineNames(conversation.workspaceId),
       this.contacts.tagIdsOf(conversation.workspaceId, [

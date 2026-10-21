@@ -54,6 +54,12 @@ export const InboxErrors = {
       message: 'Another agent already took this conversation',
       code: 'ALREADY_ASSIGNED',
     }),
+  agentNotOnLine: () =>
+    new ConflictException({
+      message:
+        'That agent does not attend the line of this conversation: assign them the line first',
+      code: 'AGENT_NOT_ON_LINE',
+    }),
   memberNotFound: () =>
     new NotFoundException({
       message: 'Only active members of the workspace can be assigned',

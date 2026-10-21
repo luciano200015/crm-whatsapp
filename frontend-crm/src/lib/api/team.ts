@@ -39,6 +39,14 @@ export const teamApi = {
     })
   },
 
+  /** channels.manage: replaces the lines the member attends. */
+  setLines(workspaceId: string, memberId: string, lineIds: string[]) {
+    return apiRequest<Member>(`${member(workspaceId, memberId)}/lines`, {
+      method: 'PUT',
+      body: { lineIds },
+    })
+  },
+
   deactivate(workspaceId: string, memberId: string) {
     return apiRequest<Member>(`${member(workspaceId, memberId)}/deactivate`, { method: 'POST' })
   },

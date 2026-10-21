@@ -267,8 +267,16 @@ export abstract class InboxStore {
 }
 
 /** Assignment data that lives in PostgreSQL (lines, agents, memberships). */
+/** Lines an assignable member attends, and whether their role sees every chat. */
+export interface MemberReach extends Assignee {
+  lineIds: string[];
+  viewAll: boolean;
+}
+
 export abstract class AssignmentStore {
   abstract activeMembers(workspaceId: string): Promise<Assignee[]>;
+  /** Active members with the lines they attend (for transfers). */
+  abstract membersReach(workspaceId: string): Promise<MemberReach[]>;
   /** Next agent of the line in turns (locks the line row); null without agents. */
   abstract nextAgent(lineId: string): Promise<Assignee | null>;
   /** Lines the membership attends. */

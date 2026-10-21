@@ -30,6 +30,7 @@ import { Link as RouterLink } from 'react-router'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import {
   ChangeRoleDialog,
+  MemberLinesDialog,
   NewMemberDialog,
   type NewMemberValues,
 } from '../../../components/team/MemberDialogs'
@@ -38,6 +39,7 @@ import { Can } from '../../../auth/permissions'
 import { PageHeader } from '../../../components/PageHeader'
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { es } from '../../../i18n/es'
+import { channelKeys, channelsApi } from '../../../lib/api/channels'
 import { errorMessage } from '../../../lib/api/errors'
 import { teamApi, teamKeys } from '../../../lib/api/team'
 import type { Member, MembershipStatus } from '../../../lib/api/types'
@@ -68,9 +70,17 @@ export function AgentsPage() {
     placeholderData: keepPreviousData,
   })
   const roles = useRoles(team.workspaceId)
+  // Lines are assigned by whoever manages channels (owner and admin).
+  const canAssignLines = team.can('channels.manage')
+  const lines = useQuery({
+    queryKey: channelKeys.lines(workspaceId),
+    queryFn: () => channelsApi.lines(workspaceId),
+    enabled: workspaceId !== '' && canAssignLines,
+  })
 
   const [creating, setCreating] = useState(false)
   const [changingRole, setChangingRole] = useState<Member | null>(null)
+  const [assigningLines, setAssigningLines] = useState<Member | null>(null)
   const [deactivating, setDeactivating] = useState<Member | null>(null)
 
   const refresh = async () => {
@@ -117,8 +127,9 @@ export function AgentsPage() {
   const manageable = (member: Member) =>
     member.userId !== team.userId && holdsAll(team.permissions, member.permissions)
 
-  const createMember = async (values: NewMemberValues) => {
+  const createMember = async ({ lineIds, ...values }: NewMemberValues) => {
     const created = await teamApi.createMember(workspaceId, values)
+    if (lineIds.length > 0) await teamApi.setLines(workspaceId, created.id, lineIds)
     await refresh()
     enqueueSnackbar(es.team.created(created.email), { variant: 'success' })
   }
@@ -127,6 +138,15 @@ export function AgentsPage() {
     await teamApi.changeRole(workspaceId, member.id, roleId)
     await refresh()
     enqueueSnackbar(es.team.roleChanged, { variant: 'success' })
+  }
+
+  const saveLines = async (member: Member, lineIds: string[]) => {
+    await teamApi.setLines(workspaceId, member.id, lineIds)
+    await refresh()
+    // Line agents and the inbox depend on these lines too.
+    await queryClient.invalidateQueries({ queryKey: channelKeys.lines(workspaceId) })
+    await queryClient.invalidateQueries({ queryKey: ['inbox', workspaceId] })
+    enqueueSnackbar(es.team.linesSaved, { variant: 'success' })
   }
 
   return (
@@ -209,11 +229,12 @@ export function AgentsPage() {
       <Card variant="outlined">
         {members.isFetching && <LinearProgress sx={{ height: 2 }} />}
         <TableContainer>
-          <Table size="medium" sx={{ minWidth: 720 }}>
+          <Table size="medium" sx={{ minWidth: 880 }}>
             <TableHead>
               <TableRow>
                 <TableCell>{es.team.columns.member}</TableCell>
                 <TableCell>{es.team.columns.role}</TableCell>
+                <TableCell>{es.team.columns.lines}</TableCell>
                 <TableCell>{es.team.columns.status}</TableCell>
                 <TableCell>{es.team.columns.lastLogin}</TableCell>
                 <TableCell align="right">{es.team.columns.actions}</TableCell>
@@ -222,20 +243,20 @@ export function AgentsPage() {
             <TableBody>
               {members.isPending ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={6}>
                     <Skeleton variant="rounded" height={120} />
                   </TableCell>
                 </TableRow>
               ) : members.isError ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={6}>
                     <Alert severity="error">{errorMessage(members.error)}</Alert>
                   </TableCell>
                 </TableRow>
               ) : members.data.items.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}
                   >
                     {es.team.empty}
@@ -250,6 +271,8 @@ export function AgentsPage() {
                     canManage={team.can('members.manage') && manageable(member)}
                     canResend={team.can('members.invite') && manageable(member)}
                     canReactivate={!blockedReason}
+                    canAssignLines={canAssignLines}
+                    onAssignLines={() => setAssigningLines(member)}
                     onChangeRole={() => setChangingRole(member)}
                     onDeactivate={() => setDeactivating(member)}
                     onReactivate={() => statusChange.mutate({ member, active: true })}
@@ -266,6 +289,7 @@ export function AgentsPage() {
         <NewMemberDialog
           open
           roles={assignableRoles}
+          lines={canAssignLines ? lines.data : undefined}
           onClose={() => setCreating(false)}
           onSubmit={createMember}
         />
@@ -277,6 +301,16 @@ export function AgentsPage() {
           roles={assignableRoles}
           onClose={() => setChangingRole(null)}
           onSubmit={(roleId) => changeRole(changingRole, roleId)}
+        />
+      )}
+      {assigningLines && (
+        <MemberLinesDialog
+          memberName={assigningLines.displayName}
+          viewAll={assigningLines.permissions.includes('conversations.view_all')}
+          lines={lines.data ?? []}
+          current={assigningLines.lines.map((line) => line.id)}
+          onClose={() => setAssigningLines(null)}
+          onSubmit={(lineIds) => saveLines(assigningLines, lineIds)}
         />
       )}
       <ConfirmDialog
@@ -296,12 +330,39 @@ export function AgentsPage() {
   )
 }
 
+/** Lines the member attends; "Todas" when their role sees every chat. */
+function MemberLines({ member }: { member: Member }) {
+  const viewAll = member.permissions.includes('conversations.view_all')
+  const lines = member.lines ?? []
+  return (
+    <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.5, maxWidth: 260 }}>
+      {viewAll && (
+        <Tooltip title={es.team.allLinesHelp}>
+          <Chip size="small" color="info" variant="outlined" label={es.team.allLines} />
+        </Tooltip>
+      )}
+      {lines.map((line) => (
+        <Tooltip key={line.id} title={line.displayPhone ?? ''}>
+          <Chip size="small" label={line.name} />
+        </Tooltip>
+      ))}
+      {!viewAll && lines.length === 0 && member.status === 'ACTIVE' && (
+        <Tooltip title={es.team.noLinesHelp}>
+          <Chip size="small" color="warning" variant="outlined" label={es.team.noLines} />
+        </Tooltip>
+      )}
+    </Stack>
+  )
+}
+
 function MemberRow({
   member,
   isSelf,
   canManage,
   canResend,
   canReactivate,
+  canAssignLines,
+  onAssignLines,
   onChangeRole,
   onDeactivate,
   onReactivate,
@@ -312,6 +373,8 @@ function MemberRow({
   canManage: boolean
   canResend: boolean
   canReactivate: boolean
+  canAssignLines: boolean
+  onAssignLines: () => void
   onChangeRole: () => void
   onDeactivate: () => void
   onReactivate: () => void
@@ -325,6 +388,7 @@ function MemberRow({
   }
 
   const actions = [
+    canAssignLines && active && { label: es.team.assignLines, onClick: onAssignLines },
     canManage && active && { label: es.team.changeRole, onClick: onChangeRole },
     canResend &&
       active &&
@@ -369,6 +433,9 @@ function MemberRow({
             label={roleName(member.role)}
           />
         )}
+      </TableCell>
+      <TableCell>
+        <MemberLines member={member} />
       </TableCell>
       <TableCell>
         {active && member.pendingFirstAccess ? (

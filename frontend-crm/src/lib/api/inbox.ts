@@ -111,8 +111,14 @@ export interface InboxFilter {
 }
 
 export interface InboxOptions {
-  lines: { id: string; name: string }[]
-  members: Assignee[]
+  /** conversations.view_all: sees the chats of every line. */
+  viewAll?: boolean
+  /** Lines the user attends; without viewAll, the only chats they see. */
+  myLineIds?: string[]
+  /** Lines the user sees (every line with viewAll). */
+  lines: { id: string; name: string; displayPhone?: string | null; status?: string }[]
+  /** Who a chat can be transferred to (with conversations.assign). */
+  members: (Assignee & { lineIds?: string[]; viewAll?: boolean })[]
 }
 
 export interface AutoAssignmentOptions {

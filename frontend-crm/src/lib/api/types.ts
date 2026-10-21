@@ -199,6 +199,14 @@ export interface Member {
   deactivatedAt: string | null
   role: MyRole | null
   permissions: string[]
+  /** WhatsApp lines the member attends: without conversations.view_all, the only chats they see. */
+  lines: MemberLine[]
+}
+
+export interface MemberLine {
+  id: string
+  name: string
+  displayPhone: string | null
 }
 
 export interface MemberList {

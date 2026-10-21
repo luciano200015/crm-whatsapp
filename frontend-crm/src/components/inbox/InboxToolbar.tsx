@@ -6,8 +6,6 @@ import MoreVertRounded from '@mui/icons-material/MoreVertRounded'
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import SyncRounded from '@mui/icons-material/SyncRounded'
 import {
-  Avatar,
-  Badge,
   Box,
   Button,
   Dialog,
@@ -26,10 +24,10 @@ import {
 import { useState, type MouseEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { usePermissions } from '../../auth/usePermissions'
-import { useMe } from '../../auth/useMe'
+import type { InboxOptions } from '../../lib/api/inbox'
 import { AlertSettings } from './AlertSettings'
+import { ProfileButton } from './ProfileButton'
 import { useChatColors } from './chat-colors'
-import { initials } from './inbox-format'
 
 function ToolButton({
   label,
@@ -71,6 +69,7 @@ function ToolButton({
  * full screen, "mine + my agents" view, sync and more options.
  */
 export function InboxToolbar({
+  options,
   teamView,
   onTeamViewChange,
   fullscreen,
@@ -78,6 +77,7 @@ export function InboxToolbar({
   syncing,
   onSync,
 }: {
+  options: InboxOptions | undefined
   teamView: boolean
   onTeamViewChange: (value: boolean) => void
   fullscreen: boolean
@@ -86,11 +86,8 @@ export function InboxToolbar({
   onSync: () => void
 }) {
   const { has } = usePermissions()
-  const me = useMe().data
-  const colors = useChatColors()
   const [help, setHelp] = useState(false)
   const [menu, setMenu] = useState<HTMLElement | null>(null)
-  const name = me?.displayName ?? ''
   const links = [
     { to: '/quick-replies', label: 'Respuestas rápidas', allowed: has('quick_replies.manage') },
     { to: '/inbox/auto-assignment', label: 'Autoasignación', allowed: has('channels.manage') },
@@ -103,21 +100,7 @@ export function InboxToolbar({
       spacing={1}
       sx={{ alignItems: 'center', px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider' }}
     >
-      <Tooltip title={name}>
-        <Badge
-          overlap="circular"
-          variant="dot"
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          sx={{ '& .MuiBadge-badge': { bgcolor: colors.unread } }}
-        >
-          <Avatar
-            aria-label={`Sesión de ${name}`}
-            sx={{ width: 38, height: 38, bgcolor: colors.agentBg, color: colors.agent }}
-          >
-            {initials(name || '?')}
-          </Avatar>
-        </Badge>
-      </Tooltip>
+      <ProfileButton options={options} />
       <ToolButton label="Ayuda" onClick={() => setHelp(true)}>
         <HelpOutlineRounded fontSize="small" />
       </ToolButton>

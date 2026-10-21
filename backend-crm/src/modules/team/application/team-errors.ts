@@ -16,6 +16,11 @@ export const TeamErrors = {
       message: 'Member not found',
       code: 'MEMBER_NOT_FOUND',
     }),
+  lineNotFound: () =>
+    new NotFoundException({
+      message: 'One of the lines does not exist in this workspace',
+      code: 'LINE_NOT_FOUND',
+    }),
   roleNotFound: () =>
     new NotFoundException({
       message: 'Role not found',

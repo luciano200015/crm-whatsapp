@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -52,6 +53,7 @@ import {
   MemberListDto,
   PermissionDto,
   RoleDto,
+  SetMemberLinesDto,
   UpdateRoleDto,
 } from './team.dto';
 
@@ -160,6 +162,33 @@ export class MembersController {
       actor(auth, workspace, context),
       memberId,
       dto.roleId,
+    );
+  }
+
+  @Put(':memberId/lines')
+  @RequirePermissions('channels.manage')
+  @ApiOperation({
+    summary: 'Set the WhatsApp lines of a member',
+    description:
+      'Replaces the lines the member attends. Without conversations.view_all an agent only sees and receives the chats of these lines (none: an empty inbox); auto-assignment uses the same lines.',
+  })
+  @ApiParam({ name: 'memberId', format: 'uuid' })
+  @ApiOkResponse({ type: MemberDto })
+  @ApiNotFoundResponse({
+    description: 'MEMBER_NOT_FOUND (or deactivated) or LINE_NOT_FOUND.',
+    type: ErrorResponseDto,
+  })
+  setLines(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('memberId', ID) memberId: string,
+    @Body() dto: SetMemberLinesDto,
+    @ReqContext() context: RequestContext,
+  ): Promise<MemberDto> {
+    return this.members.setLines(
+      actor(auth, workspace, context),
+      memberId,
+      dto.lineIds,
     );
   }
 

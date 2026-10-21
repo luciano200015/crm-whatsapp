@@ -47,6 +47,7 @@ interface FakeMember {
   status: MembershipStatus;
   roleIds: string[];
   pendingFirstAccess: boolean;
+  lineIds?: string[];
 }
 
 /** In-memory TeamStore with the same rules as PrismaTeamStore. */
@@ -57,6 +58,8 @@ export class FakeTeamStore extends TeamStore {
     systemRole('AGENT'),
   ];
   members: FakeMember[] = [];
+  /** Lines of each workspace, for setMemberLines. */
+  lines: { id: string; workspaceId: string; name: string }[] = [];
   users = new Map<string, { id: string; displayName: string }>();
   passwordResets: string[] = [];
   private seq = 0;
@@ -156,6 +159,11 @@ export class FakeTeamStore extends TeamStore {
         system: r.workspaceId === null,
       })),
       permissions: [...new Set(roles.flatMap((r) => r.permissions))].sort(),
+      lines: (member.lineIds ?? []).map((id) => ({
+        id,
+        name: this.lines.find((l) => l.id === id)?.name ?? id,
+        displayPhone: null,
+      })),
     };
   }
 
@@ -312,6 +320,25 @@ export class FakeTeamStore extends TeamStore {
     return this.change(workspaceId, memberId, (m) => {
       m.status = status;
     });
+  }
+
+  setMemberLines(workspaceId: string, memberId: string, lineIds: string[]) {
+    const member = this.members.find(
+      (m) =>
+        m.id === memberId &&
+        m.workspaceId === workspaceId &&
+        m.status === 'ACTIVE',
+    );
+    if (!member) return Promise.resolve('member_not_found' as const);
+    const unique = [...new Set(lineIds)];
+    const known = this.lines.filter(
+      (l) => l.workspaceId === workspaceId && unique.includes(l.id),
+    );
+    if (known.length !== unique.length) {
+      return Promise.resolve('line_not_found' as const);
+    }
+    member.lineIds = unique;
+    return Promise.resolve(this.record(member));
   }
 
   resetTemporaryPassword(userId: string) {

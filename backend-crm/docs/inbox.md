@@ -2,11 +2,11 @@
 
 En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones del workspace activo, al estilo de WhatsApp Web y wasapi:
 
-- **Barra superior:** avatar, Ayuda, Configuración (avisos), Pantalla completa, **botón de agentes**, Sincronizar y ⋮.
+- **Barra superior:** avatar, Ayuda, Configuración (avisos), Pantalla completa, **botón de agentes**, Sincronizar y ⋮. Al pulsar el avatar se abre **Mi perfil**: nombre, correo, rol y **mis líneas** (nombre, número y estado de cada línea que atiendo; con `conversations.view_all`, todas, con las asignadas marcadas).
 - **Botón de agentes** («Mostrar mis conversaciones abiertas y las de mis agentes»):
   - encendido (`view=all`, por defecto): mis chats, los de mis agentes y **los sin asignar**;
   - apagado (`view=mine`): solo los míos;
-  - sin `conversations.view_all`, «mis agentes» no aplica: se ven los propios y los sin asignar de las líneas que atiende el agente.
+  - sin `conversations.view_all`, «mis agentes» no aplica: se ven los propios y los sin asignar, **solo de las líneas que atiende el agente**.
 - **Pestañas** **Abierto** (contador rojo) / **En espera** / **Cerrado**, con los números de la vista actual. Los chats sin asignar son abiertos: no hay pestaña aparte.
 - **Filtros** (embudo junto al buscador, se aplican al pulsar «Aplicar filtros»): etiquetas del contacto, agentes (incluye «Sin asignar», solo con `conversations.view_all`), línea, rango de fechas de la última actividad y orden (recientes o antiguas primero). Búsqueda por nombre o teléfono.
 - **Lista de chats:**
@@ -60,7 +60,18 @@ npm run inbox:merge-conversations -- --apply   # los une
 | Crear, editar y borrar respuestas rápidas | `quick_replies.manage` (OWNER y ADMIN) |
 | Configurar autoasignación | `channels.manage` |
 
-Los agentes sin `conversations.view_all` ven sus conversaciones y las no asignadas de las líneas que atienden. Las consultas, los archivos y los eventos del servidor aplican esta restricción: un chat ajeno responde 404. Ocultar controles en React no sustituye la autorización.
+### Líneas por agente
+
+Como en wasapi, un agente sin `conversations.view_all` **solo recibe los chats de las líneas que tiene asignadas** (`channel_line_agents`):
+- en esas líneas ve los chats asignados a él y los sin asignar;
+- un chat de otra línea no lo ve, aunque esté asignado a él (por ejemplo, si le quitaron esa línea). Sigue asignado y el Propietario o el Administrador lo ven y pueden transferirlo;
+- **sin líneas no ve ningún chat**; la bandeja le avisa que pida que le asignen un número.
+
+Las líneas se asignan desde **Equipo → Agentes → ⋮ → Asignar líneas** (o al registrar al agente) y también desde Canales → Líneas → Agentes; es la misma tabla, que también usa la autoasignación. Hace falta `channels.manage` (Propietario y Administrador).
+
+Transferir o asignar un chat solo es posible a quien atiende su línea o tiene `conversations.view_all` (si no, `409 AGENT_NOT_ON_LINE`); el menú Transferir solo muestra a esas personas.
+
+Las consultas, los contadores, los archivos y los eventos del servidor aplican esta restricción: un chat ajeno responde 404. Ocultar controles en React no sustituye la autorización.
 
 ## Historial de movimientos
 
@@ -171,7 +182,7 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/api/v1/workspaces/:workspaceId`.
 
 - `GET /conversations`: `view` (`mine|all`; `unassigned` se mantiene para clientes anteriores), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `tagIds`, `assigneeIds` (ids de membresía o `none`; solo con `conversations.view_all`, si no `403 AGENT_FILTER_FORBIDDEN`), `from`, `to`, `sort` (`recent|oldest`), `cursor` y `limit`. Cada chat trae `contactTagIds` y `lastMessage.status`.
-- `GET /conversations/options` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
+- `GET /conversations/options`: `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
 - `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.

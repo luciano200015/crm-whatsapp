@@ -315,6 +315,44 @@ describe('MembersService', () => {
     });
   });
 
+  describe('setLines', () => {
+    it('replaces the lines a member attends, only with lines of the workspace', async () => {
+      const { service, store, audit, owner } = setup();
+      store.lines.push(
+        { id: 'line-1', workspaceId: WS, name: 'Ventas' },
+        { id: 'line-2', workspaceId: WS, name: 'Soporte' },
+        { id: 'line-x', workspaceId: OTHER_WS, name: 'Ajena' },
+      );
+      const agent = store.addFake('agent@example.com', 'AGENT');
+      const actor = actorFor(owner, OWNER);
+
+      const updated = await service.setLines(actor, agent.id, [
+        'line-1',
+        'line-2',
+        'line-1',
+      ]);
+      expect(updated.lines.map((line) => line.name)).toEqual([
+        'Ventas',
+        'Soporte',
+      ]);
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'team.member.lines_changed' }),
+      );
+      expect((await service.setLines(actor, agent.id, [])).lines).toEqual([]);
+      await expectCode(
+        service.setLines(actor, agent.id, ['line-x']),
+        'LINE_NOT_FOUND',
+      );
+      const gone = store.addFake('gone@example.com', 'AGENT', {
+        status: 'DEACTIVATED',
+      });
+      await expectCode(
+        service.setLines(actor, gone.id, ['line-1']),
+        'MEMBER_NOT_FOUND',
+      );
+    });
+  });
+
   describe('resendAccess', () => {
     it('emails a new temporary password while the first one is unused', async () => {
       const { service, store, sent, owner } = setup();

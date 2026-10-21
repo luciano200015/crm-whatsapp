@@ -36,9 +36,14 @@ describe('inbox rules', () => {
 
     it.each([
       [
-        'assigned to me',
-        { lineId: 'line-2', assignee: { membershipId: 'me' } },
+        'assigned to me on my line',
+        { lineId: 'line-1', assignee: { membershipId: 'me' } },
         true,
+      ],
+      [
+        'assigned to me on a line I no longer attend',
+        { lineId: 'line-2', assignee: { membershipId: 'me' } },
+        false,
       ],
       ['unassigned on my line', { lineId: 'line-1', assignee: null }, true],
       [

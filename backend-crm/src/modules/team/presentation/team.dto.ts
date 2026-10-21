@@ -101,6 +101,20 @@ export class ChangeMemberRoleDto {
   roleId: string;
 }
 
+export class SetMemberLinesDto {
+  @ApiProperty({
+    type: [String],
+    format: 'uuid',
+    maxItems: 100,
+    description:
+      'Every WhatsApp line the member attends (replaces the current ones). An empty list leaves an agent without chats.',
+  })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID('all', { each: true })
+  lineIds: string[];
+}
+
 export class CreateRoleDto {
   @ApiProperty({ example: 'Supervisor', maxLength: 60 })
   @Transform(trim)
@@ -175,6 +189,17 @@ export class MemberRoleDto {
   system: boolean;
 }
 
+export class MemberLineDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Ventas' })
+  name: string;
+
+  @ApiProperty({ nullable: true, type: String, example: '+591 70000000' })
+  displayPhone: string | null;
+}
+
 export class MemberDto {
   @ApiProperty({
     format: 'uuid',
@@ -216,6 +241,13 @@ export class MemberDto {
 
   @ApiProperty({ type: [String], example: ['contacts.read', 'messages.send'] })
   permissions: string[];
+
+  @ApiProperty({
+    type: [MemberLineDto],
+    description:
+      'WhatsApp lines the member attends. Without conversations.view_all they only see chats of these lines.',
+  })
+  lines: MemberLineDto[];
 }
 
 export class AgentUsageDto {

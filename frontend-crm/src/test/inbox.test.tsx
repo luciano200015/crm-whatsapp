@@ -22,6 +22,7 @@ let streamCount: number
 let listQueries: string[]
 let listUrls: URL[]
 let quickReplies: { id: string; shortcut: string; text: string }[]
+let myLines: string[]
 
 const me = (): Me => ({
   id: 'u1',
@@ -74,9 +75,29 @@ const server = setupServer(
   ),
   http.get(api(`${base}/options`), () =>
     HttpResponse.json({
-      lines: [{ id: 'l1', name: 'Ventas' }],
+      viewAll: permissions.includes('conversations.view_all'),
+      myLineIds: myLines,
+      lines: [
+        { id: 'l1', name: 'Ventas', displayPhone: '+591 70000001', status: 'CONNECTED' },
+      ].filter((line) => myLines.includes(line.id)),
       members: permissions.includes('conversations.assign')
-        ? [{ membershipId: 'm2', userId: 'u2', name: 'Ana Agente' }]
+        ? [
+            {
+              membershipId: 'm2',
+              userId: 'u2',
+              name: 'Ana Agente',
+              lineIds: ['l1'],
+              viewAll: false,
+            },
+            // Beto attends another line: chats of Ventas cannot go to him.
+            {
+              membershipId: 'm3',
+              userId: 'u3',
+              name: 'Beto Otro',
+              lineIds: ['l9'],
+              viewAll: false,
+            },
+          ]
         : [],
     }),
   ),
@@ -154,6 +175,7 @@ beforeEach(() => {
   listQueries = []
   listUrls = []
   quickReplies = []
+  myLines = ['l1']
   streamCount = 0
   chat = {
     id: 'c1',
@@ -420,6 +442,7 @@ describe('Inbox', () => {
 
     await user.click(await screen.findByRole('button', { name: /Transferir/ }))
     await user.click(await screen.findByRole('menuitem', { name: 'Ana Agente' }))
+    expect(screen.queryByRole('menuitem', { name: 'Beto Otro' })).not.toBeInTheDocument()
     await waitFor(() =>
       expect(actions).toContainEqual({ name: 'assign', body: { membershipId: 'm2' } }),
     )
@@ -428,6 +451,27 @@ describe('Inbox', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Marcar como no leído' }))
     await waitFor(() => expect(actions.map((action) => action.name)).toContain('unread'))
   })
+  it('shows my WhatsApp lines in my profile', async () => {
+    renderAt('/inbox')
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Mi perfil' }))
+    const profile = await screen.findByRole('dialog', { name: 'Mi perfil' })
+    expect(within(profile).getByText('Uma')).toBeInTheDocument()
+    expect(within(profile).getByText('Ventas')).toBeInTheDocument()
+    expect(within(profile).getByText('+591 70000001')).toBeInTheDocument()
+  })
+
+  it('tells an agent without lines that no chat will reach them', async () => {
+    myLines = []
+    renderAt('/inbox')
+
+    expect(await screen.findByText(/Aún no tienes números asignados/)).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Mi perfil' }))
+    expect(await screen.findByText(/Aún no tienes líneas asignadas/)).toBeInTheDocument()
+  })
+
   it('shows the files customers send', async () => {
     server.use(
       http.get(api(`${base}/c1/messages/:messageId/media`), () =>

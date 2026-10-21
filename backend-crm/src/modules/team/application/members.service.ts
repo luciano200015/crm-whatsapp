@@ -10,6 +10,7 @@ import type { PermissionKey } from '../../authorization/domain/permission-catalo
 import {
   type MemberChangeResult,
   type MemberFilter,
+  type MemberLine,
   type MemberRecord,
   type MembershipStatus,
   type NewMemberUser,
@@ -41,6 +42,7 @@ export interface MemberView {
   deactivatedAt: Date | null;
   role: { id: string; key: string; name: string; system: boolean } | null;
   permissions: PermissionKey[];
+  lines: MemberLine[];
 }
 
 export interface MemberListView {
@@ -219,6 +221,35 @@ export class MembersService {
     return toMemberView(updated);
   }
 
+  /**
+   * channels.manage: the WhatsApp lines an active member attends. Without
+   * conversations.view_all they only see the chats of these lines.
+   */
+  async setLines(
+    actor: TeamActor,
+    memberId: string,
+    lineIds: string[],
+  ): Promise<MemberView> {
+    const { workspaceId } = actor.access;
+    const result = await this.store.setMemberLines(
+      workspaceId,
+      memberId,
+      lineIds,
+    );
+    if (result === 'member_not_found') throw TeamErrors.memberNotFound();
+    if (result === 'line_not_found') throw TeamErrors.lineNotFound();
+    await this.audit.record({
+      action: 'team.member.lines_changed',
+      actorUserId: actor.userId,
+      workspaceId,
+      targetType: 'membership',
+      targetId: memberId,
+      context: actor.context,
+      metadata: { lineIds: result.lines.map((line) => line.id) },
+    });
+    return toMemberView(result);
+  }
+
   /** Access to this workspace ends on the member's next request. */
   async deactivate(actor: TeamActor, memberId: string): Promise<MemberView> {
     const member = await this.requireManageable(actor, memberId);
@@ -372,5 +403,6 @@ export function toMemberView(member: MemberRecord): MemberView {
     deactivatedAt: member.deactivatedAt,
     role: member.roles[0] ?? null,
     permissions: member.permissions,
+    lines: member.lines,
   };
 }
