@@ -45,27 +45,19 @@ const link = (item: Omit<NavLinkItem, 'kind'>): NavLinkItem => ({ kind: 'link', 
  */
 export const NAVIGATION: NavEntry[] = [
   link({ to: '/', label: es.app.nav.home, icon: HomeOutlined, end: true }),
-  {
-    kind: 'group',
-    id: 'messages',
-    label: 'Mensajes',
+  link({
+    to: '/inbox',
+    label: 'Bandeja',
     icon: ChatOutlined,
-    children: [
-      link({
-        to: '/inbox',
-        label: 'Bandeja',
-        icon: ChatOutlined,
-        end: true,
-        anyOf: ['messages.read'],
-      }),
-      link({
-        to: '/inbox/auto-assignment',
-        label: 'Autoasignación',
-        icon: AltRouteOutlined,
-        anyOf: ['channels.manage'],
-      }),
-    ],
-  },
+    end: true,
+    anyOf: ['messages.read'],
+  }),
+  link({
+    to: '/inbox/auto-assignment',
+    label: 'Autoasignación',
+    icon: AltRouteOutlined,
+    anyOf: ['channels.manage'],
+  }),
   {
     kind: 'group',
     id: 'contacts',

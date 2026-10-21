@@ -7,6 +7,7 @@ import { BillingModule } from '../billing/billing.module';
 import { BillingService } from '../billing/application/billing.service';
 import { ChannelsModule } from '../channels/channels.module';
 import { ContactsModule } from '../contacts/contacts.module';
+import { ConversationTimeline } from './application/conversation-timeline';
 import { InboxEvents } from './application/inbox-events';
 import { InboxIngestService } from './application/inbox-ingest.service';
 import { InboxStreamService } from './application/inbox-stream.service';
@@ -49,6 +50,7 @@ import {
     InboxIngestService,
     InboxStreamService,
     InboxEvents,
+    ConversationTimeline,
     { provide: ContactQuota, useClass: PrismaContactQuota },
     { provide: InboxStore, useClass: MongoInboxStore },
     { provide: AssignmentStore, useClass: PrismaAssignmentStore },

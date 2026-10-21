@@ -15,6 +15,25 @@ const MESSAGE_TYPES = [
   'unsupported',
 ];
 
+const DIRECTIONS = ['IN', 'OUT', 'NOTE', 'EVENT'];
+const EVENT_KINDS = [
+  'auto_assigned',
+  'assigned',
+  'transferred',
+  'unassigned',
+  'taken',
+  'claimed',
+  'closed',
+  'reopened',
+  'contact_blocked',
+  'contact_unblocked',
+];
+
+interface PartyDocument {
+  membershipId: string;
+  name: string;
+}
+
 export interface ConversationDocument {
   _id: Types.ObjectId;
   workspaceId: string;
@@ -26,7 +45,7 @@ export interface ConversationDocument {
   lastMessage: {
     text: string | null;
     type: string;
-    direction: 'IN' | 'OUT' | 'NOTE';
+    direction: 'IN' | 'OUT' | 'NOTE' | 'EVENT';
     at: Date;
   } | null;
   lastActivityAt: Date;
@@ -41,7 +60,7 @@ export interface MessageDocument {
   _id: Types.ObjectId;
   workspaceId: string;
   conversationId: Types.ObjectId;
-  direction: 'IN' | 'OUT' | 'NOTE';
+  direction: 'IN' | 'OUT' | 'NOTE' | 'EVENT';
   type: string;
   text: string | null;
   media: {
@@ -50,12 +69,41 @@ export interface MessageDocument {
     caption: string | null;
     filename: string | null;
   } | null;
+  location?: {
+    latitude: number;
+    longitude: number;
+    name: string | null;
+    address: string | null;
+  } | null;
+  event?: {
+    kind: string;
+    by: { userId: string; name: string } | null;
+    from: PartyDocument | null;
+    to: PartyDocument | null;
+  } | null;
   waMessageId: string | null;
   status: string;
   error: string | null;
   sentBy: { userId: string; name: string } | null;
   createdAt: Date;
 }
+
+const PersonSchema = () =>
+  new Schema(
+    {
+      userId: { type: String, required: true },
+      name: { type: String, required: true },
+    },
+    { _id: false },
+  );
+const PartySchema = () =>
+  new Schema(
+    {
+      membershipId: { type: String, required: true },
+      name: { type: String, required: true },
+    },
+    { _id: false },
+  );
 
 export const ConversationSchema = new Schema<ConversationDocument>(
   {
@@ -83,11 +131,7 @@ export const ConversationSchema = new Schema<ConversationDocument>(
         {
           text: { type: String, default: null },
           type: { type: String, enum: MESSAGE_TYPES, required: true },
-          direction: {
-            type: String,
-            enum: ['IN', 'OUT', 'NOTE'],
-            required: true,
-          },
+          direction: { type: String, enum: DIRECTIONS, required: true },
           at: { type: Date, required: true },
         },
         { _id: false },
@@ -129,7 +173,7 @@ ConversationSchema.index({
 export const MessageSchema = new Schema<MessageDocument>(
   {
     conversationId: { type: Schema.Types.ObjectId, required: true },
-    direction: { type: String, enum: ['IN', 'OUT', 'NOTE'], required: true },
+    direction: { type: String, enum: DIRECTIONS, required: true },
     type: { type: String, enum: MESSAGE_TYPES, required: true },
     text: { type: String, default: null },
     media: {
@@ -139,6 +183,30 @@ export const MessageSchema = new Schema<MessageDocument>(
           mimeType: { type: String, default: null },
           caption: { type: String, default: null },
           filename: { type: String, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    location: {
+      type: new Schema(
+        {
+          latitude: { type: Number, required: true },
+          longitude: { type: Number, required: true },
+          name: { type: String, default: null },
+          address: { type: String, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    event: {
+      type: new Schema(
+        {
+          kind: { type: String, enum: EVENT_KINDS, required: true },
+          by: { type: PersonSchema(), default: null },
+          from: { type: PartySchema(), default: null },
+          to: { type: PartySchema(), default: null },
         },
         { _id: false },
       ),

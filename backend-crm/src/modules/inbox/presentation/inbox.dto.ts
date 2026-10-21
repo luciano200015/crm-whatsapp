@@ -20,6 +20,20 @@ const trim = ({ value }: { value: unknown }): unknown =>
 
 const VIEWS = ['mine', 'unassigned', 'all'] as const;
 const STATUSES = ['OPEN', 'CLOSED'] as const;
+const STATUS_FILTERS = ['OPEN', 'CLOSED', 'ALL'] as const;
+const DIRECTIONS = ['IN', 'OUT', 'NOTE', 'EVENT'] as const;
+const EVENT_KINDS = [
+  'auto_assigned',
+  'assigned',
+  'transferred',
+  'unassigned',
+  'taken',
+  'claimed',
+  'closed',
+  'reopened',
+  'contact_blocked',
+  'contact_unblocked',
+] as const;
 
 // ─────────────────────────── Requests ───────────────────────────
 
@@ -34,10 +48,10 @@ export class ListConversationsQueryDto {
   @IsIn(VIEWS)
   view: (typeof VIEWS)[number] = 'mine';
 
-  @ApiPropertyOptional({ enum: STATUSES, default: 'OPEN' })
+  @ApiPropertyOptional({ enum: STATUS_FILTERS, default: 'OPEN' })
   @IsOptional()
-  @IsIn(STATUSES)
-  status: (typeof STATUSES)[number] = 'OPEN';
+  @IsIn(STATUS_FILTERS)
+  status: (typeof STATUS_FILTERS)[number] = 'OPEN';
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
@@ -161,7 +175,7 @@ export class LastMessageDto {
   @ApiProperty({ example: 'text' })
   type: string;
 
-  @ApiProperty({ enum: ['IN', 'OUT', 'NOTE'] })
+  @ApiProperty({ enum: DIRECTIONS })
   direction: string;
 
   @ApiProperty()
@@ -243,6 +257,9 @@ export class InboxCountsDto {
   @ApiProperty({ description: 'Open and visible to me.' })
   all: number;
 
+  @ApiProperty({ description: 'Closed and visible to me.' })
+  closed: number;
+
   @ApiProperty({
     description: 'Unread messages in open conversations visible to me.',
   })
@@ -263,12 +280,52 @@ export class MediaDto {
   filename: string | null;
 }
 
+export class LocationDto {
+  @ApiProperty({ example: -16.5 })
+  latitude: number;
+
+  @ApiProperty({ example: -68.15 })
+  longitude: number;
+
+  @ApiProperty({ nullable: true, type: String })
+  name: string | null;
+
+  @ApiProperty({ nullable: true, type: String })
+  address: string | null;
+}
+
+export class EventPartyDto {
+  @ApiProperty({ format: 'uuid' })
+  membershipId: string;
+
+  @ApiProperty()
+  name: string;
+}
+
 export class SentByDto {
   @ApiProperty({ format: 'uuid' })
   userId: string;
 
   @ApiProperty()
   name: string;
+}
+
+export class ConversationEventDto {
+  @ApiProperty({ enum: EVENT_KINDS })
+  kind: string;
+
+  @ApiProperty({
+    type: () => SentByDto,
+    nullable: true,
+    description: 'Who did it; null when the system did (auto-assignment).',
+  })
+  by: SentByDto | null;
+
+  @ApiProperty({ type: EventPartyDto, nullable: true })
+  from: EventPartyDto | null;
+
+  @ApiProperty({ type: EventPartyDto, nullable: true })
+  to: EventPartyDto | null;
 }
 
 export class MessageDto {
@@ -279,8 +336,9 @@ export class MessageDto {
   conversationId: string;
 
   @ApiProperty({
-    enum: ['IN', 'OUT', 'NOTE'],
-    description: 'NOTE: internal note, never sent to WhatsApp.',
+    enum: DIRECTIONS,
+    description:
+      'NOTE: internal note, never sent to WhatsApp. EVENT: a movement of the conversation (see `event`).',
   })
   direction: string;
 
@@ -303,6 +361,12 @@ export class MessageDto {
 
   @ApiProperty({ type: MediaDto, nullable: true })
   media: MediaDto | null;
+
+  @ApiProperty({ type: LocationDto, nullable: true })
+  location: LocationDto | null;
+
+  @ApiProperty({ type: ConversationEventDto, nullable: true })
+  event: ConversationEventDto | null;
 
   @ApiProperty({
     enum: ['received', 'pending', 'sent', 'delivered', 'read', 'failed'],

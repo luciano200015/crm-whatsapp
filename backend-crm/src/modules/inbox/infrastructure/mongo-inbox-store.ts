@@ -18,6 +18,7 @@ import type { InboxScope } from '../domain/inbox-rules';
 import {
   InboxStore,
   type Assignee,
+  type ConversationEventKind,
   type ConversationQuery,
   type ConversationRecord,
   type ConversationStatus,
@@ -85,6 +86,15 @@ function toMessage(doc: MessageDocument): MessageRecord {
     type: doc.type as MessageType,
     text: doc.text,
     media: doc.media,
+    location: doc.location ?? null,
+    event: doc.event
+      ? {
+          kind: doc.event.kind as ConversationEventKind,
+          by: doc.event.by,
+          from: doc.event.from,
+          to: doc.event.to,
+        }
+      : null,
     waMessageId: doc.waMessageId,
     status: doc.status as MessageStatus,
     error: doc.error,
@@ -169,7 +179,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     const rows = await this.conversations
       .find({
         workspaceId,
-        status: query.status,
+        ...(query.status !== 'ALL' && { status: query.status }),
         ...(query.lineId && { lineId: query.lineId }),
         ...(query.contactId && { contactId: query.contactId }),
         ...(conditions.length > 0 && { $and: conditions }),
@@ -192,7 +202,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
   async counts(workspaceId: string, scope: InboxScope): Promise<InboxCounts> {
     const visible = scopeFilter(scope) ?? {};
     const open = { workspaceId, status: 'OPEN' as const };
-    const [mine, unassigned, all, unread] = await Promise.all([
+    const [mine, unassigned, all, unread, closed] = await Promise.all([
       this.conversations.countDocuments({
         ...open,
         'assignee.membershipId': scope.membershipId,
@@ -206,8 +216,13 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         { $match: { ...open, ...visible } },
         { $group: { _id: null, total: { $sum: '$unreadCount' } } },
       ]),
+      this.conversations.countDocuments({
+        workspaceId,
+        status: 'CLOSED',
+        ...visible,
+      }),
     ]);
-    return { mine, unassigned, all, unread: unread[0]?.total ?? 0 };
+    return { mine, unassigned, all, closed, unread: unread[0]?.total ?? 0 };
   }
 
   async findConversation(
@@ -372,6 +387,25 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       )
       .lean<ConversationDocument>();
     return doc ? toConversation(doc) : null;
+  }
+
+  async markUnread(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<ConversationRecord | null> {
+    const _id = objectId(conversationId);
+    if (!_id) return null;
+    // Only when nothing is unread: never lowers a real count.
+    const doc = await this.conversations
+      .findOneAndUpdate(
+        { workspaceId, _id, unreadCount: { $lt: 1 } },
+        { $set: { unreadCount: 1 } },
+        { returnDocument: 'after' },
+      )
+      .lean<ConversationDocument>();
+    return doc
+      ? toConversation(doc)
+      : this.findConversation(workspaceId, conversationId);
   }
 
   // ─────────────────────────── Messages ───────────────────────────

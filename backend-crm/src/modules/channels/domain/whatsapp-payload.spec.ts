@@ -28,6 +28,7 @@ describe('parseWebhook', () => {
         type: 'text',
         text: 'Hola',
         media: null,
+        location: null,
       },
     ]);
   });
@@ -83,6 +84,12 @@ describe('parseWebhook', () => {
       mimeType: 'image/jpeg',
       caption: 'Foto',
       filename: null,
+    });
+    expect(events.messages[1]?.location).toEqual({
+      latitude: -16.5,
+      longitude: -68.1,
+      name: 'Oficina',
+      address: null,
     });
   });
 

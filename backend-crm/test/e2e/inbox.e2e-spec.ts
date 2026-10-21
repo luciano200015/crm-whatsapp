@@ -453,6 +453,86 @@ describe('Inbox (e2e)', () => {
       .expect(403);
   });
 
+  it('records every movement of a conversation in its history', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+    const beto = await agentOf(owner, 'Beto');
+    const line = await lineWithAgents(owner, [ana], true);
+    await incoming(line, '59170000050', 'Hola');
+    const [chat] = await conversations(owner, '?view=all');
+    const id = chat?.id ?? '';
+
+    await api(owner)
+      .post(`/conversations/${id}/assign`, { membershipId: beto.membershipId })
+      .expect(200);
+    await api(owner)
+      .post(`/conversations/${id}/assign`, { membershipId: null })
+      .expect(200);
+    await api(ana).post(`/conversations/${id}/take`).expect(200);
+    await api(ana).post(`/conversations/${id}/close`).expect(200);
+    await api(ana).post(`/conversations/${id}/reopen`).expect(200);
+
+    const history = (
+      (await api(owner).get(`/conversations/${id}/messages`).expect(200))
+        .body as {
+        items: {
+          direction: string;
+          event: {
+            kind: string;
+            by: { name: string } | null;
+            from: { name: string } | null;
+            to: { name: string } | null;
+          } | null;
+        }[];
+      }
+    ).items
+      .filter((m) => m.direction === 'EVENT')
+      .reverse()
+      .map((m) => [
+        m.event?.kind,
+        m.event?.by?.name ?? null,
+        m.event?.from?.name ?? null,
+        m.event?.to?.name ?? null,
+      ]);
+    expect(history).toEqual([
+      ['auto_assigned', null, null, 'Ana'],
+      ['transferred', 'Olga Owner', 'Ana', 'Beto'],
+      ['unassigned', 'Olga Owner', 'Beto', null],
+      ['taken', 'Ana', null, 'Ana'],
+      ['closed', 'Ana', null, null],
+      ['reopened', 'Ana', null, null],
+    ]);
+
+    // Movements never replace the preview of the last message.
+    const [after] = await conversations(owner, '?view=all');
+    expect(after?.lastMessage).toMatchObject({ text: 'Hola', direction: 'IN' });
+  });
+
+  it('filters by open, closed or all and marks conversations as unread', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000060', 'uno');
+    await incoming(line, '59170000061', 'dos');
+    const [first] = await conversations(owner, '?view=all');
+    await api(owner).post(`/conversations/${first?.id}/close`).expect(200);
+
+    expect(await conversations(owner, '?view=all')).toHaveLength(1);
+    expect(await conversations(owner, '?view=all&status=CLOSED')).toHaveLength(
+      1,
+    );
+    expect(await conversations(owner, '?view=all&status=ALL')).toHaveLength(2);
+    const counts = (await api(owner).get('/conversations/counts').expect(200))
+      .body as Record<string, number>;
+    expect(counts).toMatchObject({ all: 1, closed: 1 });
+
+    const [open] = await conversations(owner, '?view=all');
+    await api(owner).post(`/conversations/${open?.id}/read`).expect(200);
+    const unread = await api(owner)
+      .post(`/conversations/${open?.id}/unread`)
+      .expect(200);
+    expect(unread.body).toMatchObject({ unreadCount: 1 });
+  });
+
   it('exposes minimal options without granting administrative read permissions', async () => {
     const owner = await signUp();
     const ana = await agentOf(owner, 'Ana');

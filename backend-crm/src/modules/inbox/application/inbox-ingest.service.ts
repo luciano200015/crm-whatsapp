@@ -11,6 +11,7 @@ import type {
 import { ContactsStore } from '../../contacts/application/ports';
 import { normalizePhone } from '../../contacts/domain/phone';
 import { nextStatus } from '../domain/inbox-rules';
+import { ConversationTimeline } from './conversation-timeline';
 import { InboxEvents } from './inbox-events';
 import { AssignmentStore, InboxStore } from './ports';
 
@@ -25,6 +26,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
     private readonly assignments: AssignmentStore,
     private readonly contacts: ContactsStore,
     private readonly events: InboxEvents,
+    private readonly timeline: ConversationTimeline,
   ) {
     super();
   }
@@ -64,6 +66,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
       type: inbound.type,
       text: inbound.text,
       media: inbound.media,
+      location: inbound.location,
       waMessageId: inbound.waMessageId,
       status: 'received',
       sentBy: null,
@@ -88,13 +91,17 @@ export class InboxIngestService extends WhatsAppEventsSink {
       inbound.timestamp,
     );
 
+    let autoAssigned = false;
     if (created && line.autoAssign && !updated.assignee) {
       const agent = await this.assignments.nextAgent(line.id);
-      if (agent) {
-        updated =
-          (await this.store.setAssignee(workspaceId, conversation.id, agent, {
+      const assigned = agent
+        ? await this.store.setAssignee(workspaceId, conversation.id, agent, {
             onlyIfUnassigned: true,
-          })) ?? updated;
+          })
+        : null;
+      if (assigned) {
+        updated = assigned;
+        autoAssigned = true;
       }
     }
 
@@ -104,6 +111,9 @@ export class InboxIngestService extends WhatsAppEventsSink {
       conversation: updated,
       message,
     });
+    if (autoAssigned) {
+      await this.timeline.assignment(updated, null, null, 'auto_assigned');
+    }
   }
 
   private async updateStatus(line: LineRecord, update: StatusUpdate) {

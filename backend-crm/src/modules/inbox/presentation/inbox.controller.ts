@@ -277,6 +277,19 @@ export class ConversationsController {
     return this.inbox.setStatus(actor(auth, workspace), conversationId, 'OPEN');
   }
 
+  @Post(':conversationId/unread')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('messages.read')
+  @ApiOperation({ summary: 'Mark the conversation as unread' })
+  @ApiOkResponse({ type: ConversationDto })
+  unread(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ConversationDto> {
+    return this.inbox.markUnread(actor(auth, workspace), conversationId);
+  }
+
   @Post(':conversationId/read')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('messages.read')

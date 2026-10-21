@@ -19,6 +19,7 @@ let chat: Conversation
 let history: ChatMessage[]
 let actions: { name: string; body: unknown }[]
 let streamCount: number
+let listQueries: string[]
 
 const me = (): Me => ({
   id: 'u1',
@@ -68,7 +69,10 @@ const server = setupServer(
         : [],
     }),
   ),
-  http.get(api(base), () => HttpResponse.json({ items: [chat], nextCursor: null })),
+  http.get(api(base), ({ request }) => {
+    listQueries.push(new URL(request.url).searchParams.get('status') ?? '')
+    return HttpResponse.json({ items: [chat], nextCursor: null })
+  }),
   http.get(api(`${base}/c1`), () => HttpResponse.json(chat)),
   http.get(api(`${base}/c1/messages`), () =>
     HttpResponse.json({ items: history, nextCursor: null }),
@@ -91,6 +95,7 @@ const server = setupServer(
       return HttpResponse.json(message, { status: 201 })
     }
     if (name === 'read') chat = { ...chat, unreadCount: 0 }
+    if (name === 'unread') chat = { ...chat, unreadCount: 1 }
     if (name === 'close') chat = { ...chat, status: 'CLOSED' }
     if (name === 'reopen') chat = { ...chat, status: 'OPEN' }
     if (name === 'take')
@@ -120,6 +125,7 @@ beforeEach(() => {
   document.cookie = 'crm_csrf=abc; path=/'
   permissions = ['messages.read', 'messages.send']
   actions = []
+  listQueries = []
   streamCount = 0
   chat = {
     id: 'c1',
@@ -291,5 +297,66 @@ describe('Inbox', () => {
     await user.click(await screen.findByRole('option', { name: /Globex/ }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/forbidden'))
     expect(screen.queryByLabelText('Escribir respuesta')).not.toBeInTheDocument()
+  })
+  it('shows the chat list with status filters and the menu entries at the top level', async () => {
+    permissions = ['messages.read', 'messages.send', 'channels.manage']
+    renderAt('/inbox')
+    const user = userEvent.setup()
+
+    const menu = await screen.findByRole('navigation', { name: 'menu' })
+    expect(within(menu).getByRole('link', { name: /Bandeja/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('link', { name: /Autoasignación/ })).toBeInTheDocument()
+    expect(within(menu).queryByText('Mensajes')).not.toBeInTheDocument()
+
+    expect(
+      await screen.findByRole('button', { name: 'Chat con Lucía Cliente' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cerrados' }))
+    await user.click(screen.getByRole('button', { name: 'Todos' }))
+    await waitFor(() =>
+      expect(listQueries).toEqual(expect.arrayContaining(['OPEN', 'CLOSED', 'ALL'])),
+    )
+  })
+
+  it('shows the movements of the chat as centered notices', async () => {
+    history = [
+      {
+        ...history[0]!,
+        id: 'ev1',
+        direction: 'EVENT',
+        text: null,
+        status: 'sent',
+        event: {
+          kind: 'transferred',
+          by: { userId: 'u9', name: 'Olga' },
+          from: { membershipId: 'm1', name: 'Uma' },
+          to: { membershipId: 'm2', name: 'Ana Agente' },
+        },
+      },
+      ...history,
+    ]
+    renderAt()
+
+    expect(
+      await screen.findByText(/Olga transfirió el chat de Uma a Ana Agente/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Hoy')).toBeInTheDocument()
+  })
+
+  it('transfers the chat to another agent and marks it as unread', async () => {
+    permissions = ['messages.read', 'messages.send', 'conversations.assign']
+    chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
+    renderAt()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: /Transferir/ }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Ana Agente' }))
+    await waitFor(() =>
+      expect(actions).toContainEqual({ name: 'assign', body: { membershipId: 'm2' } }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Marcar como no leído' }))
+    await waitFor(() => expect(actions.map((action) => action.name)).toContain('unread'))
   })
 })

@@ -1,18 +1,45 @@
-import { Alert, Autocomplete, Chip, Paper, Stack, TextField, Typography } from '@mui/material'
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Chip,
+  Divider,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
+import type { ReactNode } from 'react'
 import { usePermissions } from '../../auth/usePermissions'
 import { contactsApi, contactKeys } from '../../lib/api/contacts'
 import { errorMessage } from '../../lib/api/errors'
 import type { Conversation } from '../../lib/api/inbox'
 import { TagChip } from '../contacts/TagChip'
+import { ContactAvatar } from './ConversationList'
+import { contactName } from './inbox-format'
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Box sx={{ px: 2.5, py: 2 }}>
+      <Typography variant="overline" color="text.secondary" component="h3">
+        {title}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
+
+/** Contact info beside the chat: tags, notes, agent and status, like wasapi's side panel. */
 export function ContactPanel({
   workspaceId,
   conversation,
+  children,
 }: {
   workspaceId: string
   conversation: Conversation
+  /** Extra actions (e.g. block contact). */
+  children?: ReactNode
 }) {
   const { has } = usePermissions()
   const client = useQueryClient()
@@ -37,16 +64,48 @@ export function ContactPanel({
     onError: (error) => enqueueSnackbar(errorMessage(error), { variant: 'error' }),
   })
   return (
-    <Paper variant="outlined" sx={{ p: 2, alignSelf: 'start' }}>
-      <Stack spacing={2}>
-        <Typography variant="h6">Contacto</Typography>
-        <Typography>{contact.data?.name ?? conversation.contact.name ?? 'Sin nombre'}</Typography>
-        <Typography variant="body2">{conversation.contact.phone}</Typography>
-        {contact.error && <Alert severity="warning">{errorMessage(contact.error)}</Alert>}
-        {contact.data?.email && <Typography variant="body2">{contact.data.email}</Typography>}
+    <Box component="aside" aria-label="Contacto">
+      <Stack spacing={1} sx={{ alignItems: 'center', textAlign: 'center', px: 2, py: 3 }}>
+        <ContactAvatar contact={conversation.contact} size={88} />
+        <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>
+          {contact.data?.name ?? contactName(conversation.contact)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {conversation.contact.phone}
+        </Typography>
+        {contact.data?.email && (
+          <Typography variant="body2" color="text.secondary">
+            {contact.data.email}
+          </Typography>
+        )}
+        <Stack direction="row" spacing={1}>
+          <Chip
+            size="small"
+            color={conversation.status === 'OPEN' ? 'success' : 'default'}
+            label={conversation.status === 'OPEN' ? 'Abierto' : 'Cerrado'}
+          />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={conversation.lineName ?? 'Línea eliminada'}
+          />
+        </Stack>
+      </Stack>
+      <Divider />
+      {contact.error && (
+        <Alert severity="warning" sx={{ m: 2 }}>
+          {errorMessage(contact.error)}
+        </Alert>
+      )}
+      <Section title="Agente asignado">
+        <Typography>{conversation.assignee?.name ?? 'Sin asignar'}</Typography>
+      </Section>
+      <Divider />
+      <Section title="Etiquetas">
         {contact.data && has('contacts.write') && has('contacts.read') ? (
           <Autocomplete
             multiple
+            size="small"
             options={tags.data ?? []}
             value={(tags.data ?? []).filter((tag) =>
               contact.data?.tags.some((selected) => selected.id === tag.id),
@@ -59,19 +118,52 @@ export function ContactPanel({
           />
         ) : (
           <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }} useFlexGap>
-            {contact.data?.tags.map((tag) => (
-              <TagChip key={tag.id} tag={tag} />
-            ))}
+            {contact.data?.tags.length ? (
+              contact.data.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Sin etiquetas
+              </Typography>
+            )}
           </Stack>
         )}
         {tags.error && <Alert severity="warning">{errorMessage(tags.error)}</Alert>}
-        {contact.data?.notes && (
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-            {contact.data.notes}
+      </Section>
+      {contact.data?.notes && (
+        <>
+          <Divider />
+          <Section title="Notas del contacto">
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+              {contact.data.notes}
+            </Typography>
+          </Section>
+        </>
+      )}
+      <Divider />
+      <Section title="Conversación">
+        <Typography variant="body2">
+          Iniciada el {new Date(conversation.createdAt).toLocaleString('es')}
+        </Typography>
+        {conversation.closedAt && (
+          <Typography variant="body2">
+            Cerrada el {new Date(conversation.closedAt).toLocaleString('es')}
           </Typography>
         )}
-        <Chip size="small" label={conversation.assignee?.name ?? 'Sin agente asignado'} />
-      </Stack>
-    </Paper>
+        <Typography
+          variant="body2"
+          color={conversation.windowOpen ? 'success.main' : 'text.secondary'}
+        >
+          {conversation.windowOpen && conversation.windowExpiresAt
+            ? `Puedes responder hasta las ${new Date(conversation.windowExpiresAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`
+            : 'Ventana de 24 h cerrada'}
+        </Typography>
+      </Section>
+      {children && (
+        <>
+          <Divider />
+          <Box sx={{ p: 2 }}>{children}</Box>
+        </>
+      )}
+    </Box>
   )
 }

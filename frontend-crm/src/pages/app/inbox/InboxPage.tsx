@@ -1,30 +1,33 @@
+import ChatOutlined from '@mui/icons-material/ChatOutlined'
+import SearchRounded from '@mui/icons-material/SearchRounded'
 import {
   Alert,
-  Avatar,
-  Badge,
   Box,
   Button,
   Chip,
+  InputAdornment,
   LinearProgress,
   List,
-  ListItemButton,
-  ListItemText,
   MenuItem,
   Paper,
   Stack,
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { usePermissions } from '../../../auth/usePermissions'
+import { useChatColors } from '../../../components/inbox/chat-colors'
+import { ConversationListItem } from '../../../components/inbox/ConversationList'
 import { ConversationPanel } from '../../../components/inbox/ConversationPanel'
 import { useInboxCounts } from '../../../components/inbox/useInboxCounts'
-import { PageHeader } from '../../../components/PageHeader'
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
+import { useFillHeight } from '../../../hooks/useFillHeight'
 import { errorMessage } from '../../../lib/api/errors'
 import { inboxApi, inboxKeys, type InboxFilter } from '../../../lib/api/inbox'
 import { useActiveWorkspace } from '../../../workspace/active-workspace-context'
@@ -35,8 +38,20 @@ export function InboxPage() {
   return <WorkspaceInbox key={active?.id} workspaceId={active?.id ?? ''} />
 }
 
+/** Tab label with its counter, e.g. "Mis chats 3". */
+function counted(label: string, count: number | undefined): ReactNode {
+  return (
+    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', whiteSpace: 'nowrap' }}>
+      <span>{label}</span>
+      {!!count && <Chip size="small" label={count > 99 ? '99+' : count} sx={{ height: 20 }} />}
+    </Stack>
+  )
+}
+
 function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
   const { has } = usePermissions()
+  const colors = useChatColors()
+  const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLDivElement>()
   const [params, setParams] = useSearchParams()
   const contactId = params.get('contactId') ?? undefined
   const selected = params.get('conversation') ?? ''
@@ -78,119 +93,124 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
     setParams(next, { replace: true })
   }
   return (
-    <Stack spacing={2}>
-      <PageHeader
-        title="Bandeja de mensajes"
-        subtitle="Atiende a tus clientes y coordina las conversaciones de tu equipo."
-      />
+    <Paper
+      ref={fillRef}
+      variant="outlined"
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '360px minmax(0, 1fr)', xl: '400px minmax(0, 1fr)' },
+        // The page fills the screen below the top bar, like a chat app.
+        height: fillHeight ?? 'calc(100dvh - 128px)',
+        overflow: 'hidden',
+      }}
+    >
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '300px minmax(0, 1fr)' },
-          gap: 2,
-          minHeight: 650,
+          display: { xs: selected ? 'none' : 'flex', md: 'flex' },
+          flexDirection: 'column',
+          minWidth: 0,
+          borderRight: 1,
+          borderColor: 'divider',
         }}
       >
-        <Paper
-          variant="outlined"
-          sx={{
-            display: { xs: selected ? 'none' : 'block', md: 'block' },
-            minWidth: 0,
-            overflow: 'hidden',
-          }}
-        >
-          <Stack spacing={1.5} sx={{ p: 2 }}>
-            {contactId && (
-              <Chip
-                label="Conversaciones del contacto"
-                onDelete={() => {
-                  setParams({})
-                  setView('mine')
-                }}
-              />
-            )}
-            <TextField
-              size="small"
-              label="Buscar nombre o teléfono"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+        <Stack spacing={1.25} sx={{ p: 1.5 }}>
+          <Typography variant="h6" component="h1">
+            Chats
+          </Typography>
+          {contactId && (
+            <Chip
+              label="Conversaciones del contacto"
+              onDelete={() => {
+                setParams({})
+                setView('mine')
+              }}
             />
-            <Stack direction="row" spacing={1}>
-              <TextField
-                select
-                size="small"
-                label="Estado"
-                value={status}
-                onChange={(event) => setStatus(event.target.value as InboxFilter['status'])}
-                fullWidth
-              >
-                <MenuItem value="OPEN">Abiertos</MenuItem>
-                <MenuItem value="CLOSED">Cerrados</MenuItem>
-              </TextField>
-              <TextField
-                select
-                size="small"
-                label="Línea"
-                value={lineId}
-                onChange={(event) => setLineId(event.target.value)}
-                fullWidth
-              >
-                <MenuItem value="">Todas</MenuItem>
-                {options.data?.lines.map((line) => (
-                  <MenuItem key={line.id} value={line.id}>
-                    {line.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Stack>
-          </Stack>
-          {!contactId && (
-            <Tabs
-              value={filter.view}
-              onChange={(_, value: InboxFilter['view']) => setView(value)}
-              variant="scrollable"
-              aria-label="Conversaciones"
+          )}
+          <TextField
+            size="small"
+            placeholder="Buscar nombre o teléfono"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            slotProps={{
+              htmlInput: { 'aria-label': 'Buscar nombre o teléfono' },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRounded fontSize="small" />
+                  </InputAdornment>
+                ),
+                sx: { borderRadius: 3, bgcolor: 'action.hover' },
+              },
+            }}
+          />
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={status}
+              aria-label="Estado"
+              onChange={(_, value: InboxFilter['status'] | null) => {
+                if (value) setStatus(value)
+              }}
+              sx={{ flexShrink: 0 }}
             >
-              <Tab value="mine" label={`Mis chats (${counts.data?.mine ?? 0})`} />
-              <Tab value="unassigned" label={`Sin asignar (${counts.data?.unassigned ?? 0})`} />
-              {has('conversations.view_all') && (
-                <Tab value="all" label={`Todos (${counts.data?.all ?? 0})`} />
-              )}
-            </Tabs>
-          )}
-          {conversations.isFetching && <LinearProgress />}
-          {conversations.error && (
-            <Alert severity="error">{errorMessage(conversations.error)}</Alert>
-          )}
-          <List sx={{ maxHeight: '65vh', overflowY: 'auto' }}>
-            {rows.map((conversation) => (
-              <ListItemButton
-                key={conversation.id}
-                selected={selected === conversation.id}
-                onClick={() => select(conversation.id)}
-                sx={{ gap: 1.5, alignItems: 'flex-start', py: 2 }}
-              >
-                <Badge badgeContent={conversation.unreadCount} color="primary">
-                  <Avatar>
-                    {(conversation.contact.name ?? conversation.contact.phone).slice(0, 1)}
-                  </Avatar>
-                </Badge>
-                <ListItemText
-                  primary={conversation.contact.name ?? conversation.contact.phone}
-                  secondary={`${conversation.lineName ?? 'Línea eliminada'} · ${conversation.lastMessage?.text ?? 'Archivo recibido'}`}
-                  slotProps={{
-                    primary: {
-                      noWrap: true,
-                      sx: { fontWeight: conversation.unreadCount ? 700 : 500 },
-                    },
-                    secondary: { noWrap: true },
-                  }}
-                />
-              </ListItemButton>
-            ))}
-          </List>
+              <ToggleButton value="OPEN">Abiertos</ToggleButton>
+              <ToggleButton value="CLOSED">Cerrados</ToggleButton>
+              <ToggleButton value="ALL">Todos</ToggleButton>
+            </ToggleButtonGroup>
+            <TextField
+              select
+              size="small"
+              label="Línea"
+              value={lineId}
+              onChange={(event) => setLineId(event.target.value)}
+              fullWidth
+            >
+              <MenuItem value="">Todas</MenuItem>
+              {options.data?.lines.map((line) => (
+                <MenuItem key={line.id} value={line.id}>
+                  {line.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </Stack>
+        {!contactId && (
+          <Tabs
+            value={filter.view}
+            onChange={(_, value: InboxFilter['view']) => setView(value)}
+            variant="fullWidth"
+            aria-label="Conversaciones"
+            sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40 }}
+          >
+            <Tab
+              value="mine"
+              label={counted('Mis chats', counts.data?.mine)}
+              sx={{ minHeight: 40 }}
+            />
+            <Tab
+              value="unassigned"
+              label={counted('Sin asignar', counts.data?.unassigned)}
+              sx={{ minHeight: 40 }}
+            />
+            {has('conversations.view_all') && (
+              <Tab value="all" label={counted('Todos', counts.data?.all)} sx={{ minHeight: 40 }} />
+            )}
+          </Tabs>
+        )}
+        {conversations.isFetching && <LinearProgress />}
+        {conversations.error && <Alert severity="error">{errorMessage(conversations.error)}</Alert>}
+        <List disablePadding sx={{ flex: 1, overflowY: 'auto' }} aria-label="Lista de chats">
+          {rows.map((conversation) => (
+            <ConversationListItem
+              key={conversation.id}
+              conversation={conversation}
+              selected={selected === conversation.id}
+              onSelect={() => select(conversation.id)}
+            />
+          ))}
           {!conversations.isPending && !conversations.error && rows.length === 0 && (
-            <Typography color="text.secondary" sx={{ p: 3 }}>
+            <Typography color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
               No hay conversaciones en esta vista.
             </Typography>
           )}
@@ -203,7 +223,15 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
               Cargar más conversaciones
             </Button>
           )}
-        </Paper>
+        </List>
+      </Box>
+      <Box
+        sx={{
+          display: { xs: selected ? 'block' : 'none', md: 'block' },
+          minWidth: 0,
+          minHeight: 0,
+        }}
+      >
         {selected ? (
           <ConversationPanel
             key={`${workspaceId}:${selected}`}
@@ -212,16 +240,25 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
             onBack={() => select('')}
           />
         ) : (
-          <Paper
-            variant="outlined"
-            sx={{ display: { xs: 'none', md: 'grid' }, placeItems: 'center', p: 4 }}
+          <Stack
+            spacing={2}
+            sx={{
+              height: '100%',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: colors.wallpaper,
+              p: 4,
+              textAlign: 'center',
+            }}
           >
+            <ChatOutlined sx={{ fontSize: 64, color: 'text.disabled' }} />
+            <Typography variant="h6">Bandeja de mensajes</Typography>
             <Typography color="text.secondary">
               Selecciona una conversación para comenzar.
             </Typography>
-          </Paper>
+          </Stack>
         )}
       </Box>
-    </Stack>
+    </Paper>
   )
 }

@@ -1,13 +1,36 @@
 import type { CursorPage } from '../../../database/mongodb/pagination';
 import type {
+  LocationInfo,
   MediaInfo,
   MessageType,
 } from '../../channels/domain/whatsapp-payload';
 import type { InboxScope, OutboundStatus } from '../domain/inbox-rules';
 
 export type ConversationStatus = 'OPEN' | 'CLOSED';
-export type MessageDirection = 'IN' | 'OUT' | 'NOTE';
+/** EVENT: a movement of the conversation (assignment, close…) shown in the chat. */
+export type MessageDirection = 'IN' | 'OUT' | 'NOTE' | 'EVENT';
 export type MessageStatus = OutboundStatus | 'received';
+
+export type ConversationEventKind =
+  | 'auto_assigned'
+  | 'assigned'
+  | 'transferred'
+  | 'unassigned'
+  | 'taken'
+  /** Assigned to whoever replied to an unassigned conversation. */
+  | 'claimed'
+  | 'closed'
+  | 'reopened'
+  | 'contact_blocked'
+  | 'contact_unblocked';
+
+/** Who did it (null: the system) and the assignees before and after. */
+export interface ConversationEvent {
+  kind: ConversationEventKind;
+  by: { userId: string; name: string } | null;
+  from: { membershipId: string; name: string } | null;
+  to: { membershipId: string; name: string } | null;
+}
 
 /** Who a conversation is assigned to (a membership of the workspace). */
 export interface Assignee {
@@ -47,6 +70,8 @@ export interface MessageRecord {
   type: MessageType;
   text: string | null;
   media: MediaInfo | null;
+  location: LocationInfo | null;
+  event: ConversationEvent | null;
   waMessageId: string | null;
   status: MessageStatus;
   error: string | null;
@@ -59,7 +84,7 @@ export type InboxView = 'mine' | 'unassigned' | 'all';
 export interface ConversationQuery {
   scope: InboxScope;
   view: InboxView;
-  status: ConversationStatus;
+  status: ConversationStatus | 'ALL';
   lineId?: string;
   contactId?: string;
   /** Part of the contact name or phone. */
@@ -75,6 +100,8 @@ export interface InboxCounts {
   unassigned: number;
   /** Open and visible to me. */
   all: number;
+  /** Closed and visible to me. */
+  closed: number;
   /** Unread messages in open conversations visible to me. */
   unread: number;
 }
@@ -85,6 +112,8 @@ export interface NewMessage {
   type: MessageType;
   text: string | null;
   media: MediaInfo | null;
+  location?: LocationInfo | null;
+  event?: ConversationEvent | null;
   waMessageId: string | null;
   status: MessageStatus;
   sentBy: { userId: string; name: string } | null;
@@ -160,6 +189,11 @@ export abstract class InboxStore {
     at: Date,
   ): Promise<ConversationRecord | 'already_open' | null>;
   abstract markRead(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<ConversationRecord | null>;
+  /** At least one unread message, so it shows as pending again. */
+  abstract markUnread(
     workspaceId: string,
     conversationId: string,
   ): Promise<ConversationRecord | null>;

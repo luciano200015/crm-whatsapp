@@ -23,6 +23,7 @@ import {
 } from '../domain/inbox-rules';
 import { InboxErrors } from './inbox-errors';
 import { ContactQuota } from './contact-quota';
+import { ConversationTimeline } from './conversation-timeline';
 import { InboxEvents } from './inbox-events';
 import {
   AssignmentStore,
@@ -50,7 +51,7 @@ export type MessageView = Omit<MessageRecord, 'waMessageId'>;
 
 export interface ConversationListQuery {
   view: InboxView;
-  status: ConversationStatus;
+  status: ConversationStatus | 'ALL';
   lineId?: string;
   contactId?: string;
   search?: string;
@@ -81,6 +82,7 @@ export class InboxService {
     private readonly events: InboxEvents,
     private readonly clock: Clock,
     private readonly contactQuota: ContactQuota,
+    private readonly timeline: ConversationTimeline,
   ) {}
 
   async scope(actor: InboxActor): Promise<InboxScope> {
@@ -199,6 +201,7 @@ export class InboxService {
       );
       if (!claimed) throw InboxErrors.alreadyAssigned();
       this.emitConversation(claimed, conversation);
+      await this.timeline.assignment(claimed, null, me, 'claimed');
       conversation = claimed;
     }
 
@@ -304,6 +307,11 @@ export class InboxService {
     );
     if (!updated) throw InboxErrors.conversationNotFound();
     this.emitConversation(updated, conversation);
+    await this.timeline.assignment(
+      updated,
+      conversation.assignee,
+      await this.me(actor),
+    );
     return this.view(updated);
   }
 
@@ -315,14 +323,16 @@ export class InboxService {
       return this.view(conversation);
     }
     if (conversation.assignee) throw InboxErrors.alreadyAssigned();
+    const me = await this.me(actor);
     const updated = await this.store.setAssignee(
       workspaceId,
       conversationId,
-      await this.me(actor),
+      me,
       { onlyIfUnassigned: true },
     );
     if (!updated) throw InboxErrors.alreadyAssigned();
     this.emitConversation(updated, conversation);
+    await this.timeline.assignment(updated, null, me, 'taken');
     return this.view(updated);
   }
 
@@ -342,12 +352,31 @@ export class InboxService {
     if (updated === 'already_open') throw InboxErrors.alreadyOpen();
     if (!updated) throw InboxErrors.conversationNotFound();
     this.emitConversation(updated, conversation);
+    const me = await this.me(actor);
+    await this.timeline.record(updated, {
+      kind: status === 'CLOSED' ? 'closed' : 'reopened',
+      by: { userId: me.userId, name: me.name },
+      from: null,
+      to: null,
+    });
     return this.view(updated);
   }
 
   async markRead(actor: InboxActor, conversationId: string) {
     await this.requireVisible(actor, conversationId);
     const updated = await this.store.markRead(
+      actor.access.workspaceId,
+      conversationId,
+    );
+    if (!updated) throw InboxErrors.conversationNotFound();
+    this.emitConversation(updated, updated);
+    return this.view(updated);
+  }
+
+  /** "Marcar como no leído": shows the conversation as pending again. */
+  async markUnread(actor: InboxActor, conversationId: string) {
+    await this.requireVisible(actor, conversationId);
+    const updated = await this.store.markUnread(
       actor.access.workspaceId,
       conversationId,
     );

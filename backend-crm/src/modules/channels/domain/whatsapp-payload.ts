@@ -24,6 +24,13 @@ export interface MediaInfo {
   filename: string | null;
 }
 
+export interface LocationInfo {
+  latitude: number;
+  longitude: number;
+  name: string | null;
+  address: string | null;
+}
+
 export interface InboundMessage {
   phoneNumberId: string;
   waMessageId: string;
@@ -35,6 +42,7 @@ export interface InboundMessage {
   /** Text body, caption or a short description (location, button reply). */
   text: string | null;
   media: MediaInfo | null;
+  location: LocationInfo | null;
 }
 
 export interface StatusUpdate {
@@ -102,6 +110,7 @@ function parseMessage(
       type: 'text',
       text: str(obj(raw.text).body),
       media: null,
+      location: null,
     };
   }
   const mediaType = MEDIA_TYPES.find((media) => media === type);
@@ -120,6 +129,7 @@ function parseMessage(
             filename: str(media.filename),
           }
         : null,
+      location: null,
     };
   }
   if (type === 'location') {
@@ -127,12 +137,26 @@ function parseMessage(
     const description = [str(location.name), str(location.address)]
       .filter(Boolean)
       .join(', ');
+    const { latitude, longitude } = location;
+    const valid =
+      typeof latitude === 'number' &&
+      typeof longitude === 'number' &&
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude);
     const coordinates = `${String(location.latitude)},${String(location.longitude)}`;
     return {
       ...base,
       type: 'location',
       text: description || coordinates,
       media: null,
+      location: valid
+        ? {
+            latitude,
+            longitude,
+            name: str(location.name),
+            address: str(location.address),
+          }
+        : null,
     };
   }
   // Quick-reply buttons and list replies arrive as their visible title.
@@ -142,14 +166,27 @@ function parseMessage(
       type: 'text',
       text: str(obj(raw.button).text),
       media: null,
+      location: null,
     };
   }
   if (type === 'interactive') {
     const interactive = obj(raw.interactive);
     const reply = obj(interactive.button_reply ?? interactive.list_reply);
-    return { ...base, type: 'text', text: str(reply.title), media: null };
+    return {
+      ...base,
+      type: 'text',
+      text: str(reply.title),
+      media: null,
+      location: null,
+    };
   }
-  return { ...base, type: 'unsupported', text: null, media: null };
+  return {
+    ...base,
+    type: 'unsupported',
+    text: null,
+    media: null,
+    location: null,
+  };
 }
 
 function parseStatus(raw: Json, phoneNumberId: string): StatusUpdate | null {

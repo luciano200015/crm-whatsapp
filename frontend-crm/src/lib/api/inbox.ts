@@ -25,10 +25,30 @@ export interface Conversation {
   closedAt: string | null
 }
 
+export type ConversationEventKind =
+  | 'auto_assigned'
+  | 'assigned'
+  | 'transferred'
+  | 'unassigned'
+  | 'taken'
+  | 'claimed'
+  | 'closed'
+  | 'reopened'
+  | 'contact_blocked'
+  | 'contact_unblocked'
+
+export interface ConversationEvent {
+  kind: ConversationEventKind
+  by: { userId: string; name: string } | null
+  from: { membershipId: string; name: string } | null
+  to: { membershipId: string; name: string } | null
+}
+
 export interface ChatMessage {
   id: string
   conversationId: string
-  direction: 'IN' | 'OUT' | 'NOTE'
+  /** EVENT: a movement of the conversation, shown centered. */
+  direction: 'IN' | 'OUT' | 'NOTE' | 'EVENT'
   type: string
   text: string | null
   media: {
@@ -37,6 +57,13 @@ export interface ChatMessage {
     caption: string | null
     filename: string | null
   } | null
+  location?: {
+    latitude: number
+    longitude: number
+    name: string | null
+    address: string | null
+  } | null
+  event?: ConversationEvent | null
   status: 'received' | 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   error: string | null
   sentBy: { userId: string; name: string } | null
@@ -45,7 +72,7 @@ export interface ChatMessage {
 
 export interface InboxFilter {
   view: 'mine' | 'unassigned' | 'all'
-  status: 'OPEN' | 'CLOSED'
+  status: 'OPEN' | 'CLOSED' | 'ALL'
   search?: string
   lineId?: string
   contactId?: string
@@ -71,6 +98,7 @@ export interface InboxCounts {
   mine: number
   unassigned: number
   all: number
+  closed: number
   unread: number
 }
 
@@ -129,7 +157,7 @@ export const inboxApi = {
   action(
     workspaceId: string,
     id: string,
-    action: 'take' | 'read' | 'close' | 'reopen' | 'assign',
+    action: 'take' | 'read' | 'unread' | 'close' | 'reopen' | 'assign',
     membershipId?: string | null,
   ) {
     return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/${action}`, {
