@@ -23,6 +23,7 @@ import { contactKeys, contactsApi } from '../../lib/api/contacts'
 import { inboxApi, inboxKeys } from '../../lib/api/inbox'
 import { BlockContactDialog, type BlockTarget } from '../contacts/BlockContactDialog'
 import { ChatHeader, type ChatAction } from './ChatHeader'
+import { ChatTagButton, ChatTagChips } from './ChatTags'
 import { useChatColors } from './chat-colors'
 import { Composer, type ComposerMode } from './Composer'
 import { ContactPanel } from './ContactPanel'
@@ -244,6 +245,8 @@ export function ConversationPanel({
             (member) =>
               member.viewAll !== false || (member.lineIds ?? []).includes(conversation.lineId),
           )}
+          tagChips={<ChatTagChips workspaceId={workspaceId} conversation={conversation} />}
+          tagButton={<ChatTagButton workspaceId={workspaceId} conversation={conversation} />}
           busy={action.isPending}
           onAction={(chosen) => action.mutate(chosen)}
           onBack={onBack}

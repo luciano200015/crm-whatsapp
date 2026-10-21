@@ -238,6 +238,13 @@ export const inboxApi = {
     }
     return response.blob()
   },
+  /** The tags of the chat's contact (contacts.write). */
+  setTags(workspaceId: string, id: string, tagIds: string[]) {
+    return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/tags`, {
+      method: 'PUT',
+      body: { tagIds },
+    })
+  },
   action(
     workspaceId: string,
     id: string,

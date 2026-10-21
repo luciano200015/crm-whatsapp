@@ -9,6 +9,7 @@ import {
   type MessageEvent,
   Param,
   Post,
+  Put,
   Query,
   Res,
   Sse,
@@ -45,6 +46,7 @@ import {
   RequirePermissions,
 } from '../../authorization/presentation/workspace-access.decorators';
 import { WorkspaceAccessGuard } from '../../authorization/presentation/workspace-access.guard';
+import { SetContactTagsDto } from '../../contacts/presentation/contacts.dto';
 import { ContactBlockService } from '../application/contact-block.service';
 import { InboxMediaService } from '../application/inbox-media.service';
 import { InboxService, type InboxActor } from '../application/inbox.service';
@@ -429,6 +431,27 @@ export class ConversationsController {
     @Param('conversationId') conversationId: string,
   ): Promise<ConversationDto> {
     return this.inbox.setStatus(actor(auth, workspace), conversationId, 'OPEN');
+  }
+
+  @Put(':conversationId/tags')
+  @RequirePermissions('contacts.write')
+  @ApiOperation({
+    summary: 'Tag the chat',
+    description:
+      'Replaces the tags of the contact of the conversation (the same tags as in Contactos). Emits conversation.updated so lists refresh.',
+  })
+  @ApiOkResponse({ type: ConversationDto })
+  setTags(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: SetContactTagsDto,
+  ): Promise<ConversationDto> {
+    return this.inbox.setTags(
+      actor(auth, workspace),
+      conversationId,
+      dto.tagIds,
+    );
   }
 
   @Post(':conversationId/unread')

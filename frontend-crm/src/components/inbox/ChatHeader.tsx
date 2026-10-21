@@ -63,6 +63,8 @@ export function ChatHeader({
   onBack,
   onToggleInfo,
   blocked = false,
+  tagChips,
+  tagButton,
   extraMenuItems,
 }: {
   conversation: Conversation
@@ -73,6 +75,10 @@ export function ChatHeader({
   onToggleInfo: () => void
   /** The contact is blocked: shown next to the name. */
   blocked?: boolean
+  /** Tags of the chat, under the name. */
+  tagChips?: ReactNode
+  /** "Etiquetar chat" button. */
+  tagButton?: ReactNode
   /** More entries for the ⋮ menu (e.g. block contact); they close the menu themselves. */
   extraMenuItems?: (close: () => void) => ReactNode
 }) {
@@ -139,9 +145,11 @@ export function ChatHeader({
             {conversation.contact.phone} · {conversation.lineName ?? 'Línea eliminada'} ·{' '}
             {conversation.assignee ? `Atiende ${conversation.assignee.name}` : 'Sin asignar'}
           </Typography>
+          {tagChips}
         </Box>
       </Box>
 
+      {tagButton}
       {has('messages.send') && !conversation.assignee && (
         <Button
           size="small"

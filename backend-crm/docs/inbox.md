@@ -21,6 +21,7 @@ En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones
 - **Cabecera:**
   - **Tomar chat**, **Transferir** a otro agente, **Poner en espera**, **Cerrar** y **Reabrir**;
   - menú ⋮ con **Marcar como no leído**, **Ver contacto** y **Bloquear contacto**.
+- **Etiquetar chat** (🏷 en la cabecera, con `contacts.write`): se marcan y desmarcan etiquetas con buscador y se aplican al instante; se ven bajo el nombre del chat. Son las **etiquetas del contacto**, así que coinciden con la fila de la lista, el filtro por etiquetas y Contactos. Quien tiene `tags.manage` ve el enlace «Administrar etiquetas».
 - **Panel del contacto** (plegable): datos, etiquetas editables, agente, estado y ventana de 24 h.
 - **Editor:** emojis, adjuntar fotos, videos, documentos o **contactos**, grabar notas de voz, respuestas rápidas con «/» y modo **Nota interna**.
 
@@ -187,6 +188,7 @@ Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/ap
 - `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
+- `PUT /conversations/:id/tags`: `{ "tagIds": [...] }` (`contacts.write`). Reemplaza las etiquetas del contacto del chat, devuelve el chat con `contactTagIds` y emite `conversation.updated`. Una etiqueta desconocida da `404 TAG_NOT_FOUND`.
 - `POST /contacts/:id/block` y `/unblock`.
 - `GET/POST/PATCH/DELETE /quick-replies`.
 - `GET /channels/auto-assignment`: configuración y miembros activos, sin credenciales.

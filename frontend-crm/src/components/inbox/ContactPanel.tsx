@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import { usePermissions } from '../../auth/usePermissions'
 import { contactsApi, contactKeys } from '../../lib/api/contacts'
 import { errorMessage } from '../../lib/api/errors'
-import type { Conversation } from '../../lib/api/inbox'
+import { inboxApi, inboxKeys, type Conversation } from '../../lib/api/inbox'
 import { TagChip } from '../contacts/TagChip'
 import { ContactAvatar } from './ConversationList'
 import { contactName, STATUS_LABELS } from './inbox-format'
@@ -56,10 +56,11 @@ export function ContactPanel({
     enabled: has('contacts.read') && has('contacts.write'),
   })
   const save = useMutation({
-    mutationFn: (tagIds: string[]) =>
-      contactsApi.update(workspaceId, conversation.contactId, { tagIds }),
+    // Through the chat, so the list and the header show the new tags at once.
+    mutationFn: (tagIds: string[]) => inboxApi.setTags(workspaceId, conversation.id, tagIds),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: contactKeys.all(workspaceId) })
+      void client.invalidateQueries({ queryKey: inboxKeys.all(workspaceId) })
     },
     onError: (error) => enqueueSnackbar(errorMessage(error), { variant: 'error' }),
   })

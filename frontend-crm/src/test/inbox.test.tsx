@@ -561,6 +561,53 @@ describe('Inbox', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     sendMedia.mockRestore()
   })
+  it('tags the chat from its header', async () => {
+    permissions = ['messages.read', 'messages.send', 'contacts.read', 'contacts.write']
+    server.use(
+      http.get(api('/workspaces/w1/contacts/ct1'), () =>
+        HttpResponse.json({
+          id: 'ct1',
+          phone: '+59170000001',
+          name: 'Lucía Cliente',
+          email: null,
+          notes: null,
+          tags: [],
+          source: 'whatsapp',
+          lastMessageAt: null,
+          blocked: false,
+          blockedAt: null,
+          blockedBy: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      ),
+      http.put(api(`${base}/c1/tags`), async ({ request }) => {
+        const body = (await request.json()) as { tagIds: string[] }
+        actions.push({ name: 'tags', body })
+        chat = { ...chat, contactTagIds: body.tagIds }
+        return HttpResponse.json(chat)
+      }),
+    )
+    renderAt()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Etiquetar chat' }))
+    const picker = await screen.findByRole('dialog', { name: 'Etiquetar chat' })
+    await user.click(await within(picker).findByRole('checkbox', { name: 'VIP' }))
+
+    await waitFor(() => expect(actions).toContainEqual({ name: 'tags', body: { tagIds: ['t2'] } }))
+    await waitFor(() =>
+      expect(within(picker).getByRole('checkbox', { name: 'VIP' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      ),
+    )
+    // The header shows the tag of the chat.
+    await user.keyboard('{Escape}')
+    const header = screen.getByRole('button', { name: 'Ver contacto' })
+    expect(await within(header).findByText('VIP')).toBeInTheDocument()
+  })
+
   it('blocks the contact from the chat and explains when WhatsApp refuses it', async () => {
     permissions = ['messages.read', 'messages.send', 'contacts.read', 'contacts.write']
     let blocked = false

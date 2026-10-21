@@ -886,6 +886,43 @@ describe('Inbox (e2e)', () => {
     expect(await conversations(owner, '?view=all')).toHaveLength(2);
   });
 
+  it('tags the chat: the tags of its contact', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+    const line = await lineWithAgents(owner, [ana], false);
+    await incoming(line, '59170000070', 'Quiero comprar');
+    const [chat] = await conversations(ana, '?view=all');
+    const id = chat?.id ?? '';
+    const tag = (
+      await api(owner)
+        .post('/tags', { name: 'Interesado', color: '#2e7d32' })
+        .expect(201)
+    ).body as { id: string };
+
+    const tagged = await api(ana)
+      .put(`/conversations/${id}/tags`, { tagIds: [tag.id] })
+      .expect(200);
+    expect(tagged.body).toMatchObject({ id, contactTagIds: [tag.id] });
+    const [listed] = await conversations(ana, '?view=all');
+    expect(listed?.contactTagIds).toEqual([tag.id]);
+    const contact = (
+      await api(owner).get(`/contacts/${chat?.contactId}`).expect(200)
+    ).body as { tags: { id: string }[] };
+    expect(contact.tags.map((t) => t.id)).toEqual([tag.id]);
+
+    const unknown = await api(ana)
+      .put(`/conversations/${id}/tags`, {
+        tagIds: ['64b000000000000000000000'],
+      })
+      .expect(404);
+    expect(unknown.body).toMatchObject({ code: 'TAG_NOT_FOUND' });
+    // A chat the member cannot see is reported as missing.
+    const outsider = await agentOf(owner, 'Otro');
+    await api(outsider)
+      .put(`/conversations/${id}/tags`, { tagIds: [] })
+      .expect(404);
+  });
+
   it('filters by open, closed or all and marks conversations as unread', async () => {
     const owner = await signUp();
     const line = await lineWithAgents(owner, [], false);

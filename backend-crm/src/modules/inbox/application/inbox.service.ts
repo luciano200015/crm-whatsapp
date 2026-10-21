@@ -18,6 +18,7 @@ import type {
   MessageType,
   SharedContact,
 } from '../../channels/domain/whatsapp-payload';
+import { ContactsService } from '../../contacts/application/contacts.service';
 import { ContactsStore } from '../../contacts/application/ports';
 import { ContactsErrors } from '../../contacts/application/contacts-errors';
 import { normalizePhone, toWhatsAppId } from '../../contacts/domain/phone';
@@ -116,6 +117,7 @@ export class InboxService {
     private readonly contactQuota: ContactQuota,
     private readonly timeline: ConversationTimeline,
     private readonly mediaStore: MediaStore,
+    private readonly contactTags: ContactsService,
   ) {}
 
   async scope(actor: InboxActor): Promise<InboxScope> {
@@ -607,6 +609,26 @@ export class InboxService {
       await this.me(actor),
     );
     return this.view(updated);
+  }
+
+  /**
+   * contacts.write: tag the chat. Tags belong to the contact, so they show
+   * in the chat list, the filters and Contactos alike.
+   */
+  async setTags(
+    actor: InboxActor,
+    conversationId: string,
+    tagIds: string[],
+  ): Promise<ConversationView> {
+    const { workspaceId } = actor.access;
+    const conversation = await this.requireVisible(actor, conversationId);
+    await this.contactTags.setTags(workspaceId, conversation.contactId, tagIds);
+    this.events.emit({
+      workspaceId,
+      type: 'conversation.updated',
+      conversation,
+    });
+    return this.view(conversation);
   }
 
   /** "Tomar chat": assign an unassigned conversation to yourself. */
