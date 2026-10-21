@@ -12,6 +12,7 @@ const MESSAGE_TYPES = [
   'document',
   'sticker',
   'location',
+  'contacts',
   'unsupported',
 ];
 
@@ -23,6 +24,7 @@ const EVENT_KINDS = [
   'unassigned',
   'taken',
   'claimed',
+  'on_hold',
   'closed',
   'reopened',
   'contact_blocked',
@@ -40,7 +42,7 @@ export interface ConversationDocument {
   lineId: string;
   contactId: string;
   contact: { name: string | null; phone: string };
-  status: 'OPEN' | 'CLOSED';
+  status: 'OPEN' | 'ON_HOLD' | 'CLOSED';
   assignee: { membershipId: string; userId: string; name: string } | null;
   lastMessage: {
     text: string | null;
@@ -77,6 +79,12 @@ export interface MessageDocument {
     name: string | null;
     address: string | null;
   } | null;
+  contacts?: {
+    name: string;
+    phones: { phone: string; waId: string | null; type: string | null }[];
+    emails: string[];
+    organization: string | null;
+  }[];
   event?: {
     kind: string;
     by: { userId: string; name: string } | null;
@@ -116,7 +124,11 @@ export const ConversationSchema = new Schema<ConversationDocument>(
       name: { type: String, default: null },
       phone: { type: String, required: true },
     },
-    status: { type: String, enum: ['OPEN', 'CLOSED'], required: true },
+    status: {
+      type: String,
+      enum: ['OPEN', 'ON_HOLD', 'CLOSED'],
+      required: true,
+    },
     assignee: {
       type: new Schema(
         {
@@ -148,10 +160,11 @@ export const ConversationSchema = new Schema<ConversationDocument>(
   { collection: 'conversations', timestamps: true, versionKey: false },
 );
 ConversationSchema.plugin(workspaceScoped);
-// One open conversation per contact and line.
+// One conversation per contact and line: it is reopened, never duplicated.
+export const ONE_CONVERSATION_INDEX = 'workspaceId_1_lineId_1_contactId_1';
 ConversationSchema.index(
   { workspaceId: 1, lineId: 1, contactId: 1 },
-  { unique: true, partialFilterExpression: { status: 'OPEN' } },
+  { unique: true, name: ONE_CONVERSATION_INDEX },
 );
 ConversationSchema.index({
   workspaceId: 1,
@@ -204,6 +217,32 @@ export const MessageSchema = new Schema<MessageDocument>(
         { _id: false },
       ),
       default: null,
+    },
+    contacts: {
+      type: [
+        new Schema(
+          {
+            name: { type: String, required: true },
+            phones: {
+              type: [
+                new Schema(
+                  {
+                    phone: { type: String, required: true },
+                    waId: { type: String, default: null },
+                    type: { type: String, default: null },
+                  },
+                  { _id: false },
+                ),
+              ],
+              default: [],
+            },
+            emails: { type: [String], default: [] },
+            organization: { type: String, default: null },
+          },
+          { _id: false },
+        ),
+      ],
+      default: undefined,
     },
     event: {
       type: new Schema(

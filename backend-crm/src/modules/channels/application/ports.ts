@@ -3,7 +3,7 @@ import type {
   LineStatus,
   MembershipStatus,
 } from '../../../generated/prisma/client';
-import type { WebhookEvents } from '../domain/whatsapp-payload';
+import type { SharedContact, WebhookEvents } from '../domain/whatsapp-payload';
 
 export type { LineStatus };
 
@@ -165,6 +165,12 @@ export abstract class WhatsAppGateway {
     credentials: LineCredentials,
     to: string,
     media: OutgoingMedia,
+  ): Promise<{ waMessageId: string }>;
+  /** Contact cards the customer can save or message. */
+  abstract sendContacts(
+    credentials: LineCredentials,
+    to: string,
+    contacts: SharedContact[],
   ): Promise<{ waMessageId: string }>;
   /**
    * Blocks or unblocks a WhatsApp user on the number. Meta only allows

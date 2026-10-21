@@ -2,20 +2,45 @@
 
 En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones del workspace activo, al estilo de WhatsApp Web y wasapi:
 
-- **Lista de chats** con avatar, hora, vista previa («📷 Foto», «🎤 Audio»…), contador verde de no leídos, agente y línea.
+- **Lista de chats:**
+  - avatar, hora, vista previa («📷 Foto», «🎤 Audio», «👤 Contacto»…) y contador verde de no leídos;
+  - abajo, el **agente que atiende** el chat en letra pequeña y con color propio («Sin asignar» en naranja);
+  - se carga sola al bajar.
 - **Filtros:**
   - pestañas **Mis chats / Sin asignar / Todos** (esta última solo con `conversations.view_all`);
-  - estado **Abiertos / Cerrados / Todos**;
+  - estado **Abiertos / En espera / Cerrados**;
   - línea y búsqueda por nombre o teléfono.
+- **Un solo chat por contacto** (en cada línea). Al abrirlo carga los mensajes más recientes y, al subir, va trayendo los anteriores sin saltar de posición, como en wasapi.
 - **Chat:**
   - fondo y burbujas estilo WhatsApp, con separadores por día y ✓ / ✓✓ / leído;
   - las notas internas van en amarillo;
   - los movimientos aparecen como **avisos centrados**.
 - **Cabecera:**
-  - **Tomar chat**, **Transferir** a otro agente, **Cerrar** / **Reabrir**;
+  - **Tomar chat**, **Transferir** a otro agente, **Poner en espera**, **Cerrar** y **Reabrir**;
   - menú ⋮ con **Marcar como no leído**, **Ver contacto** y **Bloquear contacto**.
 - **Panel del contacto** (plegable): datos, etiquetas editables, agente, estado y ventana de 24 h.
-- **Editor:** emojis, adjuntar fotos, videos o documentos con pie de foto, grabar notas de voz, respuestas rápidas con «/» y modo **Nota interna**.
+- **Editor:** emojis, adjuntar fotos, videos, documentos o **contactos**, grabar notas de voz, respuestas rápidas con «/» y modo **Nota interna**.
+
+## Estados y un chat por contacto
+
+| Estado | Qué significa | Cómo llega |
+| --- | --- | --- |
+| **Abierto** (`OPEN`) | Se está atendiendo | Mensaje nuevo del cliente, o «Reabrir chat» |
+| **En espera** (`ON_HOLD`) | El agente espera algo (del cliente o interno) | «Poner en espera» desde el chat |
+| **Cerrado** (`CLOSED`) | Atención terminada | «Cerrar chat» o bloquear el contacto |
+
+**Un único chat por contacto y línea:**
+- índice único `(workspaceId, lineId, contactId)`: nunca se crean chats duplicados;
+- **Cerrado + el cliente vuelve a escribir:** se reabre **el mismo chat**, **sin asignar**, con el aviso «El cliente volvió a escribir: chat reabierto». La autoasignación solo reparte los chats nuevos;
+- **En espera + el cliente escribe:** el chat **sigue en espera**. El mensaje suma no leídos y suena igual;
+- en espera **se puede responder**; un chat cerrado hay que reabrirlo primero (`409 CONVERSATION_CLOSED`).
+
+**Chats creados antes de este cambio:** quien tenga varios chats del mismo contacto debe unirlos antes de arrancar la API; si no, la API se detiene y lo indica. El script mueve los mensajes al chat más reciente, sin perder ninguno, y borra los chats vacíos:
+
+```bash
+npm run inbox:merge-conversations              # solo muestra qué haría
+npm run inbox:merge-conversations -- --apply   # los une
+```
 
 **Autoasignación** y **Respuestas rápidas** también están en el primer nivel del menú.
 
@@ -44,7 +69,8 @@ Cada cambio de una conversación se guarda en ella como mensaje `direction: EVEN
 | `assigned`, `transferred`, `unassigned` | `POST …/assign` (sin agente, de un agente a otro, o a nadie) |
 | `taken` | «Tomar chat» |
 | `claimed` | Alguien respondió un chat sin asignar y quedó asignado |
-| `closed`, `reopened` | Cerrar y reabrir |
+| `on_hold` | Poner en espera |
+| `closed`, `reopened` | Cerrar y reabrir. `reopened` con `by: null`: el cliente volvió a escribir a un chat cerrado |
 | `contact_blocked`, `contact_unblocked` | Bloquear y desbloquear al contacto |
 
 ## Archivos (imagen, audio, video, sticker, documento, ubicación)
@@ -70,7 +96,18 @@ Cada cambio de una conversación se guarda en ella como mensaje `direction: EVEN
   - audio AAC, AMR, MP3, MP4 u OGG hasta 16 MB;
   - documentos PDF, Office o TXT hasta 16 MB (Meta admite 100 MB: el límite propio evita cargar archivos enormes en memoria).
 - El archivo se guarda primero en GridFS, luego se sube a Meta (`/{phone-number-id}/media`) y se envía. Si Meta lo rechaza, el mensaje queda «fallido», pero el archivo sigue visible en el chat.
-- **Notas de voz:** se graban en el navegador con `MediaRecorder`, en un formato que WhatsApp acepta (OGG/Opus o MP4/AAC). Si el navegador no puede, el botón de micrófono no aparece.
+- **Notas de voz:** se graban en el navegador y siempre se envían como **OGG/Opus**, el formato de las notas de voz de WhatsApp:
+  - Firefox graba OGG/Opus directamente;
+  - Chrome, Edge y Safari graban en su formato. Meta rechaza el MP4 «fragmentado» que produce Chrome con «Media file scrutiny … failed», así que la grabación se decodifica, se codifica a Opus con WebCodecs (`AudioEncoder`) y se empaqueta en un contenedor Ogg propio, sin dependencias ([`ogg-opus.ts`](../../frontend-crm/src/components/inbox/ogg-opus.ts));
+  - si el navegador no puede hacer ninguna de las dos cosas, el botón de micrófono no aparece.
+
+## Contactos compartidos
+
+- **Recibidos:** las tarjetas de contacto que envía el cliente (`type: contacts`) se guardan con nombre, teléfonos, correos y empresa. En el chat se muestran como tarjeta, con **Agregar a contactos** (`contacts.write`).
+- **Enviar:** clip → **Contacto**. Se eligen hasta 5, de los contactos del CRM o escritos a mano. `POST …/conversations/:id/contacts` con `{ "contacts": [{ "name", "phone" }] }`:
+  - aplica las mismas reglas que una respuesta;
+  - un teléfono no válido devuelve `400 INVALID_PHONE`;
+  - el cliente puede guardar el contacto o escribirle desde la tarjeta.
 
 ## Bloquear contacto
 
@@ -129,11 +166,11 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 
 Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/api/v1/workspaces/:workspaceId`.
 
-- `GET /conversations`: `view` (`mine|unassigned|all`), `status` (`OPEN|CLOSED|ALL`), `lineId`, `contactId`, `search`, `cursor` y `limit`.
-- `GET /conversations/options` · `GET /conversations/counts` (`mine`, `unassigned`, `all`, `closed`, `unread`) · `GET /conversations/events`.
+- `GET /conversations`: `view` (`mine|unassigned|all`), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `cursor` y `limit`.
+- `GET /conversations/options` · `GET /conversations/counts` (`mine`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
-- `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart).
-- `POST /conversations/:id/take`, `/read`, `/unread`, `/close` y `/reopen`.
+- `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts`.
+- `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
 - `POST /contacts/:id/block` y `/unblock`.
 - `GET/POST/PATCH/DELETE /quick-replies`.

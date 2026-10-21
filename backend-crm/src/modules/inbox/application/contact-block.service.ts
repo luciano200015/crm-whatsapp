@@ -74,7 +74,7 @@ export class ContactBlockService {
       contactId,
       RECENT_CONVERSATIONS,
     );
-    const open = conversations.filter((c) => c.status === 'OPEN');
+    const open = conversations.filter((c) => c.status !== 'CLOSED');
     const kind = blocked ? 'contact_blocked' : 'contact_unblocked';
     if (blocked && open.length > 0) {
       for (const conversation of open) {

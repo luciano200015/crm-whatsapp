@@ -9,6 +9,7 @@ import {
   type LineCredentials,
   type OutgoingMedia,
 } from '../application/ports';
+import type { SharedContact } from '../domain/whatsapp-payload';
 
 const TIMEOUT_MS = 10_000;
 /** Uploads and downloads of media can take longer than API calls. */
@@ -155,6 +156,32 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     });
   }
 
+  async sendContacts(
+    credentials: LineCredentials,
+    to: string,
+    contacts: SharedContact[],
+  ) {
+    return this.sendMessage(credentials, {
+      to,
+      type: 'contacts',
+      contacts: contacts.map((contact) => ({
+        name: { formatted_name: contact.name, first_name: contact.name },
+        phones: contact.phones.map((phone) => ({
+          phone: phone.phone,
+          type: phone.type ?? 'CELL',
+          // Lets the customer open a chat with the contact from the card.
+          ...(phone.waId && { wa_id: phone.waId }),
+        })),
+        ...(contact.emails.length > 0 && {
+          emails: contact.emails.map((email) => ({ email, type: 'WORK' })),
+        }),
+        ...(contact.organization && {
+          org: { company: contact.organization },
+        }),
+      })),
+    });
+  }
+
   async setUserBlocked(
     credentials: LineCredentials,
     waId: string,
@@ -292,6 +319,10 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
 
   setUserBlocked() {
     return Promise.resolve();
+  }
+
+  sendContacts() {
+    return this.sendText();
   }
 }
 

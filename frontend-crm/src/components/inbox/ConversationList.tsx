@@ -1,7 +1,15 @@
+import PersonRounded from '@mui/icons-material/PersonRounded'
 import { Avatar, Box, ListItemButton, Stack, Typography } from '@mui/material'
 import type { Conversation } from '../../lib/api/inbox'
 import { useChatColors } from './chat-colors'
-import { avatarColor, contactName, initials, listTime, preview } from './inbox-format'
+import {
+  avatarColor,
+  contactName,
+  initials,
+  listTime,
+  preview,
+  STATUS_LABELS,
+} from './inbox-format'
 
 export function ContactAvatar({
   contact,
@@ -95,15 +103,51 @@ export function ConversationListItem({
             </Box>
           )}
         </Stack>
-        <Typography variant="caption" noWrap component="div" color="text.secondary">
-          {[
-            conversation.lineName ?? 'Línea eliminada',
-            conversation.assignee?.name ?? 'Sin asignar',
-            closed ? 'Cerrado' : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </Typography>
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mt: 0.5, minWidth: 0 }}>
+          {/* Who attends the chat, small but in its own color so it stands out. */}
+          <Box
+            component="span"
+            title={conversation.assignee ? `Atiende ${conversation.assignee.name}` : 'Sin asignar'}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.4,
+              minWidth: 0,
+              maxWidth: '60%',
+              px: 0.75,
+              py: '1px',
+              borderRadius: 1,
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: 1.6,
+              bgcolor: conversation.assignee ? colors.agentBg : colors.unassignedBg,
+              color: conversation.assignee ? colors.agent : 'warning.main',
+            }}
+          >
+            <PersonRounded sx={{ fontSize: 13, flexShrink: 0 }} />
+            <Box
+              component="span"
+              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {conversation.assignee?.name ?? 'Sin asignar'}
+            </Box>
+          </Box>
+          <Typography variant="caption" noWrap color="text.secondary" sx={{ minWidth: 0, flex: 1 }}>
+            {conversation.lineName ?? 'Línea eliminada'}
+          </Typography>
+          {conversation.status !== 'OPEN' && (
+            <Typography
+              variant="caption"
+              sx={{
+                flexShrink: 0,
+                fontWeight: 600,
+                color: conversation.status === 'ON_HOLD' ? 'warning.main' : 'text.secondary',
+              }}
+            >
+              {STATUS_LABELS[conversation.status]}
+            </Typography>
+          )}
+        </Stack>
       </Box>
     </ListItemButton>
   )

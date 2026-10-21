@@ -61,15 +61,23 @@ export class InboxIngestService extends WhatsAppEventsSink {
       );
       return;
     }
-    const { conversation, created } = await this.store.openConversation(
-      workspaceId,
-      {
+    const { conversation, created, reopened } =
+      await this.store.openConversation(workspaceId, {
         lineId: line.id,
         contactId: contact.id,
         contact: { name: contact.name, phone: contact.phone },
         at: inbound.timestamp,
-      },
-    );
+      });
+
+    if (reopened) {
+      // The customer wrote again: the same chat comes back, unassigned.
+      await this.timeline.record(conversation, {
+        kind: 'reopened',
+        by: null,
+        from: null,
+        to: null,
+      });
+    }
 
     const message = await this.store.insertMessage(workspaceId, {
       conversationId: conversation.id,
@@ -78,6 +86,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
       text: inbound.text,
       media: inbound.media,
       location: inbound.location,
+      contacts: inbound.contacts ?? undefined,
       waMessageId: inbound.waMessageId,
       status: 'received',
       sentBy: null,

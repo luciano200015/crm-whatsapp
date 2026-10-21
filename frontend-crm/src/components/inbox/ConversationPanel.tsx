@@ -14,7 +14,8 @@ import {
 import { useTheme } from '@mui/material/styles'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useWhenVisible } from '../../hooks/useWhenVisible'
 import { usePermissions } from '../../auth/usePermissions'
 import { ApiError, errorMessage } from '../../lib/api/errors'
 import BlockRounded from '@mui/icons-material/BlockRounded'
@@ -127,6 +128,20 @@ export function ConversationPanel({
     retry: false,
   })
 
+  const sendContacts = useMutation({
+    mutationFn: (contacts: { name: string; phone: string }[]) =>
+      inboxApi.sendContacts(workspaceId, id, contacts),
+    onSuccess: (message) => {
+      if (message.status === 'failed')
+        enqueueSnackbar(`WhatsApp no aceptó el contacto: ${message.error ?? 'error desconocido'}`, {
+          variant: 'error',
+        })
+      void refresh()
+    },
+    onError: fail,
+    retry: false,
+  })
+
   // Opening a chat reads it (but not right after "Marcar como no leído").
   useEffect(() => {
     if (!conversation?.unreadCount || current.error || action.isPending) return
@@ -161,10 +176,28 @@ export function ConversationPanel({
     ).values(),
   ].reverse()
   const end = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
   const newest = messages.data?.pages[0]?.items[0]?.id
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'nearest' })
   }, [newest])
+  // Only the latest messages load first; older ones come when scrolling up
+  // (like WhatsApp), keeping the view where it was.
+  const keepPosition = useRef<{ height: number; top: number } | null>(null)
+  const older = useWhenVisible<HTMLDivElement>(() => {
+    const element = scroller.current
+    if (!messages.hasNextPage || messages.isFetchingNextPage || !element) return
+    keepPosition.current = { height: element.scrollHeight, top: element.scrollTop }
+    void messages.fetchNextPage()
+  }, !!messages.hasNextPage)
+  const pages = messages.data?.pages.length ?? 0
+  useLayoutEffect(() => {
+    const element = scroller.current
+    const before = keepPosition.current
+    if (!element || !before || messages.isFetchingNextPage) return
+    element.scrollTop = element.scrollHeight - before.height + before.top
+    keepPosition.current = null
+  }, [pages, messages.isFetchingNextPage])
 
   if (current.error)
     return (
@@ -230,6 +263,7 @@ export function ConversationPanel({
         />
         <Stack
           spacing={0.75}
+          ref={scroller}
           aria-label="Historial de mensajes"
           sx={{
             flex: 1,
@@ -241,15 +275,9 @@ export function ConversationPanel({
             backgroundSize: '18px 18px',
           }}
         >
-          {messages.hasNextPage && (
-            <Button
-              size="small"
-              sx={{ alignSelf: 'center', bgcolor: 'background.paper' }}
-              disabled={messages.isFetchingNextPage}
-              onClick={() => void messages.fetchNextPage()}
-            >
-              Mensajes anteriores
-            </Button>
+          <Box ref={older} sx={{ minHeight: 1 }} />
+          {messages.isFetchingNextPage && (
+            <LinearProgress sx={{ alignSelf: 'center', width: 120, borderRadius: 1 }} />
           )}
           {messages.isPending && <LinearProgress />}
           {messages.error && <Alert severity="error">{errorMessage(messages.error)}</Alert>}
@@ -274,7 +302,7 @@ export function ConversationPanel({
         {has('messages.send') ? (
           <Composer
             replyBlockedReason={replyBlockedReason}
-            sending={send.isPending || sendFile.isPending}
+            sending={send.isPending || sendFile.isPending || sendContacts.isPending}
             onSend={(text, mode) =>
               send
                 .mutateAsync({ text, mode })
@@ -284,6 +312,12 @@ export function ConversationPanel({
             onSendFile={(file, caption) =>
               sendFile
                 .mutateAsync({ file, caption })
+                .then(() => true)
+                .catch(() => false)
+            }
+            onSendContacts={(contacts) =>
+              sendContacts
+                .mutateAsync(contacts)
                 .then(() => true)
                 .catch(() => false)
             }

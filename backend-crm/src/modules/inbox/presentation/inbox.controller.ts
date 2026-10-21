@@ -62,6 +62,7 @@ import {
   ListMessagesQueryDto,
   MessageDto,
   MessagePageDto,
+  SendContactsDto,
   SendMediaDto,
   SendTextDto,
 } from './inbox.dto';
@@ -281,6 +282,27 @@ export class ConversationsController {
     );
   }
 
+  @Post(':conversationId/contacts')
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: 'Send contact cards through WhatsApp',
+    description:
+      'Same rules as a text reply. The customer can save the contacts or write to them (400 INVALID_PHONE).',
+  })
+  @ApiCreatedResponse({ type: MessageDto })
+  sendContacts(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: SendContactsDto,
+  ): Promise<MessageDto> {
+    return this.inbox.sendContacts(
+      actor(auth, workspace),
+      conversationId,
+      dto.contacts,
+    );
+  }
+
   @Post(':conversationId/notes')
   @RequirePermissions('messages.send')
   @ApiOperation({
@@ -350,13 +372,32 @@ export class ConversationsController {
     );
   }
 
+  @Post(':conversationId/hold')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: 'Put the conversation on hold ("En espera")',
+    description:
+      'It stays on hold when the customer writes (messages still count as unread); reopen it to bring it back to Open.',
+  })
+  @ApiOkResponse({ type: ConversationDto })
+  hold(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ConversationDto> {
+    return this.inbox.setStatus(
+      actor(auth, workspace),
+      conversationId,
+      'ON_HOLD',
+    );
+  }
+
   @Post(':conversationId/reopen')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('messages.send')
   @ApiOperation({
-    summary: 'Reopen the conversation',
-    description:
-      '409 CONVERSATION_ALREADY_OPEN if the contact already has another open conversation on the line.',
+    summary: 'Reopen the conversation (from closed or on hold)',
   })
   @ApiOkResponse({ type: ConversationDto })
   reopen(

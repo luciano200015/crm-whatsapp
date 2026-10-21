@@ -14,7 +14,8 @@ export interface Conversation {
   lineName: string | null
   contactId: string
   contact: { name: string | null; phone: string }
-  status: 'OPEN' | 'CLOSED'
+  /** OPEN: abierto. ON_HOLD: en espera. CLOSED: cerrado. */
+  status: 'OPEN' | 'ON_HOLD' | 'CLOSED'
   assignee: Assignee | null
   lastMessage: { text: string | null; type: string; direction: string; at: string } | null
   lastActivityAt: string
@@ -33,6 +34,7 @@ export type ConversationEventKind =
   | 'unassigned'
   | 'taken'
   | 'claimed'
+  | 'on_hold'
   | 'closed'
   | 'reopened'
   | 'contact_blocked'
@@ -43,6 +45,13 @@ export interface ConversationEvent {
   by: { userId: string; name: string } | null
   from: { membershipId: string; name: string } | null
   to: { membershipId: string; name: string } | null
+}
+
+export interface SharedContact {
+  name: string
+  phones: { phone: string; waId: string | null; type: string | null }[]
+  emails: string[]
+  organization: string | null
 }
 
 export interface ChatMessage {
@@ -66,6 +75,8 @@ export interface ChatMessage {
     name: string | null
     address: string | null
   } | null
+  /** Shared contact cards (type "contacts"). */
+  contacts?: SharedContact[]
   event?: ConversationEvent | null
   status: 'received' | 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   error: string | null
@@ -75,7 +86,7 @@ export interface ChatMessage {
 
 export interface InboxFilter {
   view: 'mine' | 'unassigned' | 'all'
-  status: 'OPEN' | 'CLOSED' | 'ALL'
+  status: 'OPEN' | 'ON_HOLD' | 'CLOSED' | 'ALL'
   search?: string
   lineId?: string
   contactId?: string
@@ -101,6 +112,7 @@ export interface InboxCounts {
   mine: number
   unassigned: number
   all: number
+  onHold: number
   closed: number
   unread: number
 }
@@ -168,6 +180,12 @@ export const inboxApi = {
       body: form,
     })
   },
+  sendContacts(workspaceId: string, id: string, contacts: { name: string; phone: string }[]) {
+    return apiRequest<ChatMessage>(`${conversationPath(workspaceId, id)}/contacts`, {
+      method: 'POST',
+      body: { contacts },
+    })
+  },
   /** The file of a message, downloaded with the session token. */
   async media(
     workspaceId: string,
@@ -188,7 +206,7 @@ export const inboxApi = {
   action(
     workspaceId: string,
     id: string,
-    action: 'take' | 'read' | 'unread' | 'close' | 'reopen' | 'assign',
+    action: 'take' | 'read' | 'unread' | 'hold' | 'close' | 'reopen' | 'assign',
     membershipId?: string | null,
   ) {
     return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/${action}`, {

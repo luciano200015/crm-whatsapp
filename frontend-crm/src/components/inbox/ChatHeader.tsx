@@ -3,6 +3,7 @@ import CheckRounded from '@mui/icons-material/CheckRounded'
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined'
 import MarkChatUnreadOutlined from '@mui/icons-material/MarkChatUnreadOutlined'
 import MoreVertRounded from '@mui/icons-material/MoreVertRounded'
+import PauseCircleOutlineRounded from '@mui/icons-material/PauseCircleOutlineRounded'
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded'
 import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded'
 import TaskAltRounded from '@mui/icons-material/TaskAltRounded'
@@ -27,7 +28,32 @@ import { ContactAvatar } from './ConversationList'
 import { contactName } from './inbox-format'
 
 export type ChatAction =
-  { name: 'take' | 'close' | 'reopen' | 'unread' } | { name: 'assign'; membershipId: string | null }
+  | { name: 'take' | 'hold' | 'close' | 'reopen' | 'unread' }
+  | { name: 'assign'; membershipId: string | null }
+
+function HeaderAction({
+  label,
+  icon,
+  color,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: ReactNode
+  color: 'primary' | 'success' | 'warning'
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <Tooltip title={label}>
+      <span>
+        <IconButton aria-label={label} color={color} disabled={disabled} onClick={onClick}>
+          {icon}
+        </IconButton>
+      </span>
+    </Tooltip>
+  )
+}
 
 export function ChatHeader({
   conversation,
@@ -53,7 +79,6 @@ export function ChatHeader({
   const { has } = usePermissions()
   const [transferAnchor, setTransferAnchor] = useState<HTMLElement | null>(null)
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null)
-  const open = conversation.status === 'OPEN'
   const assigneeId = conversation.assignee?.membershipId ?? null
   const run = (action: ChatAction) => {
     setTransferAnchor(null)
@@ -170,18 +195,35 @@ export function ChatHeader({
         </>
       )}
       {has('messages.send') && (
-        <Tooltip title={open ? 'Cerrar chat' : 'Reabrir chat'}>
-          <span>
-            <IconButton
-              aria-label={open ? 'Cerrar chat' : 'Reabrir chat'}
-              color={open ? 'success' : 'primary'}
+        <>
+          {conversation.status === 'OPEN' && (
+            <HeaderAction
+              label="Poner en espera"
+              icon={<PauseCircleOutlineRounded />}
+              color="warning"
               disabled={busy}
-              onClick={() => run({ name: open ? 'close' : 'reopen' })}
-            >
-              {open ? <TaskAltRounded /> : <LockOpenOutlined />}
-            </IconButton>
-          </span>
-        </Tooltip>
+              onClick={() => run({ name: 'hold' })}
+            />
+          )}
+          {conversation.status !== 'OPEN' && (
+            <HeaderAction
+              label="Reabrir chat"
+              icon={<LockOpenOutlined />}
+              color="primary"
+              disabled={busy}
+              onClick={() => run({ name: 'reopen' })}
+            />
+          )}
+          {conversation.status !== 'CLOSED' && (
+            <HeaderAction
+              label="Cerrar chat"
+              icon={<TaskAltRounded />}
+              color="success"
+              disabled={busy}
+              onClick={() => run({ name: 'close' })}
+            />
+          )}
+        </>
       )}
       <IconButton
         aria-label="Más opciones"

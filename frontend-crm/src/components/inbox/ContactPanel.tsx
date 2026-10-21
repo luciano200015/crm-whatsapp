@@ -17,7 +17,7 @@ import { errorMessage } from '../../lib/api/errors'
 import type { Conversation } from '../../lib/api/inbox'
 import { TagChip } from '../contacts/TagChip'
 import { ContactAvatar } from './ConversationList'
-import { contactName } from './inbox-format'
+import { contactName, STATUS_LABELS } from './inbox-format'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -81,8 +81,14 @@ export function ContactPanel({
         <Stack direction="row" spacing={1}>
           <Chip
             size="small"
-            color={conversation.status === 'OPEN' ? 'success' : 'default'}
-            label={conversation.status === 'OPEN' ? 'Abierto' : 'Cerrado'}
+            color={
+              conversation.status === 'OPEN'
+                ? 'success'
+                : conversation.status === 'ON_HOLD'
+                  ? 'warning'
+                  : 'default'
+            }
+            label={STATUS_LABELS[conversation.status]}
           />
           <Chip
             size="small"

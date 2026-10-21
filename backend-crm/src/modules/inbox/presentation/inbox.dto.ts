@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsMongoId,
@@ -13,14 +16,15 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
 const VIEWS = ['mine', 'unassigned', 'all'] as const;
-const STATUSES = ['OPEN', 'CLOSED'] as const;
-const STATUS_FILTERS = ['OPEN', 'CLOSED', 'ALL'] as const;
+const STATUSES = ['OPEN', 'ON_HOLD', 'CLOSED'] as const;
+const STATUS_FILTERS = ['OPEN', 'ON_HOLD', 'CLOSED', 'ALL'] as const;
 const DIRECTIONS = ['IN', 'OUT', 'NOTE', 'EVENT'] as const;
 const EVENT_KINDS = [
   'auto_assigned',
@@ -29,6 +33,7 @@ const EVENT_KINDS = [
   'unassigned',
   'taken',
   'claimed',
+  'on_hold',
   'closed',
   'reopened',
   'contact_blocked',
@@ -107,6 +112,33 @@ export class SendTextDto {
   @IsString()
   @Length(1, 4096)
   text: string;
+}
+
+export class OutgoingContactDto {
+  @ApiProperty({ example: 'Ana Pérez', maxLength: 100 })
+  @Transform(trim)
+  @IsString()
+  @Length(1, 100)
+  name: string;
+
+  @ApiProperty({
+    example: '+59171234567',
+    description: 'International format.',
+  })
+  @Transform(trim)
+  @IsString()
+  @Length(5, 32)
+  phone: string;
+}
+
+export class SendContactsDto {
+  @ApiProperty({ type: [OutgoingContactDto], minItems: 1, maxItems: 5 })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => OutgoingContactDto)
+  contacts: OutgoingContactDto[];
 }
 
 /** Text fields of the multipart upload; the file itself is read by multer. */
@@ -270,6 +302,9 @@ export class InboxCountsDto {
   @ApiProperty({ description: 'Open and visible to me.' })
   all: number;
 
+  @ApiProperty({ description: 'On hold and visible to me.' })
+  onHold: number;
+
   @ApiProperty({ description: 'Closed and visible to me.' })
   closed: number;
 
@@ -333,6 +368,31 @@ export class SentByDto {
   name: string;
 }
 
+export class SharedContactPhoneDto {
+  @ApiProperty()
+  phone: string;
+
+  @ApiProperty({ nullable: true, type: String })
+  waId: string | null;
+
+  @ApiProperty({ nullable: true, type: String, example: 'CELL' })
+  type: string | null;
+}
+
+export class SharedContactDto {
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty({ type: [SharedContactPhoneDto] })
+  phones: SharedContactPhoneDto[];
+
+  @ApiProperty({ type: [String] })
+  emails: string[];
+
+  @ApiProperty({ nullable: true, type: String })
+  organization: string | null;
+}
+
 export class ConversationEventDto {
   @ApiProperty({ enum: EVENT_KINDS })
   kind: string;
@@ -374,6 +434,7 @@ export class MessageDto {
       'document',
       'sticker',
       'location',
+      'contacts',
       'unsupported',
     ],
   })
@@ -387,6 +448,12 @@ export class MessageDto {
 
   @ApiProperty({ type: LocationDto, nullable: true })
   location: LocationDto | null;
+
+  @ApiProperty({
+    type: [SharedContactDto],
+    description: 'Contact cards (type "contacts").',
+  })
+  contacts: SharedContactDto[];
 
   @ApiProperty({ type: ConversationEventDto, nullable: true })
   event: ConversationEventDto | null;

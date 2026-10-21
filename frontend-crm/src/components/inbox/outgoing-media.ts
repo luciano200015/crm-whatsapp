@@ -1,3 +1,5 @@
+import { canEncodeOpus } from './ogg-opus'
+
 /** What WhatsApp accepts when we send files (same rules as the API). */
 const MB = 1024 * 1024
 
@@ -48,10 +50,15 @@ export function fileProblem(file: File): string | null {
   return null
 }
 
-/** Formats WhatsApp plays as audio that the browser can record, best first. */
-const RECORDING_TYPES = ['audio/ogg;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4']
-
-export function recordingType(): string | null {
+/**
+ * How this browser records a voice note WhatsApp accepts (OGG/Opus):
+ * natively (Firefox) or recording in its own format and converting it
+ * (Chrome, Edge, Safari: see ogg-opus.ts). Null when it cannot.
+ */
+export function recordingPlan(): { mimeType: string | undefined; convert: boolean } | null {
   if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null
-  return RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) ?? null
+  if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+    return { mimeType: 'audio/ogg;codecs=opus', convert: false }
+  }
+  return canEncodeOpus() ? { mimeType: undefined, convert: true } : null
 }

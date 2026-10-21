@@ -13,9 +13,13 @@ import {
   WhatsAppGateway,
   type LineCredentials,
 } from '../../channels/application/ports';
-import type { MessageType } from '../../channels/domain/whatsapp-payload';
+import type {
+  MessageType,
+  SharedContact,
+} from '../../channels/domain/whatsapp-payload';
 import { ContactsStore } from '../../contacts/application/ports';
-import { toWhatsAppId } from '../../contacts/domain/phone';
+import { ContactsErrors } from '../../contacts/application/contacts-errors';
+import { normalizePhone, toWhatsAppId } from '../../contacts/domain/phone';
 import {
   canSee,
   isWindowOpen,
@@ -259,6 +263,31 @@ export class InboxService {
     });
   }
 
+  /** Contact cards the customer can save or write to. */
+  async sendContacts(
+    actor: InboxActor,
+    conversationId: string,
+    contacts: { name: string; phone: string }[],
+  ): Promise<MessageView> {
+    const cards: SharedContact[] = contacts.map((contact) => {
+      const phone = normalizePhone(contact.phone);
+      if (!phone) throw ContactsErrors.invalidPhone();
+      return {
+        name: contact.name.trim(),
+        phones: [{ phone, waId: toWhatsAppId(phone), type: 'CELL' }],
+        emails: [],
+        organization: null,
+      };
+    });
+    return this.deliver(actor, conversationId, {
+      type: 'contacts',
+      text: cards.map((card) => card.name).join(', '),
+      contacts: cards,
+      send: (credentials, to) =>
+        this.whatsapp.sendContacts(credentials, to, cards),
+    });
+  }
+
   /** Conversation the actor may see (for streaming its media). */
   async visible(
     actor: InboxActor,
@@ -273,6 +302,7 @@ export class InboxService {
     outgoing: {
       type: MessageType;
       text: string | null;
+      contacts?: SharedContact[];
       /** Runs after every check, before the message is stored. */
       prepare?: (workspaceId: string) => Promise<MessageMedia>;
       send: (
@@ -283,7 +313,9 @@ export class InboxService {
   ): Promise<MessageView> {
     const { workspaceId } = actor.access;
     let conversation = await this.requireVisible(actor, conversationId);
-    if (conversation.status !== 'OPEN') throw InboxErrors.conversationClosed();
+    // On hold still allows replying; closed must be reopened first.
+    if (conversation.status === 'CLOSED')
+      throw InboxErrors.conversationClosed();
     const line = await this.lines.findLine(workspaceId, conversation.lineId);
     if (!line || line.status === 'DISABLED')
       throw InboxErrors.lineUnavailable();
@@ -316,6 +348,7 @@ export class InboxService {
       type: outgoing.type,
       text: outgoing.text,
       media,
+      contacts: outgoing.contacts,
       waMessageId: null,
       status: 'pending',
       sentBy: { userId: me.userId, name: me.name },
@@ -464,7 +497,12 @@ export class InboxService {
     this.emitConversation(updated, conversation);
     const me = await this.me(actor);
     await this.timeline.record(updated, {
-      kind: status === 'CLOSED' ? 'closed' : 'reopened',
+      kind:
+        status === 'CLOSED'
+          ? 'closed'
+          : status === 'ON_HOLD'
+            ? 'on_hold'
+            : 'reopened',
       by: { userId: me.userId, name: me.name },
       from: null,
       to: null,

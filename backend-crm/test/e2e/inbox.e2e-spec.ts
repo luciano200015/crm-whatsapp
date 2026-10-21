@@ -465,14 +465,173 @@ describe('Inbox (e2e)', () => {
       .expect(409);
     expect(expired.body).toMatchObject({ code: 'WINDOW_CLOSED' });
 
-    // A new message after closing opens a new conversation.
+    // A new message after closing reopens the SAME conversation.
     await api(owner).post(`/conversations/${chat?.id}/close`).expect(200);
     await incoming(line, '59170000030', 'Volví');
+    const all = await conversations(owner, '?view=all&status=ALL');
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id: chat?.id, status: 'OPEN' });
+  });
+
+  it('keeps one chat per contact: reopened unassigned when the customer writes again', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+    const line = await lineWithAgents(owner, [ana], true);
+    await incoming(line, '59170000090', 'Hola');
+    const [chat] = await conversations(owner, '?view=all');
+    expect(chat?.assignee?.name).toBe('Ana');
+
+    await api(ana).post(`/conversations/${chat?.id}/close`).expect(200);
+    await incoming(line, '59170000090', 'Otra consulta');
+
+    const [again] = await conversations(owner, '?view=all&status=ALL');
+    expect(again).toMatchObject({
+      id: chat?.id,
+      status: 'OPEN',
+      assignee: null,
+    });
+    const history = (
+      (await api(owner).get(`/conversations/${chat?.id}/messages`).expect(200))
+        .body as {
+        items: {
+          direction: string;
+          text: string | null;
+          event: { kind: string; by: unknown } | null;
+        }[];
+      }
+    ).items;
+    // Newest first: the customer's message, then the reopen notice before it.
+    expect(history[0]).toMatchObject({
+      direction: 'IN',
+      text: 'Otra consulta',
+    });
+    expect(history[1]?.event).toEqual({
+      kind: 'reopened',
+      by: null,
+      from: null,
+      to: null,
+    });
+    expect(history.filter((m) => m.direction === 'IN')).toHaveLength(2);
+  });
+
+  it('puts chats on hold; they stay on hold when the customer writes', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000091', 'Necesito una cotización');
+    const [chat] = await conversations(owner, '?view=all');
+
+    const held = await api(owner)
+      .post(`/conversations/${chat?.id}/hold`)
+      .expect(200);
+    expect(held.body).toMatchObject({ status: 'ON_HOLD' });
+    await incoming(line, '59170000091', '¿Alguna novedad?');
+
+    expect(await conversations(owner, '?view=all')).toHaveLength(0);
+    const waiting = await conversations(owner, '?view=all&status=ON_HOLD');
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]).toMatchObject({ id: chat?.id, unreadCount: 2 });
+    const counts = (await api(owner).get('/conversations/counts').expect(200))
+      .body as Record<string, number>;
+    expect(counts).toMatchObject({ all: 0, onHold: 1, unread: 2 });
+
+    // Replying is allowed while on hold; reopening brings it back.
+    await api(owner)
+      .post(`/conversations/${chat?.id}/messages`, { text: 'Ya casi' })
+      .expect(201);
+    await api(owner).post(`/conversations/${chat?.id}/reopen`).expect(200);
     expect(await conversations(owner, '?view=all')).toHaveLength(1);
-    const reopen = await api(owner)
-      .post(`/conversations/${chat?.id}/reopen`)
-      .expect(409);
-    expect(reopen.body).toMatchObject({ code: 'CONVERSATION_ALREADY_OPEN' });
+  });
+
+  it('sends contact cards and reads the ones customers share', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000092', 'Pásame el contacto del técnico');
+    const [chat] = await conversations(owner, '?view=all');
+
+    const sent = await api(owner)
+      .post(`/conversations/${chat?.id}/contacts`, {
+        contacts: [{ name: 'Técnico Juan', phone: '+591 71234567' }],
+      })
+      .expect(201);
+    expect(sent.body).toMatchObject({
+      type: 'contacts',
+      status: 'sent',
+      text: 'Técnico Juan',
+      contacts: [
+        {
+          name: 'Técnico Juan',
+          phones: [
+            { phone: '+59171234567', waId: '59171234567', type: 'CELL' },
+          ],
+        },
+      ],
+    });
+    const invalid = await api(owner)
+      .post(`/conversations/${chat?.id}/contacts`, {
+        contacts: [{ name: 'X', phone: '12345' }],
+      })
+      .expect(400);
+    expect(invalid.body).toMatchObject({ code: 'INVALID_PHONE' });
+
+    const body = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: line.phoneNumberId },
+                messages: [
+                  {
+                    id: `wamid.vcard.${++waIds}`,
+                    from: '59170000092',
+                    timestamp: String(Math.floor(Date.now() / 1000)),
+                    type: 'contacts',
+                    contacts: [
+                      {
+                        name: { formatted_name: 'María Proveedora' },
+                        phones: [
+                          {
+                            phone: '+591 70000999',
+                            wa_id: '59170000999',
+                            type: 'CELL',
+                          },
+                        ],
+                        org: { company: 'Proveedora SRL' },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    await http()
+      .post(`/api/v1/webhooks/whatsapp/${line.id}`)
+      .set('Content-Type', 'application/json')
+      .set('X-Hub-Signature-256', signBody(body, APP_SECRET))
+      .send(body)
+      .expect(200);
+    const [latest] = (
+      (await api(owner).get(`/conversations/${chat?.id}/messages`).expect(200))
+        .body as { items: unknown[] }
+    ).items;
+    expect(latest).toMatchObject({
+      direction: 'IN',
+      type: 'contacts',
+      text: 'María Proveedora',
+      contacts: [
+        {
+          name: 'María Proveedora',
+          organization: 'Proveedora SRL',
+          phones: [{ phone: '+591 70000999', waId: '59170000999' }],
+        },
+      ],
+    });
   });
 
   it('lets admins assign and transfer; agents cannot', async () => {

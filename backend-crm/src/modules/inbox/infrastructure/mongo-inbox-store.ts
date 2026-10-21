@@ -31,6 +31,7 @@ import {
 import {
   CONVERSATION_MODEL,
   MESSAGE_MODEL,
+  ONE_CONVERSATION_INDEX,
   type ConversationDocument,
   type MessageDocument,
 } from './inbox.schemas';
@@ -87,6 +88,7 @@ function toMessage(doc: MessageDocument): MessageRecord {
     text: doc.text,
     media: doc.media,
     location: doc.location ?? null,
+    contacts: doc.contacts ?? [],
     event: doc.event
       ? {
           kind: doc.event.kind as ConversationEventKind,
@@ -140,10 +142,29 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    await Promise.all([
-      this.conversations.createIndexes(),
-      this.messages.createIndexes(),
-    ]);
+    await this.dropOpenOnlyIndex();
+    try {
+      await this.conversations.createIndexes();
+    } catch (error: unknown) {
+      if (!isDuplicateKey(error)) throw error;
+      throw new Error(
+        'Some contacts have several conversations on the same line. Merge them with `npm run inbox:merge-conversations` and restart.',
+      );
+    }
+    await this.messages.createIndexes();
+  }
+
+  /** The unique index used to cover only OPEN conversations (before chats were reopened). */
+  private async dropOpenOnlyIndex(): Promise<void> {
+    const indexes = await this.conversations.collection
+      .indexes()
+      .catch(() => []);
+    const old = indexes.find(
+      (index) =>
+        index.name === ONE_CONVERSATION_INDEX && index.partialFilterExpression,
+    );
+    if (old)
+      await this.conversations.collection.dropIndex(ONE_CONVERSATION_INDEX);
   }
 
   // ─────────────────────────── Conversations ───────────────────────────
@@ -202,7 +223,11 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
   async counts(workspaceId: string, scope: InboxScope): Promise<InboxCounts> {
     const visible = scopeFilter(scope) ?? {};
     const open = { workspaceId, status: 'OPEN' as const };
-    const [mine, unassigned, all, unread, closed] = await Promise.all([
+    const active = {
+      workspaceId,
+      status: { $in: ['OPEN', 'ON_HOLD'] as ConversationStatus[] },
+    };
+    const [mine, unassigned, all, unread, onHold, closed] = await Promise.all([
       this.conversations.countDocuments({
         ...open,
         'assignee.membershipId': scope.membershipId,
@@ -213,16 +238,28 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       }),
       this.conversations.countDocuments({ ...open, ...visible }),
       this.conversations.aggregate<{ total: number }>([
-        { $match: { ...open, ...visible } },
+        { $match: { ...active, ...visible } },
         { $group: { _id: null, total: { $sum: '$unreadCount' } } },
       ]),
+      this.conversations.countDocuments({
+        workspaceId,
+        status: 'ON_HOLD',
+        ...visible,
+      }),
       this.conversations.countDocuments({
         workspaceId,
         status: 'CLOSED',
         ...visible,
       }),
     ]);
-    return { mine, unassigned, all, closed, unread: unread[0]?.total ?? 0 };
+    return {
+      mine,
+      unassigned,
+      all,
+      onHold,
+      closed,
+      unread: unread[0]?.total ?? 0,
+    };
   }
 
   async findConversation(
@@ -245,13 +282,38 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       contact: { name: string | null; phone: string };
       at: Date;
     },
-  ): Promise<{ conversation: ConversationRecord; created: boolean }> {
+  ): Promise<{
+    conversation: ConversationRecord;
+    created: boolean;
+    reopened: boolean;
+  }> {
     const filter = {
       workspaceId,
       lineId: input.lineId,
       contactId: input.contactId,
-      status: 'OPEN' as const,
     };
+    // A closed chat comes back to life, unassigned, for whoever takes it.
+    const reopened = await this.conversations
+      .findOneAndUpdate(
+        { ...filter, status: 'CLOSED' },
+        {
+          $set: {
+            status: 'OPEN',
+            closedAt: null,
+            assignee: null,
+            contact: input.contact,
+          },
+        },
+        { returnDocument: 'after' },
+      )
+      .lean<ConversationDocument>();
+    if (reopened) {
+      return {
+        conversation: toConversation(reopened),
+        created: false,
+        reopened: true,
+      };
+    }
     try {
       const result = await this.conversations
         .findOneAndUpdate(
@@ -259,6 +321,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
           {
             // The other fields come from the filter on insert.
             $setOnInsert: {
+              status: 'OPEN',
               contact: input.contact,
               assignee: null,
               lastMessage: null,
@@ -280,6 +343,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       return {
         conversation: toConversation(doc),
         created: !result.lastErrorObject?.updatedExisting,
+        reopened: false,
       };
     } catch (error: unknown) {
       // Two messages of a new contact arrived at once: the other one created it.
@@ -288,7 +352,11 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         .findOne(filter)
         .lean<ConversationDocument>();
       if (!doc) throw error;
-      return { conversation: toConversation(doc), created: false };
+      return {
+        conversation: toConversation(doc),
+        created: false,
+        reopened: false,
+      };
     }
   }
 
@@ -362,7 +430,9 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
           { workspaceId, _id },
           status === 'CLOSED'
             ? { $set: { status, closedAt: at, unreadCount: 0 } }
-            : { $set: { status, closedAt: null, lastActivityAt: at } },
+            : status === 'ON_HOLD'
+              ? { $set: { status, closedAt: null } }
+              : { $set: { status, closedAt: null, lastActivityAt: at } },
           { returnDocument: 'after' },
         )
         .lean<ConversationDocument>();

@@ -3,10 +3,12 @@ import type {
   LocationInfo,
   MediaInfo,
   MessageType,
+  SharedContact,
 } from '../../channels/domain/whatsapp-payload';
 import type { InboxScope, OutboundStatus } from '../domain/inbox-rules';
 
-export type ConversationStatus = 'OPEN' | 'CLOSED';
+/** OPEN: being attended. ON_HOLD: "En espera", set by an agent. CLOSED: finished. */
+export type ConversationStatus = 'OPEN' | 'ON_HOLD' | 'CLOSED';
 /** EVENT: a movement of the conversation (assignment, close…) shown in the chat. */
 export type MessageDirection = 'IN' | 'OUT' | 'NOTE' | 'EVENT';
 export type MessageStatus = OutboundStatus | 'received';
@@ -19,7 +21,9 @@ export type ConversationEventKind =
   | 'taken'
   /** Assigned to whoever replied to an unassigned conversation. */
   | 'claimed'
+  | 'on_hold'
   | 'closed'
+  /** By an agent, or by the customer writing again to a closed chat (by: null). */
   | 'reopened'
   | 'contact_blocked'
   | 'contact_unblocked';
@@ -77,6 +81,8 @@ export interface MessageRecord {
   text: string | null;
   media: MessageMedia | null;
   location: LocationInfo | null;
+  /** Shared contact cards (type "contacts"). */
+  contacts: SharedContact[];
   event: ConversationEvent | null;
   waMessageId: string | null;
   status: MessageStatus;
@@ -106,9 +112,11 @@ export interface InboxCounts {
   unassigned: number;
   /** Open and visible to me. */
   all: number;
+  /** On hold and visible to me. */
+  onHold: number;
   /** Closed and visible to me. */
   closed: number;
-  /** Unread messages in open conversations visible to me. */
+  /** Unread messages in open or on-hold conversations visible to me. */
   unread: number;
 }
 
@@ -119,6 +127,7 @@ export interface NewMessage {
   text: string | null;
   media: MessageMedia | null;
   location?: LocationInfo | null;
+  contacts?: SharedContact[];
   event?: ConversationEvent | null;
   waMessageId: string | null;
   status: MessageStatus;
@@ -137,7 +146,11 @@ export abstract class InboxStore {
     workspaceId: string,
     conversationId: string,
   ): Promise<ConversationRecord | null>;
-  /** The open conversation of a contact on a line, created if needed. */
+  /**
+   * THE conversation of a contact on a line (one per contact and line),
+   * created if needed. A closed one is reopened unassigned; one on hold
+   * stays on hold.
+   */
   abstract openConversation(
     workspaceId: string,
     input: {
@@ -146,7 +159,11 @@ export abstract class InboxStore {
       contact: { name: string | null; phone: string };
       at: Date;
     },
-  ): Promise<{ conversation: ConversationRecord; created: boolean }>;
+  ): Promise<{
+    conversation: ConversationRecord;
+    created: boolean;
+    reopened: boolean;
+  }>;
   /** 'duplicate' when a message with this waMessageId already exists. */
   abstract insertMessage(
     workspaceId: string,

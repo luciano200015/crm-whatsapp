@@ -3,7 +3,6 @@ import SearchRounded from '@mui/icons-material/SearchRounded'
 import {
   Alert,
   Box,
-  Button,
   Chip,
   InputAdornment,
   LinearProgress,
@@ -29,6 +28,7 @@ import { ConversationPanel } from '../../../components/inbox/ConversationPanel'
 import { useInboxCounts } from '../../../components/inbox/useInboxCounts'
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { useFillHeight } from '../../../hooks/useFillHeight'
+import { useWhenVisible } from '../../../hooks/useWhenVisible'
 import { errorMessage } from '../../../lib/api/errors'
 import { inboxApi, inboxKeys, type InboxFilter } from '../../../lib/api/inbox'
 import { useActiveWorkspace } from '../../../workspace/active-workspace-context'
@@ -57,12 +57,13 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
   const contactId = params.get('contactId') ?? undefined
   const selected = params.get('conversation') ?? ''
   const [view, setView] = useState<InboxFilter['view']>(contactId ? 'all' : 'mine')
-  const [status, setStatus] = useState<InboxFilter['status']>('OPEN')
+  const [status, setStatus] = useState<Exclude<InboxFilter['status'], 'ALL'>>('OPEN')
   const [search, setSearch] = useState('')
   const [lineId, setLineId] = useState('')
   const filter: InboxFilter = {
     view: has('conversations.view_all') || contactId ? view : view === 'all' ? 'mine' : view,
-    status,
+    // The chats of one contact (from Contactos) show every status.
+    status: contactId ? 'ALL' : status,
     search: useDeferredValue(search),
     lineId: lineId || undefined,
     contactId,
@@ -87,6 +88,11 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
         .map((conversation) => [conversation.id, conversation]),
     ).values(),
   ]
+  const moreChats = useWhenVisible<HTMLDivElement>(() => {
+    if (conversations.hasNextPage && !conversations.isFetchingNextPage) {
+      void conversations.fetchNextPage()
+    }
+  }, !!conversations.hasNextPage)
   const select = (id: string) => {
     const next = new URLSearchParams(params)
     if (id) next.set('conversation', id)
@@ -148,20 +154,24 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
             }}
           />
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={status}
-              aria-label="Estado"
-              onChange={(_, value: InboxFilter['status'] | null) => {
-                if (value) setStatus(value)
-              }}
-              sx={{ flexShrink: 0 }}
-            >
-              <ToggleButton value="OPEN">Abiertos</ToggleButton>
-              <ToggleButton value="CLOSED">Cerrados</ToggleButton>
-              <ToggleButton value="ALL">Todos</ToggleButton>
-            </ToggleButtonGroup>
+            {!contactId && (
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={status}
+                aria-label="Estado"
+                onChange={(_, value: typeof status | null) => {
+                  if (value) setStatus(value)
+                }}
+                sx={{ flexShrink: 0 }}
+              >
+                <ToggleButton value="OPEN">Abiertos</ToggleButton>
+                <ToggleButton value="ON_HOLD">
+                  En espera{counts.data?.onHold ? ` (${counts.data.onHold})` : ''}
+                </ToggleButton>
+                <ToggleButton value="CLOSED">Cerrados</ToggleButton>
+              </ToggleButtonGroup>
+            )}
             <TextField
               select
               size="small"
@@ -218,15 +228,9 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
               No hay conversaciones en esta vista.
             </Typography>
           )}
-          {conversations.hasNextPage && (
-            <Button
-              fullWidth
-              disabled={conversations.isFetchingNextPage}
-              onClick={() => void conversations.fetchNextPage()}
-            >
-              Cargar más conversaciones
-            </Button>
-          )}
+          {/* More chats load on their own when scrolling to the end. */}
+          <Box ref={moreChats} sx={{ height: 1 }} />
+          {conversations.isFetchingNextPage && <LinearProgress />}
         </List>
       </Box>
       <Box

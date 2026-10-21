@@ -70,6 +70,7 @@ const MEDIA_LABELS: Record<string, string> = {
   sticker: '💟 Sticker',
   document: '📄 Documento',
   location: '📍 Ubicación',
+  contacts: '👤 Contacto',
   unsupported: 'Mensaje no compatible',
 }
 
@@ -105,10 +106,12 @@ export function eventText(event: ConversationEvent): string {
       return `${by} tomó el chat`
     case 'claimed':
       return `${by} se asignó el chat al responder`
+    case 'on_hold':
+      return `${by} puso el chat en espera`
     case 'closed':
       return `${by} cerró el chat`
     case 'reopened':
-      return `${by} reabrió el chat`
+      return event.by ? `${by} reabrió el chat` : 'El cliente volvió a escribir: chat reabierto'
     case 'contact_blocked':
       return `${by} bloqueó el contacto`
     case 'contact_unblocked':
@@ -123,4 +126,10 @@ export const DELIVERY_LABELS: Record<ChatMessage['status'], string> = {
   delivered: 'Entregado',
   read: 'Leído',
   failed: 'Error de envío',
+}
+
+export const STATUS_LABELS: Record<Conversation['status'], string> = {
+  OPEN: 'Abierto',
+  ON_HOLD: 'En espera',
+  CLOSED: 'Cerrado',
 }

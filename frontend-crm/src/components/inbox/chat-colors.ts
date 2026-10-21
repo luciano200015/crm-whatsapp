@@ -20,6 +20,8 @@ export function useChatColors() {
         unread: '#00a884',
         selected: 'rgba(255,255,255,0.08)',
         agent: '#06cf9c',
+        agentBg: 'rgba(6,207,156,0.12)',
+        unassignedBg: 'rgba(255,167,38,0.14)',
       }
     : {
         dark: false,
@@ -35,6 +37,8 @@ export function useChatColors() {
         unread: '#25d366',
         selected: '#f0f2f5',
         agent: '#008069',
+        agentBg: 'rgba(0,128,105,0.1)',
+        unassignedBg: 'rgba(237,108,2,0.1)',
       }
 }
 

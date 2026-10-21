@@ -12,6 +12,7 @@ export type MessageType =
   | 'document'
   | 'sticker'
   | 'location'
+  | 'contacts'
   | 'unsupported';
 
 export type DeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
@@ -31,6 +32,14 @@ export interface LocationInfo {
   address: string | null;
 }
 
+/** A contact card shared in WhatsApp ("Enviar contacto"). */
+export interface SharedContact {
+  name: string;
+  phones: { phone: string; waId: string | null; type: string | null }[];
+  emails: string[];
+  organization: string | null;
+}
+
 export interface InboundMessage {
   phoneNumberId: string;
   waMessageId: string;
@@ -43,6 +52,7 @@ export interface InboundMessage {
   text: string | null;
   media: MediaInfo | null;
   location: LocationInfo | null;
+  contacts?: SharedContact[] | null;
 }
 
 export interface StatusUpdate {
@@ -159,6 +169,20 @@ function parseMessage(
         : null,
     };
   }
+  if (type === 'contacts') {
+    const contacts = arr(raw.contacts)
+      .slice(0, 20)
+      .map((item) => parseSharedContact(obj(item)))
+      .filter((contact): contact is SharedContact => contact !== null);
+    return {
+      ...base,
+      type: 'contacts',
+      text: contacts.map((contact) => contact.name).join(', ') || null,
+      media: null,
+      location: null,
+      contacts,
+    };
+  }
   // Quick-reply buttons and list replies arrive as their visible title.
   if (type === 'button') {
     return {
@@ -186,6 +210,33 @@ function parseMessage(
     text: null,
     media: null,
     location: null,
+  };
+}
+
+function parseSharedContact(raw: Json): SharedContact | null {
+  const name = obj(raw.name);
+  const phones = arr(raw.phones)
+    .map((item) => obj(item))
+    .map((phone) => ({
+      phone: str(phone.phone) ?? str(phone.wa_id) ?? '',
+      waId: str(phone.wa_id),
+      type: str(phone.type),
+    }))
+    .filter((phone) => phone.phone);
+  const display =
+    str(name.formatted_name) ??
+    ([str(name.first_name), str(name.last_name)].filter(Boolean).join(' ') ||
+      null) ??
+    phones[0]?.phone ??
+    null;
+  if (!display) return null;
+  return {
+    name: display,
+    phones,
+    emails: arr(raw.emails)
+      .map((email) => str(obj(email).email))
+      .filter((email): email is string => email !== null),
+    organization: str(obj(raw.org).company),
   };
 }
 

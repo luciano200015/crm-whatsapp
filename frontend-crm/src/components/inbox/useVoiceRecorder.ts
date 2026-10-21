@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { recordingType } from './outgoing-media'
+import { toOggOpus } from './ogg-opus'
+import { recordingPlan } from './outgoing-media'
 
 type State = 'idle' | 'recording' | 'stopping'
 
 /**
- * Voice notes with the browser's MediaRecorder, in a format WhatsApp
- * accepts (OGG/Opus or MP4/AAC). `supported` is false when the browser has
- * none of them.
+ * Voice notes with the browser's MediaRecorder, always delivered as
+ * OGG/Opus (what WhatsApp accepts as a voice message). `supported` is false
+ * when the browser can neither record nor convert to that format.
  */
 export function useVoiceRecorder() {
-  const [type] = useState(recordingType)
+  const [plan] = useState(recordingPlan)
   const [state, setState] = useState<State>('idle')
   const [seconds, setSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -28,11 +29,11 @@ export function useVoiceRecorder() {
   useEffect(() => cleanup, [])
 
   const start = async () => {
-    if (!type || state !== 'idle') return
+    if (!plan || state !== 'idle') return
     setError(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const media = new MediaRecorder(stream, { mimeType: type })
+      const media = new MediaRecorder(stream, plan.mimeType ? { mimeType: plan.mimeType } : {})
       chunks.current = []
       media.ondataavailable = (event) => {
         if (event.data.size > 0) chunks.current.push(event.data)
@@ -47,31 +48,39 @@ export function useVoiceRecorder() {
     }
   }
 
-  /** Stops and returns the note as a file, or null if it was too short. */
+  /** Stops and returns the note as an OGG/Opus file, or null if nothing was recorded. */
   const stop = () =>
     new Promise<File | null>((resolve) => {
       const media = recorder.current
-      if (!media || !type) {
+      if (!media || !plan) {
         resolve(null)
         return
       }
       setState('stopping')
       media.onstop = () => {
-        const base = type.split(';')[0] ?? 'audio/ogg'
-        const blob = new Blob(chunks.current, { type: base })
-        const extension = base === 'audio/ogg' ? 'ogg' : 'm4a'
-        const file =
-          blob.size > 0
-            ? new File([blob], `nota-de-voz-${Date.now()}.${extension}`, { type: base })
-            : null
+        const recording = new Blob(chunks.current, { type: media.mimeType })
         cleanup()
-        resolve(file)
+        if (recording.size === 0) {
+          resolve(null)
+          return
+        }
+        const name = `nota-de-voz-${Date.now()}.ogg`
+        if (!plan.convert) {
+          resolve(new File([recording], name, { type: 'audio/ogg' }))
+          return
+        }
+        toOggOpus(recording)
+          .then((ogg) => resolve(new File([ogg], name, { type: 'audio/ogg' })))
+          .catch(() => {
+            setError('No se pudo preparar la nota de voz en este navegador.')
+            resolve(null)
+          })
       }
       media.stop()
     })
 
   return {
-    supported: type !== null,
+    supported: plan !== null,
     recording: state !== 'idle',
     seconds,
     error,

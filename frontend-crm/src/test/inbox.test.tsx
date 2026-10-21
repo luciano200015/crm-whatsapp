@@ -98,6 +98,7 @@ const server = setupServer(
     if (name === 'read') chat = { ...chat, unreadCount: 0 }
     if (name === 'unread') chat = { ...chat, unreadCount: 1 }
     if (name === 'close') chat = { ...chat, status: 'CLOSED' }
+    if (name === 'hold') chat = { ...chat, status: 'ON_HOLD' }
     if (name === 'reopen') chat = { ...chat, status: 'OPEN' }
     if (name === 'take')
       chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
@@ -319,10 +320,10 @@ describe('Inbox', () => {
     expect(
       await screen.findByRole('button', { name: 'Chat con Lucía Cliente' }),
     ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /En espera/ }))
     await user.click(screen.getByRole('button', { name: 'Cerrados' }))
-    await user.click(screen.getByRole('button', { name: 'Todos' }))
     await waitFor(() =>
-      expect(listQueries).toEqual(expect.arrayContaining(['OPEN', 'CLOSED', 'ALL'])),
+      expect(listQueries).toEqual(expect.arrayContaining(['OPEN', 'ON_HOLD', 'CLOSED'])),
     )
   })
 
@@ -593,5 +594,78 @@ describe('Inbox', () => {
     await waitFor(() => expect(oscillators.length).toBeGreaterThan(0))
     await waitFor(() => expect(document.title).toMatch(/^\(2\) /))
     vi.unstubAllGlobals()
+  })
+  it('puts the chat on hold and shows who attends each chat in the list', async () => {
+    chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma Agente' } }
+    renderAt()
+    const user = userEvent.setup()
+
+    const row = await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
+    expect(within(row).getByText('Uma Agente')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Poner en espera' }))
+    await waitFor(() => expect(actions.map((action) => action.name)).toContain('hold'))
+    expect(await screen.findByRole('button', { name: 'Reabrir chat' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cerrar chat' })).toBeInTheDocument()
+  })
+
+  it('shows contact cards and the customer reopening the chat', async () => {
+    history = [
+      {
+        ...history[0]!,
+        id: 'card1',
+        type: 'contacts',
+        text: 'María Proveedora',
+        contacts: [
+          {
+            name: 'María Proveedora',
+            phones: [{ phone: '+591 70000999', waId: '59170000999', type: 'CELL' }],
+            emails: [],
+            organization: 'Proveedora SRL',
+          },
+        ],
+      },
+      {
+        ...history[0]!,
+        id: 'ev-reopen',
+        direction: 'EVENT',
+        text: null,
+        event: { kind: 'reopened', by: null, from: null, to: null },
+      },
+      ...history,
+    ]
+    renderAt()
+
+    expect(await screen.findByText('María Proveedora')).toBeInTheDocument()
+    expect(screen.getByText('Proveedora SRL')).toBeInTheDocument()
+    expect(screen.getByText('+591 70000999')).toBeInTheDocument()
+    expect(screen.getByText(/El cliente volvió a escribir: chat reabierto/)).toBeInTheDocument()
+  })
+
+  it('sends a typed contact card', async () => {
+    const sendContacts = vi.spyOn(inboxApi, 'sendContacts').mockResolvedValue({
+      ...history[0]!,
+      id: 'out-card',
+      direction: 'OUT',
+      type: 'contacts',
+      status: 'sent',
+    })
+    renderAt()
+    const user = userEvent.setup()
+    await screen.findByLabelText('Escribir respuesta')
+
+    await user.click(screen.getByRole('button', { name: 'Adjuntar archivo' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Contacto' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Nombre'), 'Técnico Juan')
+    await user.type(within(dialog).getByLabelText(/Teléfono/), '+591 71234567')
+    await user.click(within(dialog).getByRole('button', { name: 'Agregar' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Enviar' }))
+
+    await waitFor(() =>
+      expect(sendContacts).toHaveBeenCalledWith('w1', 'c1', [
+        { name: 'Técnico Juan', phone: '+591 71234567' },
+      ]),
+    )
+    sendContacts.mockRestore()
   })
 })

@@ -2,6 +2,7 @@ import PlaceOutlined from '@mui/icons-material/PlaceOutlined'
 import { Box, Link, Stack, Typography } from '@mui/material'
 import type { ChatMessage } from '../../lib/api/inbox'
 import { mediaLabel } from './inbox-format'
+import { ContactCards } from './ContactCards'
 import { MediaViewer } from './MediaViewer'
 
 const textSx = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const
@@ -38,6 +39,9 @@ export function MessageContent({ message }: { message: ChatMessage }) {
     ) : (
       <Typography sx={textSx}>📍 {message.text}</Typography>
     )
+  }
+  if (message.type === 'contacts' && message.contacts?.length) {
+    return <ContactCards contacts={message.contacts} incoming={message.direction === 'IN'} />
   }
   if (message.type === 'text') {
     return <Typography sx={textSx}>{message.text}</Typography>

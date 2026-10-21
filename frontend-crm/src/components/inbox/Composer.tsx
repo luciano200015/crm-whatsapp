@@ -1,5 +1,6 @@
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded'
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded'
+import ContactPhoneOutlined from '@mui/icons-material/ContactPhoneOutlined'
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined'
 import InsertEmoticonRounded from '@mui/icons-material/InsertEmoticonRounded'
 import MicRounded from '@mui/icons-material/MicRounded'
@@ -32,6 +33,7 @@ import { usePermissions } from '../../auth/usePermissions'
 import { quickRepliesApi, quickReplyKeys, type QuickReply } from '../../lib/api/quick-replies'
 import { useActiveWorkspace } from '../../workspace/active-workspace-context'
 import { AttachmentDialog } from './AttachmentDialog'
+import { SendContactDialog, type OutgoingContact } from './SendContactDialog'
 import { useChatColors } from './chat-colors'
 import { ACCEPT_DOCUMENT, ACCEPT_VISUAL, fileProblem } from './outgoing-media'
 import { useVoiceRecorder } from './useVoiceRecorder'
@@ -90,6 +92,7 @@ export function Composer({
   sending,
   onSend,
   onSendFile,
+  onSendContacts,
   onError,
 }: {
   /** Why WhatsApp replies are not possible now (closed chat, 24 h window); notes still work. */
@@ -98,12 +101,14 @@ export function Composer({
   /** Resolves true when it was saved, so the text can be cleared. */
   onSend: (text: string, mode: ComposerMode) => Promise<boolean>
   onSendFile: (file: File, caption: string | null) => Promise<boolean>
+  onSendContacts: (contacts: OutgoingContact[]) => Promise<boolean>
   onError: (message: string) => void
 }) {
   const colors = useChatColors()
   const [mode, setMode] = useState<ComposerMode>('reply')
   const [text, setText] = useState('')
   const [attachment, setAttachment] = useState<File | null>(null)
+  const [sharingContact, setSharingContact] = useState(false)
   const [attachMenu, setAttachMenu] = useState<HTMLElement | null>(null)
   const [accept, setAccept] = useState(ACCEPT_VISUAL)
   const picker = useRef<HTMLInputElement>(null)
@@ -327,6 +332,17 @@ export function Composer({
                     </ListItemIcon>
                     <ListItemText>Documento</ListItemText>
                   </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      setAttachMenu(null)
+                      setSharingContact(true)
+                    }}
+                  >
+                    <ListItemIcon>
+                      <ContactPhoneOutlined />
+                    </ListItemIcon>
+                    <ListItemText>Contacto</ListItemText>
+                  </MenuItem>
                 </Menu>
                 <input
                   ref={picker}
@@ -409,6 +425,17 @@ export function Composer({
             )}
           </Stack>
         </Box>
+      )}
+      {sharingContact && (
+        <SendContactDialog
+          sending={sending}
+          onClose={() => setSharingContact(false)}
+          onSend={(contacts) =>
+            void onSendContacts(contacts).then((sent) => {
+              if (sent) setSharingContact(false)
+            })
+          }
+        />
       )}
       {attachment && (
         <AttachmentDialog
