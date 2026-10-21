@@ -212,6 +212,7 @@ export const es = {
       channels: 'Canales',
       messages: 'Mensajes',
       conversations: 'Conversaciones',
+      quick_replies: 'Respuestas rápidas',
       billing: 'Facturación',
     } as Record<string, string | undefined>,
     permissions: {
@@ -231,6 +232,7 @@ export const es = {
       'messages.send': 'Responder, agregar notas, cerrar y reabrir chats',
       'conversations.assign': 'Asignar y transferir chats a otros agentes',
       'conversations.view_all': 'Ver todas las conversaciones (no solo las propias)',
+      'quick_replies.manage': 'Crear, editar y borrar las respuestas rápidas del equipo',
       'billing.read': 'Ver el plan y la facturación',
       'billing.manage': 'Cambiar el plan y los pagos',
     } as Record<string, string | undefined>,

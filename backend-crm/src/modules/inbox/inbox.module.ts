@@ -12,6 +12,16 @@ import { ConversationTimeline } from './application/conversation-timeline';
 import { InboxEvents } from './application/inbox-events';
 import { InboxMediaService } from './application/inbox-media.service';
 import { MediaStore } from './application/media';
+import {
+  QuickRepliesService,
+  QuickRepliesStore,
+} from './application/quick-replies';
+import {
+  MongoQuickRepliesStore,
+  QUICK_REPLY_MODEL,
+  QuickReplySchema,
+} from './infrastructure/mongo-quick-replies-store';
+import { QuickRepliesController } from './presentation/quick-replies.controller';
 import { GridFsMediaStore } from './infrastructure/gridfs-media-store';
 import { InboxIngestService } from './application/inbox-ingest.service';
 import { InboxStreamService } from './application/inbox-stream.service';
@@ -47,12 +57,14 @@ import {
     MongooseModule.forFeature([
       { name: CONVERSATION_MODEL, schema: ConversationSchema },
       { name: MESSAGE_MODEL, schema: MessageSchema },
+      { name: QUICK_REPLY_MODEL, schema: QuickReplySchema },
     ]),
   ],
   controllers: [
     ConversationsController,
     AutoAssignmentController,
     ContactBlockController,
+    QuickRepliesController,
   ],
   providers: [
     InboxService,
@@ -62,6 +74,8 @@ import {
     ConversationTimeline,
     InboxMediaService,
     ContactBlockService,
+    QuickRepliesService,
+    { provide: QuickRepliesStore, useClass: MongoQuickRepliesStore },
     { provide: MediaStore, useClass: GridFsMediaStore },
     { provide: ContactQuota, useClass: PrismaContactQuota },
     { provide: InboxStore, useClass: MongoInboxStore },

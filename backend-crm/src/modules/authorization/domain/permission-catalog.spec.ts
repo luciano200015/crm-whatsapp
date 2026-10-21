@@ -11,7 +11,7 @@ import {
 describe('permission catalog', () => {
   it('uses dotted resource.action keys', () => {
     for (const key of ALL_PERMISSION_KEYS) {
-      expect(key).toMatch(/^[a-z]+\.[a-z_]+$/);
+      expect(key).toMatch(/^[a-z_]+\.[a-z_]+$/);
     }
   });
 

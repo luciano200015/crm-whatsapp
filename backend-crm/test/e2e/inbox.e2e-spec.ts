@@ -713,6 +713,53 @@ describe('Inbox (e2e)', () => {
     expect(open[0]?.lastMessage).toMatchObject({ text: 'Ya puedo escribir' });
   });
 
+  it('manages quick replies per workspace; agents only use them', async () => {
+    const owner = await signUp();
+    const other = await signUp();
+    const ana = await agentOf(owner, 'Ana');
+
+    const created = await api(owner)
+      .post('/quick-replies', {
+        shortcut: '/Saludo',
+        text: '¡Hola! ¿En qué te ayudamos?',
+      })
+      .expect(201);
+    expect(created.body).toMatchObject({
+      shortcut: 'saludo',
+      createdBy: { name: 'Olga Owner' },
+    });
+    const id = (created.body as { id: string }).id;
+    await api(owner)
+      .post('/quick-replies', { shortcut: 'saludo', text: 'Otro' })
+      .expect(409);
+    await api(owner)
+      .post('/quick-replies', { shortcut: 'con espacios', text: 'x' })
+      .expect(422);
+
+    const forAgent = await api(ana).get('/quick-replies').expect(200);
+    expect(forAgent.body).toEqual([
+      expect.objectContaining({ id, shortcut: 'saludo' }),
+    ]);
+    await api(ana)
+      .post('/quick-replies', { shortcut: 'mio', text: 'x' })
+      .expect(403);
+    expect((await api(other).get('/quick-replies').expect(200)).body).toEqual(
+      [],
+    );
+    await api(other).patch(`/quick-replies/${id}`, { text: 'x' }).expect(404);
+
+    await api(owner)
+      .patch(`/quick-replies/${id}`, { text: 'Hola, gracias por escribir' })
+      .expect(200);
+    await http()
+      .delete(`/api/v1/workspaces/${owner.workspaceId}/quick-replies/${id}`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .expect(204);
+    expect((await api(owner).get('/quick-replies').expect(200)).body).toEqual(
+      [],
+    );
+  });
+
   it('exposes minimal options without granting administrative read permissions', async () => {
     const owner = await signUp();
     const ana = await agentOf(owner, 'Ana');

@@ -74,6 +74,18 @@ export const routes = [
                   },
                 ],
               },
+              {
+                element: <RequirePermission anyOf={['quick_replies.manage']} />,
+                children: [
+                  {
+                    path: '/quick-replies',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/inbox/QuickRepliesPage'))
+                        .QuickRepliesPage,
+                    }),
+                  },
+                ],
+              },
               { path: '/team/members', element: <Navigate to="/team/agents" replace /> },
               {
                 element: <RequirePermission anyOf={['members.read']} />,

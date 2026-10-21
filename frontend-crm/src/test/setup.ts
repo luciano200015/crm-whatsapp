@@ -26,6 +26,19 @@ if (!URL.createObjectURL) {
   URL.revokeObjectURL = () => undefined
 }
 
+// jsdom has no IntersectionObserver; the emoji picker lazy-loads with it.
+if (!('IntersectionObserver' in window)) {
+  class NoopObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return []
+    }
+  }
+  Object.defineProperty(window, 'IntersectionObserver', { writable: true, value: NoopObserver })
+}
+
 // Routes are lazy-loaded: the first render of a test file compiles the page
 // on demand, which can exceed the 1 s default when several files run at once.
 configure({ asyncUtilTimeout: 15_000 })

@@ -1,4 +1,5 @@
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
+import BoltOutlined from '@mui/icons-material/BoltOutlined'
 import ChatOutlined from '@mui/icons-material/ChatOutlined'
 import AltRouteOutlined from '@mui/icons-material/AltRouteOutlined'
 import ContactsOutlined from '@mui/icons-material/ContactsOutlined'
@@ -57,6 +58,12 @@ export const NAVIGATION: NavEntry[] = [
     label: 'Autoasignación',
     icon: AltRouteOutlined,
     anyOf: ['channels.manage'],
+  }),
+  link({
+    to: '/quick-replies',
+    label: 'Respuestas rápidas',
+    icon: BoltOutlined,
+    anyOf: ['quick_replies.manage'],
   }),
   {
     kind: 'group',

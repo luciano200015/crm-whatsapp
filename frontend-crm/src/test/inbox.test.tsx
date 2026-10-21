@@ -20,6 +20,7 @@ let history: ChatMessage[]
 let actions: { name: string; body: unknown }[]
 let streamCount: number
 let listQueries: string[]
+let quickReplies: { id: string; shortcut: string; text: string }[]
 
 const me = (): Me => ({
   id: 'u1',
@@ -102,6 +103,12 @@ const server = setupServer(
       chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
     return HttpResponse.json(chat)
   }),
+  http.get(api('/workspaces/w1/quick-replies'), () => HttpResponse.json(quickReplies)),
+  http.post(api('/workspaces/w1/quick-replies'), async ({ request }) => {
+    const body = (await request.json()) as { shortcut: string; text: string }
+    actions.push({ name: 'quick-reply', body })
+    return HttpResponse.json({ id: 'qr9', ...body, createdBy: null }, { status: 201 })
+  }),
   http.get(api('/workspaces/w1/channels/auto-assignment'), () =>
     HttpResponse.json({
       lines: [
@@ -126,6 +133,7 @@ beforeEach(() => {
   permissions = ['messages.read', 'messages.send']
   actions = []
   listQueries = []
+  quickReplies = []
   streamCount = 0
   chat = {
     id: 'c1',
@@ -497,5 +505,51 @@ describe('Inbox', () => {
       await screen.findByText(/Bloqueado en el CRM. WhatsApp no lo bloqueó en «Ventas»/),
     ).toBeInTheDocument()
     expect(await screen.findAllByText('Bloqueado')).not.toHaveLength(0)
+  })
+  it('inserts a quick reply typing "/" and its shortcut', async () => {
+    quickReplies = [
+      { id: 'qr1', shortcut: 'saludo', text: '¡Hola! Gracias por escribirnos.' },
+      { id: 'qr2', shortcut: 'horario', text: 'Atendemos de 8 a 18.' },
+    ]
+    renderAt()
+    const user = userEvent.setup()
+    const editor = await screen.findByLabelText('Escribir respuesta')
+
+    await user.type(editor, '/sal')
+    const options = await screen.findByRole('listbox', { name: 'Respuestas rápidas' })
+    expect(within(options).getAllByRole('option')).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(editor).toHaveValue('¡Hola! Gracias por escribirnos.')
+    expect(actions).toEqual([{ name: 'read', body: null }])
+  })
+
+  it('opens the emoji picker in Spanish', async () => {
+    renderAt()
+    const user = userEvent.setup()
+    await screen.findByLabelText('Escribir respuesta')
+
+    await user.click(screen.getByRole('button', { name: 'Emojis' }))
+    expect(await screen.findByPlaceholderText('Buscar emoji')).toBeInTheDocument()
+  })
+
+  it('creates quick replies on their page', async () => {
+    permissions = ['messages.read', 'messages.send', 'quick_replies.manage']
+    renderAt('/quick-replies')
+    const user = userEvent.setup()
+
+    const menu = await screen.findByRole('navigation', { name: 'menu' })
+    expect(within(menu).getByRole('link', { name: /Respuestas rápidas/ })).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Nueva respuesta rápida' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/Atajo/), 'gracias')
+    await user.type(within(dialog).getByLabelText(/Mensaje/), '¡Gracias por tu compra!')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() =>
+      expect(actions).toContainEqual({
+        name: 'quick-reply',
+        body: { shortcut: 'gracias', text: '¡Gracias por tu compra!' },
+      }),
+    )
   })
 })

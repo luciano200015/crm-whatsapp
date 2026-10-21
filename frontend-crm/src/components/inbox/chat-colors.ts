@@ -7,6 +7,7 @@ export function useChatColors() {
   const dark = (mode === 'system' ? systemMode : mode) === 'dark'
   return dark
     ? {
+        dark: true,
         wallpaper: '#0b141a',
         pattern: 'rgba(255,255,255,0.035)',
         incoming: '#202c33',
@@ -21,6 +22,7 @@ export function useChatColors() {
         agent: '#06cf9c',
       }
     : {
+        dark: false,
         wallpaper: '#efeae2',
         pattern: 'rgba(0,0,0,0.035)',
         incoming: '#ffffff',
