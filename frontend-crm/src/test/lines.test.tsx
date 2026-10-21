@@ -148,7 +148,10 @@ describe('Channels → Lines', () => {
       within(dialog).getByLabelText(/Token de acceso/),
       'EAAG-permanent-token-0123456789',
     )
-    await user.type(within(dialog).getByLabelText(/^App Secret/), 'app-secret-0123456789')
+    await user.type(
+      within(dialog).getByLabelText(/^App Secret/),
+      '0123456789abcdef0123456789abcdef',
+    )
     await user.click(within(dialog).getByRole('button', { name: es.lines.form.save }))
 
     await waitFor(() =>
@@ -159,10 +162,34 @@ describe('Channels → Lines', () => {
           wabaId: null,
           displayPhone: null,
           accessToken: 'EAAG-permanent-token-0123456789',
-          appSecret: 'app-secret-0123456789',
+          appSecret: '0123456789abcdef0123456789abcdef',
         },
       ]),
     )
+  })
+
+  it('refuses an App Secret that is not the 32 characters from Meta', async () => {
+    me = makeMe(['channels.read', 'channels.manage'])
+    lines = []
+    renderAt('/channels/lines')
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: es.lines.newLine }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/Nombre de la línea/), 'Soporte')
+    await user.type(within(dialog).getByLabelText(/^Phone Number ID/), '106540352242922')
+    await user.type(
+      within(dialog).getByLabelText(/Token de acceso/),
+      'EAAG-permanent-token-0123456789',
+    )
+    await user.type(
+      within(dialog).getByLabelText(/^App Secret/),
+      'aVerifyTokenInsteadOfTheAppSecret0000000000',
+    )
+    await user.click(within(dialog).getByRole('button', { name: es.lines.form.save }))
+
+    expect(await within(dialog).findByText(es.lines.form.appSecretInvalid)).toBeInTheDocument()
+    expect(posted).toEqual([])
   })
 
   it('is read-only without channels.manage', async () => {

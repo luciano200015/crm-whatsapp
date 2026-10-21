@@ -6,6 +6,10 @@ import { parseWebhook, type WebhookEvents } from '../domain/whatsapp-payload';
 import { ChannelsErrors } from './channels-errors';
 import { ChannelsStore, WhatsAppEventsSink, type LineRecord } from './ports';
 
+/** Shown on the line card (lastError) until a correctly signed webhook arrives. */
+export const SIGNATURE_MISMATCH_ERROR =
+  'Meta envía eventos, pero la firma no coincide: revisa el App Secret de la línea (Configuración de la app → Básica → Clave secreta de la app).';
+
 /**
  * Public webhook of a line (`/webhooks/whatsapp/:lineId`).
  * - GET: Meta's subscription check with the line's verify token.
@@ -64,6 +68,13 @@ export class WhatsAppWebhookService {
       this.logger.warn(
         `Rejected webhook with an invalid signature for line ${line.id}`,
       );
+      // Signed, but not with our secret: show it on the line card.
+      if (signature) {
+        await this.store.recordSignatureFailure(
+          line.id,
+          SIGNATURE_MISMATCH_ERROR,
+        );
+      }
       throw ChannelsErrors.invalidSignature();
     }
 

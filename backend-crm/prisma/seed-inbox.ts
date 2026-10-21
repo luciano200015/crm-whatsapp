@@ -60,7 +60,7 @@ export async function seedInboxDemo(
       autoAssign: true,
       accessTokenEnc: secrets.encrypt(randomBytes(32).toString('hex')),
       accessTokenLast4: 'demo',
-      appSecretEnc: secrets.encrypt(randomBytes(32).toString('hex')),
+      appSecretEnc: secrets.encrypt(randomBytes(16).toString('hex')),
       webhookVerifyToken: randomBytes(24).toString('hex'),
       agents: {
         create: members.map((member) => ({ membershipId: member.id })),

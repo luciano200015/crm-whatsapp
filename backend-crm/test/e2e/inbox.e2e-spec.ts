@@ -16,7 +16,7 @@ import {
 import { createTestApp, type TestApp } from '../utils/test-app';
 
 const PASSWORD = 'correct horse battery staple';
-const APP_SECRET = 'app-secret-for-inbox-tests-01';
+const APP_SECRET = 'fedcba9876543210fedcba9876543210';
 
 interface Session {
   token: string;

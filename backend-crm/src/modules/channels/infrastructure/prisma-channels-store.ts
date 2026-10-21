@@ -202,6 +202,18 @@ export class PrismaChannelsStore extends ChannelsStore {
     });
   }
 
+  async recordSignatureFailure(lineId: string, message: string): Promise<void> {
+    // Conditional, so repeated failures do not rewrite the row.
+    await this.prisma.channelLine.updateMany({
+      where: {
+        id: lineId,
+        status: { not: 'DISABLED' },
+        OR: [{ lastError: null }, { lastError: { not: message } }],
+      },
+      data: { status: 'ERROR', lastError: message },
+    });
+  }
+
   async recordVerification(lineId: string, at: Date): Promise<void> {
     await this.prisma.channelLine.update({
       where: { id: lineId },

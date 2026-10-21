@@ -27,6 +27,9 @@ const metaId = z
   .trim()
   .regex(/^\d{5,32}$/, es.lines.form.numericId)
 
+/** Meta's App Secret: 32 hexadecimal characters (the API checks it too). */
+const APP_SECRET = /^[0-9a-f]{32}$/i
+
 function lineSchema(editing: boolean) {
   // When editing, empty secrets keep the stored ones.
   const secret = (min: number) =>
@@ -39,7 +42,14 @@ function lineSchema(editing: boolean) {
     wabaId: z.union([z.literal(''), metaId]),
     displayPhone: z.string().trim().max(32, es.validation.maxLength(32)),
     accessToken: secret(20),
-    appSecret: secret(16),
+    // A refine (not a union) so the specific message is the one shown.
+    appSecret: z
+      .string()
+      .trim()
+      .refine(
+        (value) => (editing && value === '') || APP_SECRET.test(value),
+        es.lines.form.appSecretInvalid,
+      ),
   })
 }
 type LineValues = z.infer<ReturnType<typeof lineSchema>>
@@ -137,7 +147,11 @@ export function LineDialog({
               control={control}
               name="appSecret"
               label={es.lines.form.appSecret}
-              helperText={editing ? es.lines.form.keepSecret : undefined}
+              helperText={
+                editing
+                  ? `${es.lines.form.appSecretHelp} ${es.lines.form.keepSecret}`
+                  : es.lines.form.appSecretHelp
+              }
               autoComplete="off"
               required={!editing}
               fullWidth

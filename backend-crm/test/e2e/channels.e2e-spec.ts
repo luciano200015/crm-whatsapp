@@ -2,6 +2,7 @@ import request from 'supertest';
 import { seedAuthorization } from '../../prisma/seed-authorization';
 import { seedBilling } from '../../prisma/seed-billing';
 import type { PrismaClient } from '../../src/generated/prisma/client';
+import { SIGNATURE_MISMATCH_ERROR } from '../../src/modules/channels/application/whatsapp-webhook.service';
 import { signBody } from '../../src/modules/channels/domain/webhook-signature';
 import { textMessagePayload } from '../../src/modules/channels/domain/whatsapp-payload';
 import { createTestPrisma, truncateAll } from '../utils/test-db';
@@ -9,7 +10,7 @@ import { createTestApp, type TestApp } from '../utils/test-app';
 
 const PASSWORD = 'correct horse battery staple';
 const ACCESS_TOKEN = 'EAAGtest-access-token-1234567890abcd';
-const APP_SECRET = 'app-secret-for-tests-0123456789';
+const APP_SECRET = '0123456789abcdef0123456789abcdef';
 
 interface Owner {
   token: string;
@@ -209,17 +210,45 @@ describe('Channels: WhatsApp lines (e2e)', () => {
         }),
       );
 
+      const card = async () =>
+        (await api(owner).get(`/channels/lines/${line.id}`).expect(200))
+          .body as LineBody & { lastError: string | null };
+
+      // Unsigned: not Meta, the line is left alone.
       await webhook(line.id, body).expect(401);
+      expect((await card()).status).toBe('PENDING');
+
+      // Signed with another secret: the card says to check the App Secret.
       await webhook(line.id, body, signBody(body, 'another-secret')).expect(
         401,
       );
-      await webhook(line.id, body, signBody(body, APP_SECRET)).expect(200);
+      expect(await card()).toMatchObject({
+        status: 'ERROR',
+        lastError: SIGNATURE_MISMATCH_ERROR,
+      });
 
-      const after = (
-        await api(owner).get(`/channels/lines/${line.id}`).expect(200)
-      ).body as LineBody;
-      expect(after.status).toBe('CONNECTED');
+      await webhook(line.id, body, signBody(body, APP_SECRET)).expect(200);
+      const after = await card();
+      expect(after).toMatchObject({ status: 'CONNECTED', lastError: null });
       expect(after.lastWebhookAt).not.toBeNull();
+    });
+
+    it('only accepts the 32 hexadecimal characters of a Meta App Secret', async () => {
+      const owner = await signUp();
+      const refused = await api(owner)
+        .post('/channels/lines', {
+          name: 'Ventas',
+          phoneNumberId: '200000000099',
+          accessToken: ACCESS_TOKEN,
+          appSecret: 'not-the-app-secret-but-a-verify-token-0000',
+        })
+        .expect(400);
+      expect(JSON.stringify(refused.body)).toContain('appSecret');
+
+      const line = (await newLine(owner).expect(201)).body as LineBody;
+      await api(owner)
+        .patch(`/channels/lines/${line.id}`, { appSecret: 'abc123' })
+        .expect(400);
     });
 
     it('ignores events of disabled lines but still answers 200', async () => {

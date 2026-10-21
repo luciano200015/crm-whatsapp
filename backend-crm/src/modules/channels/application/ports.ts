@@ -101,6 +101,14 @@ export abstract class ChannelsStore {
   abstract recordWebhook(lineId: string, at: Date): Promise<void>;
   /** Meta verified the callback URL: only the time, the status stays as is. */
   abstract recordVerification(lineId: string, at: Date): Promise<void>;
+  /**
+   * Events arrived with a signature that does not match the stored App
+   * Secret: the line shows ERROR until a correctly signed webhook arrives.
+   */
+  abstract recordSignatureFailure(
+    lineId: string,
+    message: string,
+  ): Promise<void>;
 }
 
 export interface LineCredentials {

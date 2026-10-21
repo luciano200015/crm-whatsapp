@@ -342,6 +342,10 @@ export const es = {
       displayPhonePlaceholder: '+591 71234567',
       accessToken: 'Token de acceso permanente',
       appSecret: 'App Secret',
+      appSecretHelp:
+        'Meta for Developers → tu app → Configuración de la app → Básica → Clave secreta de la app (32 caracteres).',
+      appSecretInvalid:
+        'El App Secret son 32 caracteres (0-9 y a-f). Cópialo de Configuración de la app → Básica → Clave secreta de la app.',
       keepSecret: 'Déjalo vacío para conservar el actual.',
       numericId: 'Debe ser el número que muestra Meta',
       save: 'Guardar línea',

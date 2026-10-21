@@ -17,6 +17,10 @@ const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
 const META_ID = /^[0-9]{5,32}$/;
+/** Meta's App Secret ("Clave secreta de la app"): 32 hexadecimal characters. */
+const APP_SECRET = /^[0-9a-f]{32}$/i;
+const APP_SECRET_MESSAGE =
+  'appSecret must be the 32 hexadecimal characters of App settings → Basic → App secret';
 
 // ─────────────────────────── Requests ───────────────────────────
 
@@ -66,7 +70,7 @@ export class CreateLineDto {
   })
   @Transform(trim)
   @IsString()
-  @Length(16, 256)
+  @Matches(APP_SECRET, { message: APP_SECRET_MESSAGE })
   appSecret: string;
 }
 
@@ -117,7 +121,7 @@ export class UpdateLineDto {
   @IsOptional()
   @Transform(trim)
   @IsString()
-  @Length(16, 256)
+  @Matches(APP_SECRET, { message: APP_SECRET_MESSAGE })
   appSecret?: string;
 
   @ApiPropertyOptional({ description: 'false disables the line.' })
