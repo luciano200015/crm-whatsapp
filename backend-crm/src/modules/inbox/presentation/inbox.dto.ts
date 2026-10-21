@@ -109,6 +109,19 @@ export class SendTextDto {
   text: string;
 }
 
+/** Text fields of the multipart upload; the file itself is read by multer. */
+export class SendMediaDto {
+  @ApiPropertyOptional({
+    maxLength: 1024,
+    description: 'Shown under images, videos and documents (not audio).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1024)
+  caption?: string;
+}
+
 export class AssignConversationDto {
   @ApiProperty({
     format: 'uuid',
@@ -267,8 +280,18 @@ export class InboxCountsDto {
 }
 
 export class MediaDto {
-  @ApiProperty()
+  @ApiProperty({
+    description:
+      'The message id: GET /conversations/:id/messages/:messageId/media streams the file.',
+  })
   id: string;
+
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'Bytes, once stored.',
+  })
+  size: number | null;
 
   @ApiProperty({ nullable: true, type: String })
   mimeType: string | null;

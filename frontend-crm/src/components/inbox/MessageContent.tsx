@@ -2,6 +2,7 @@ import PlaceOutlined from '@mui/icons-material/PlaceOutlined'
 import { Box, Link, Stack, Typography } from '@mui/material'
 import type { ChatMessage } from '../../lib/api/inbox'
 import { mediaLabel } from './inbox-format'
+import { MediaViewer } from './MediaViewer'
 
 const textSx = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const
 
@@ -48,13 +49,18 @@ export function MessageContent({ message }: { message: ChatMessage }) {
       </Typography>
     )
   }
-  return (
-    <>
+  if (!message.media) {
+    // WhatsApp sent the message without its file id.
+    return (
       <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
-        {mediaLabel(message.type)}
-        {message.media?.filename ? ` · ${message.media.filename}` : ''}
+        {mediaLabel(message.type)} no disponible
       </Typography>
+    )
+  }
+  return (
+    <Stack spacing={0.5}>
+      <MediaViewer message={message} />
       {message.text && <Typography sx={textSx}>{message.text}</Typography>}
-    </>
+    </Stack>
   )
 }

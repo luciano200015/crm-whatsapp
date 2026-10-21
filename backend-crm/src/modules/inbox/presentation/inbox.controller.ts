@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,12 +10,19 @@ import {
   Param,
   Post,
   Query,
+  Res,
   Sse,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
+  ApiConsumes,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -25,6 +33,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import type { Observable } from 'rxjs';
 import { ErrorResponseDto } from '../../../shared/http/error-response.dto';
 import { SWAGGER_BEARER } from '../../../shared/http/swagger';
@@ -36,7 +45,9 @@ import {
   RequirePermissions,
 } from '../../authorization/presentation/workspace-access.decorators';
 import { WorkspaceAccessGuard } from '../../authorization/presentation/workspace-access.guard';
+import { InboxMediaService } from '../application/inbox-media.service';
 import { InboxService, type InboxActor } from '../application/inbox.service';
+import { MAX_MEDIA_BYTES, mediaHeaders } from '../application/media';
 import { InboxStreamService } from '../application/inbox-stream.service';
 import {
   AssignConversationDto,
@@ -49,6 +60,7 @@ import {
   ListMessagesQueryDto,
   MessageDto,
   MessagePageDto,
+  SendMediaDto,
   SendTextDto,
 } from './inbox.dto';
 
@@ -76,6 +88,7 @@ export class ConversationsController {
   constructor(
     private readonly inbox: InboxService,
     private readonly stream: InboxStreamService,
+    private readonly media: InboxMediaService,
   ) {}
 
   @Get('options')
@@ -189,6 +202,81 @@ export class ConversationsController {
     @Body() dto: SendTextDto,
   ): Promise<MessageDto> {
     return this.inbox.reply(actor(auth, workspace), conversationId, dto.text);
+  }
+
+  @Get(':conversationId/messages/:messageId/media')
+  @RequirePermissions('messages.read')
+  @ApiProduces('application/octet-stream')
+  @ApiOperation({
+    summary: 'The file of a message (image, audio, video, sticker, document)',
+    description:
+      'Streams our stored copy; files customers sent are copied from Meta on arrival or on first view (502 MEDIA_UNAVAILABLE if Meta no longer has it). Content-Type is limited to known media types; other files are downloads.',
+  })
+  async messageMedia(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const conversation = await this.inbox.visible(
+      actor(auth, workspace),
+      conversationId,
+    );
+    const file = await this.media.open(conversation, messageId);
+    response.set(mediaHeaders(file));
+    return new StreamableFile(file.stream);
+  }
+
+  @Post(':conversationId/media')
+  @RequirePermissions('messages.send')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_MEDIA_BYTES, files: 1 },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        caption: { type: 'string', maxLength: 1024 },
+      },
+    },
+  })
+  @ApiOperation({
+    summary: 'Send a file through WhatsApp',
+    description:
+      'Same rules as a text reply. Images JPG/PNG up to 5 MB; MP4/3GPP video, AAC/AMR/MP3/MP4/OGG audio and PDF/Office/TXT documents up to 16 MB (415 UNSUPPORTED_MEDIA_TYPE, 413 MEDIA_TOO_LARGE).',
+  })
+  @ApiCreatedResponse({ type: MessageDto })
+  sendMedia(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() dto: SendMediaDto,
+  ): Promise<MessageDto> {
+    if (!file) {
+      throw new BadRequestException({
+        message: 'Attach the file in the "file" field',
+        code: 'FILE_REQUIRED',
+      });
+    }
+    return this.inbox.sendMedia(
+      actor(auth, workspace),
+      conversationId,
+      {
+        buffer: file.buffer,
+        mimeType: file.mimetype,
+        // Browsers send UTF-8 names; busboy (multer) decodes them as latin1.
+        filename: Buffer.from(file.originalname, 'latin1').toString('utf8'),
+        size: file.size,
+      },
+      dto.caption || null,
+    );
   }
 
   @Post(':conversationId/notes')

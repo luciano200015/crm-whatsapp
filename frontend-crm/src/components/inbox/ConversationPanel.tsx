@@ -99,6 +99,20 @@ export function ConversationPanel({
     retry: false,
   })
 
+  const sendFile = useMutation({
+    mutationFn: ({ file, caption }: { file: File; caption: string | null }) =>
+      inboxApi.sendMedia(workspaceId, id, file, caption),
+    onSuccess: (message) => {
+      if (message.status === 'failed')
+        enqueueSnackbar(`WhatsApp no aceptó el archivo: ${message.error ?? 'error desconocido'}`, {
+          variant: 'error',
+        })
+      void refresh()
+    },
+    onError: fail,
+    retry: false,
+  })
+
   // Opening a chat reads it (but not right after "Marcar como no leído").
   useEffect(() => {
     if (!conversation?.unreadCount || current.error || action.isPending) return
@@ -217,13 +231,20 @@ export function ConversationPanel({
         {has('messages.send') ? (
           <Composer
             replyBlockedReason={replyBlockedReason}
-            sending={send.isPending}
+            sending={send.isPending || sendFile.isPending}
             onSend={(text, mode) =>
               send
                 .mutateAsync({ text, mode })
                 .then(() => true)
                 .catch(() => false)
             }
+            onSendFile={(file, caption) =>
+              sendFile
+                .mutateAsync({ file, caption })
+                .then(() => true)
+                .catch(() => false)
+            }
+            onError={(message) => enqueueSnackbar(message, { variant: 'warning' })}
           />
         ) : (
           <Alert severity="info" sx={{ borderRadius: 0 }}>

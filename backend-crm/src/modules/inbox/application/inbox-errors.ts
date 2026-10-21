@@ -62,4 +62,35 @@ export const InboxErrors = {
       code: 'CONTACT_LIMIT_REACHED',
       details: { feature: 'limits.active_contacts', ...details },
     }),
+  mediaNotFound: () =>
+    new NotFoundException({
+      message: 'This message has no file',
+      code: 'MEDIA_NOT_FOUND',
+    }),
+  mediaUnavailable: (reason: string) =>
+    new HttpException(
+      {
+        message: `WhatsApp did not deliver the file: ${reason}`,
+        code: 'MEDIA_UNAVAILABLE',
+      },
+      HttpStatus.BAD_GATEWAY,
+    ),
+  unsupportedMedia: () =>
+    new HttpException(
+      {
+        message:
+          'WhatsApp does not accept this kind of file: send JPG/PNG images, MP4 videos, AAC/MP3/MP4/OGG audio or PDF and Office documents',
+        code: 'UNSUPPORTED_MEDIA_TYPE',
+      },
+      HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+    ),
+  mediaTooLarge: (maxBytes: number) =>
+    new HttpException(
+      {
+        message: `The file is larger than WhatsApp allows for its type (${Math.round(maxBytes / 1024 / 1024)} MB)`,
+        code: 'MEDIA_TOO_LARGE',
+        details: { maxBytes },
+      },
+      HttpStatus.PAYLOAD_TOO_LARGE,
+    ),
 };

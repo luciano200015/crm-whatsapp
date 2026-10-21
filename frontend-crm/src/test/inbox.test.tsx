@@ -3,12 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppProviders } from '../AppProviders'
 import { API_BASE_URL } from '../lib/api/client'
 import { tokenStore } from '../lib/api/token-store'
 import type { Me } from '../lib/api/types'
-import type { ChatMessage, Conversation } from '../lib/api/inbox'
+import { inboxApi, type ChatMessage, type Conversation } from '../lib/api/inbox'
 import { createQueryClient } from '../lib/query-client'
 import { routes } from '../router'
 
@@ -358,5 +358,94 @@ describe('Inbox', () => {
     await user.click(screen.getByRole('button', { name: 'Más opciones' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Marcar como no leído' }))
     await waitFor(() => expect(actions.map((action) => action.name)).toContain('unread'))
+  })
+  it('shows the files customers send', async () => {
+    server.use(
+      http.get(api(`${base}/c1/messages/:messageId/media`), () =>
+        HttpResponse.arrayBuffer(new Uint8Array([137, 80, 78, 71]).buffer, {
+          headers: { 'Content-Type': 'image/png' },
+        }),
+      ),
+    )
+    history = [
+      {
+        ...history[0]!,
+        id: 'img1',
+        type: 'image',
+        text: 'Mi pedido',
+        media: { id: 'img1', mimeType: 'image/png', caption: 'Mi pedido', filename: null, size: 4 },
+      },
+      {
+        ...history[0]!,
+        id: 'doc1',
+        type: 'document',
+        text: null,
+        media: {
+          id: 'doc1',
+          mimeType: 'application/pdf',
+          caption: null,
+          filename: 'factura.pdf',
+          size: 2048,
+        },
+      },
+    ]
+    renderAt()
+
+    expect(await screen.findByRole('img', { name: 'Mi pedido' })).toHaveAttribute(
+      'src',
+      expect.stringMatching(/^blob:/),
+    )
+    expect(screen.getByText('factura.pdf')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Descargar factura.pdf' })).toBeInTheDocument()
+  })
+
+  it('sends a file with a caption and refuses types WhatsApp does not accept', async () => {
+    // jsdom's FormData cannot go through Node's fetch: check the call instead.
+    const sendMedia = vi
+      .spyOn(inboxApi, 'sendMedia')
+      .mockImplementation((_workspace, _chat, file, caption) =>
+        Promise.resolve({
+          ...history[0]!,
+          id: 'out-img',
+          direction: 'OUT',
+          type: 'image',
+          status: 'sent',
+          text: caption,
+          media: {
+            id: 'out-img',
+            mimeType: file.type,
+            caption: null,
+            filename: file.name,
+            size: file.size,
+          },
+        }),
+      )
+    renderAt()
+    const user = userEvent.setup({ applyAccept: false })
+    await screen.findByLabelText('Escribir respuesta')
+
+    const picker = screen.getByLabelText('Elegir archivo')
+    await user.upload(picker, new File(['<b>x</b>'], 'pagina.html', { type: 'text/html' }))
+    expect(await screen.findByText(/WhatsApp no acepta este tipo de archivo/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await user.upload(
+      picker,
+      new File([new Uint8Array([1, 2, 3, 4])], 'foto.png', { type: 'image/png' }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Agregar un comentario'), 'Tu pedido')
+    await user.click(within(dialog).getByRole('button', { name: 'Enviar' }))
+
+    await waitFor(() =>
+      expect(sendMedia).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        expect.objectContaining({ name: 'foto.png' }),
+        'Tu pedido',
+      ),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    sendMedia.mockRestore()
   })
 })

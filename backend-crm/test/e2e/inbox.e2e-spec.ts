@@ -238,6 +238,48 @@ describe('Inbox (e2e)', () => {
       .expect(200);
   }
 
+  function incomingImage(
+    line: { id: string; phoneNumberId: string },
+    from: string,
+  ) {
+    const body = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: line.phoneNumberId },
+                contacts: [{ wa_id: from, profile: { name: 'Foto' } }],
+                messages: [
+                  {
+                    id: `wamid.img.${++waIds}`,
+                    from,
+                    timestamp: String(Math.floor(Date.now() / 1000)),
+                    type: 'image',
+                    image: {
+                      id: 'meta-media-1',
+                      mime_type: 'image/jpeg',
+                      caption: 'Mi pedido',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    return http()
+      .post(`/api/v1/webhooks/whatsapp/${line.id}`)
+      .set('Content-Type', 'application/json')
+      .set('X-Hub-Signature-256', signBody(body, APP_SECRET))
+      .send(body)
+      .expect(200);
+  }
+
   const conversations = async (session: Session, query = '') =>
     (
       (await api(session).get(`/conversations${query}`).expect(200)).body as {
@@ -531,6 +573,102 @@ describe('Inbox (e2e)', () => {
       .post(`/conversations/${open?.id}/unread`)
       .expect(200);
     expect(unread.body).toMatchObject({ unreadCount: 1 });
+  });
+
+  it('stores the files customers send and streams them only to who may see the chat', async () => {
+    const owner = await signUp();
+    const other = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incomingImage(line, '59170000070');
+    const [chat] = await conversations(owner, '?view=all');
+    const [message] = (
+      (await api(owner).get(`/conversations/${chat?.id}/messages`).expect(200))
+        .body as {
+        items: { id: string; type: string; media: { id: string } | null }[];
+      }
+    ).items;
+    expect(message).toMatchObject({
+      type: 'image',
+      media: { id: message?.id },
+    });
+
+    const file = await api(owner)
+      .get(`/conversations/${chat?.id}/messages/${message?.id}/media`)
+      .buffer(true)
+      .parse((res, done) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => done(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(file.headers['content-type']).toBe('image/jpeg');
+    expect(file.headers['x-content-type-options']).toBe('nosniff');
+    expect(file.headers['content-disposition']).toMatch(/^inline/);
+    expect((file.body as Buffer).subarray(1, 4).toString()).toBe('PNG');
+
+    await http()
+      .get(
+        `/api/v1/workspaces/${owner.workspaceId}/conversations/${chat?.id}/messages/${message?.id}/media`,
+      )
+      .set('Authorization', `Bearer ${other.token}`)
+      .expect(404);
+    await api(other)
+      .get(`/conversations/${chat?.id}/messages/${message?.id}/media`)
+      .expect(404);
+  });
+
+  it('sends files through WhatsApp with the rules of a reply', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000071', 'Mándame el catálogo');
+    const [chat] = await conversations(owner, '?view=all');
+    const upload = (name: string, type: string, content: Buffer) =>
+      http()
+        .post(
+          `/api/v1/workspaces/${owner.workspaceId}/conversations/${chat?.id}/media`,
+        )
+        .set('Authorization', `Bearer ${owner.token}`)
+        .field('caption', 'Catálogo 2026')
+        .attach('file', content, { filename: name, contentType: type });
+
+    const pdf = Buffer.from('%PDF-1.4 catálogo');
+    const sent = await upload(
+      '../../catálogo.pdf',
+      'application/pdf',
+      pdf,
+    ).expect(201);
+    expect(sent.body).toMatchObject({
+      direction: 'OUT',
+      type: 'document',
+      text: 'Catálogo 2026',
+      status: 'sent',
+      media: { filename: 'catálogo.pdf', size: pdf.length },
+    });
+    const download = await api(owner)
+      .get(
+        `/conversations/${chat?.id}/messages/${(sent.body as { id: string }).id}/media`,
+      )
+      .expect(200);
+    expect(download.headers['content-type']).toBe('application/pdf');
+
+    const html = await upload(
+      'x.html',
+      'text/html',
+      Buffer.from('<b>x</b>'),
+    ).expect(415);
+    expect(html.body).toMatchObject({ code: 'UNSUPPORTED_MEDIA_TYPE' });
+    const big = await upload(
+      'big.png',
+      'image/png',
+      Buffer.alloc(6 * 1024 * 1024),
+    ).expect(413);
+    expect(big.body).toMatchObject({ code: 'MEDIA_TOO_LARGE' });
+
+    const [after] = await conversations(owner, '?view=all');
+    expect(after?.lastMessage).toMatchObject({
+      text: 'Catálogo 2026',
+      direction: 'OUT',
+    });
   });
 
   it('exposes minimal options without granting administrative read permissions', async () => {

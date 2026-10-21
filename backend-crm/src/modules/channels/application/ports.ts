@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import type {
   LineStatus,
   MembershipStatus,
@@ -150,6 +151,30 @@ export abstract class WhatsAppGateway {
     credentials: LineCredentials,
     wabaId: string,
   ): Promise<void>;
+  /** A media file a customer sent (Meta keeps it about 30 days). */
+  abstract downloadMedia(
+    credentials: LineCredentials,
+    mediaId: string,
+  ): Promise<{ body: Readable; mimeType: string | null }>;
+  /** Uploads a file to Meta to send it; returns Meta's media id. */
+  abstract uploadMedia(
+    credentials: LineCredentials,
+    file: { body: Buffer; mimeType: string; filename: string },
+  ): Promise<{ mediaId: string }>;
+  abstract sendMedia(
+    credentials: LineCredentials,
+    to: string,
+    media: OutgoingMedia,
+  ): Promise<{ waMessageId: string }>;
+}
+
+export interface OutgoingMedia {
+  type: 'image' | 'video' | 'audio' | 'document';
+  mediaId: string;
+  /** Not allowed by WhatsApp on audio. */
+  caption: string | null;
+  /** Shown to the customer for documents. */
+  filename: string | null;
 }
 
 /**

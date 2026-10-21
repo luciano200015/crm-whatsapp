@@ -1,15 +1,34 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
+import { Readable } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { AppConfigService } from '../../../config/app-config.service';
 import {
   WhatsAppApiError,
   WhatsAppGateway,
   type LineCredentials,
+  type OutgoingMedia,
 } from '../application/ports';
 
 const TIMEOUT_MS = 10_000;
+/** Uploads and downloads of media can take longer than API calls. */
+const MEDIA_TIMEOUT_MS = 60_000;
+/** Meta's largest media (documents) is 100 MB. */
+const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 
 type Json = Record<string, unknown>;
+
+/**
+ * Meta echoes the access token in some errors ("Malformed access token
+ * EAAG…"). Errors are stored on lines and messages and shown to members, so
+ * the token (and anything shaped like one) is removed first.
+ */
+export function redactToken(message: string, accessToken: string): string {
+  const withoutToken = accessToken
+    ? message.split(accessToken).join('[token]')
+    : message;
+  return withoutToken.replace(/\bEAA[A-Za-z0-9_-]{8,}/g, '[token]');
+}
 
 /** WhatsApp Cloud API through Meta's Graph API. */
 @Injectable()
@@ -40,6 +59,103 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
   }
 
   async sendText(credentials: LineCredentials, to: string, text: string) {
+    return this.sendMessage(credentials, {
+      to,
+      type: 'text',
+      text: { preview_url: false, body: text },
+    });
+  }
+
+  async subscribeApp(credentials: LineCredentials, wabaId: string) {
+    await this.call(
+      credentials,
+      `/${encodeURIComponent(wabaId)}/subscribed_apps`,
+      { method: 'POST' },
+    );
+  }
+
+  async downloadMedia(credentials: LineCredentials, mediaId: string) {
+    const info = await this.call(
+      credentials,
+      `/${encodeURIComponent(mediaId)}?phone_number_id=${encodeURIComponent(credentials.phoneNumberId)}`,
+      { method: 'GET' },
+    );
+    const url = typeof info.url === 'string' ? info.url : null;
+    if (!url)
+      throw new WhatsAppApiError('Meta did not return a media URL', 502);
+    if (Number(info.file_size) > MAX_DOWNLOAD_BYTES) {
+      throw new WhatsAppApiError('Media file is too large', 413);
+    }
+    let response: Response;
+    try {
+      // The URL is Meta's CDN, valid for a few minutes, and needs the token.
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${credentials.accessToken}` },
+        signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS),
+      });
+    } catch (error: unknown) {
+      throw new WhatsAppApiError(
+        `Could not download the media: ${error instanceof Error ? error.name : 'NetworkError'}`,
+        503,
+      );
+    }
+    if (!response.ok || !response.body) {
+      throw new WhatsAppApiError(
+        `Meta refused the media download (${response.status})`,
+        response.status,
+      );
+    }
+    return {
+      body: Readable.fromWeb(response.body as WebReadableStream),
+      mimeType:
+        typeof info.mime_type === 'string'
+          ? info.mime_type
+          : response.headers.get('content-type'),
+    };
+  }
+
+  async uploadMedia(
+    credentials: LineCredentials,
+    file: { body: Buffer; mimeType: string; filename: string },
+  ) {
+    const form = new FormData();
+    form.set('messaging_product', 'whatsapp');
+    form.set('type', file.mimeType);
+    form.set(
+      'file',
+      new Blob([new Uint8Array(file.body)], { type: file.mimeType }),
+      file.filename,
+    );
+    const body = await this.call(
+      credentials,
+      `/${encodeURIComponent(credentials.phoneNumberId)}/media`,
+      { method: 'POST', body: form },
+      MEDIA_TIMEOUT_MS,
+    );
+    if (typeof body.id !== 'string') {
+      throw new WhatsAppApiError('Meta did not return a media id', 502);
+    }
+    return { mediaId: body.id };
+  }
+
+  async sendMedia(
+    credentials: LineCredentials,
+    to: string,
+    media: OutgoingMedia,
+  ) {
+    const object: Json = { id: media.mediaId };
+    if (media.caption && media.type !== 'audio') object.caption = media.caption;
+    if (media.filename && media.type === 'document') {
+      object.filename = media.filename;
+    }
+    return this.sendMessage(credentials, {
+      to,
+      type: media.type,
+      [media.type]: object,
+    });
+  }
+
+  private async sendMessage(credentials: LineCredentials, message: Json) {
     const body = await this.call(
       credentials,
       `/${encodeURIComponent(credentials.phoneNumberId)}/messages`,
@@ -48,9 +164,7 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
-          to,
-          type: 'text',
-          text: { preview_url: false, body: text },
+          ...message,
         }),
       },
     );
@@ -64,18 +178,11 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     return { waMessageId: id };
   }
 
-  async subscribeApp(credentials: LineCredentials, wabaId: string) {
-    await this.call(
-      credentials,
-      `/${encodeURIComponent(wabaId)}/subscribed_apps`,
-      { method: 'POST' },
-    );
-  }
-
   private async call(
     credentials: LineCredentials,
     path: string,
     init: RequestInit,
+    timeoutMs = TIMEOUT_MS,
   ): Promise<Json> {
     let response: Response;
     try {
@@ -83,9 +190,12 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
         ...init,
         headers: {
           Authorization: `Bearer ${credentials.accessToken}`,
-          'Content-Type': 'application/json',
+          // FormData sets its own multipart boundary.
+          ...(!(init.body instanceof FormData) && {
+            'Content-Type': 'application/json',
+          }),
         },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error: unknown) {
       throw new WhatsAppApiError(
@@ -98,7 +208,10 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
       const error = (body.error ?? {}) as Json;
       const message =
         typeof error.message === 'string' ? error.message : response.statusText;
-      throw new WhatsAppApiError(message, response.status);
+      throw new WhatsAppApiError(
+        redactToken(message, credentials.accessToken),
+        response.status,
+      );
     }
     return body;
   }
@@ -125,4 +238,25 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
   subscribeApp() {
     return Promise.resolve();
   }
+
+  /** A 1x1 PNG stands for any media a simulated customer sent. */
+  downloadMedia() {
+    return Promise.resolve({
+      body: Readable.from(Buffer.from(SAMPLE_PNG, 'base64')),
+      mimeType: 'image/png',
+    });
+  }
+
+  uploadMedia() {
+    return Promise.resolve({
+      mediaId: `SIMULATED.${randomBytes(8).toString('hex')}`,
+    });
+  }
+
+  sendMedia() {
+    return this.sendText();
+  }
 }
+
+const SAMPLE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

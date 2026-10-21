@@ -11,7 +11,9 @@ import {
   ChannelsStore,
   WhatsAppApiError,
   WhatsAppGateway,
+  type LineCredentials,
 } from '../../channels/application/ports';
+import type { MessageType } from '../../channels/domain/whatsapp-payload';
 import { ContactsStore } from '../../contacts/application/ports';
 import { toWhatsAppId } from '../../contacts/domain/phone';
 import {
@@ -24,6 +26,12 @@ import {
 import { InboxErrors } from './inbox-errors';
 import { ContactQuota } from './contact-quota';
 import { ConversationTimeline } from './conversation-timeline';
+import {
+  baseMimeType,
+  MediaStore,
+  outgoingMedia,
+  sanitizeFilename,
+} from './media';
 import { InboxEvents } from './inbox-events';
 import {
   AssignmentStore,
@@ -33,6 +41,7 @@ import {
   type ConversationStatus,
   type InboxCounts,
   type InboxView,
+  type MessageMedia,
   type MessageRecord,
 } from './ports';
 
@@ -47,7 +56,16 @@ export interface ConversationView extends Omit<
   windowExpiresAt: Date | null;
 }
 
-export type MessageView = Omit<MessageRecord, 'waMessageId'>;
+export type MessageView = Omit<MessageRecord, 'waMessageId' | 'media'> & {
+  media: {
+    /** The message id: GET …/messages/:id/media streams the file. */
+    id: string;
+    mimeType: string | null;
+    caption: string | null;
+    filename: string | null;
+    size: number | null;
+  } | null;
+};
 
 export interface ConversationListQuery {
   view: InboxView;
@@ -83,6 +101,7 @@ export class InboxService {
     private readonly clock: Clock,
     private readonly contactQuota: ContactQuota,
     private readonly timeline: ConversationTimeline,
+    private readonly mediaStore: MediaStore,
   ) {}
 
   async scope(actor: InboxActor): Promise<InboxScope> {
@@ -177,6 +196,91 @@ export class InboxService {
     conversationId: string,
     text: string,
   ): Promise<MessageView> {
+    return this.deliver(actor, conversationId, {
+      type: 'text',
+      text,
+      send: (credentials, to) => this.whatsapp.sendText(credentials, to, text),
+    });
+  }
+
+  /**
+   * Sends a file (image, video, audio or document) with the same rules as a
+   * reply. It is stored first, so the chat shows it even if Meta refuses it.
+   */
+  async sendMedia(
+    actor: InboxActor,
+    conversationId: string,
+    file: { buffer: Buffer; mimeType: string; filename: string; size: number },
+    caption: string | null,
+  ): Promise<MessageView> {
+    const checked = outgoingMedia(file.mimeType, file.size);
+    if ('error' in checked) {
+      throw checked.error === 'too_large'
+        ? InboxErrors.mediaTooLarge(checked.maxBytes)
+        : InboxErrors.unsupportedMedia();
+    }
+    const { type } = checked;
+    const mimeType = baseMimeType(file.mimeType);
+    const filename = sanitizeFilename(file.filename) ?? `archivo.${type}`;
+    const text = type === 'audio' ? null : caption;
+    return this.deliver(actor, conversationId, {
+      type,
+      text,
+      prepare: async (workspaceId) => {
+        const stored = await this.mediaStore.put(workspaceId, {
+          body: file.buffer,
+          mimeType,
+          filename,
+        });
+        return {
+          // Replaced by Meta's id once uploaded.
+          id: `local:${stored.fileId}`,
+          mimeType,
+          caption: text,
+          filename,
+          fileId: stored.fileId,
+          size: stored.size,
+        };
+      },
+      send: async (credentials, to) => {
+        const { mediaId } = await this.whatsapp.uploadMedia(credentials, {
+          body: file.buffer,
+          mimeType,
+          filename,
+        });
+        const sent = await this.whatsapp.sendMedia(credentials, to, {
+          type,
+          mediaId,
+          caption: text,
+          filename,
+        });
+        return { ...sent, mediaId };
+      },
+    });
+  }
+
+  /** Conversation the actor may see (for streaming its media). */
+  async visible(
+    actor: InboxActor,
+    conversationId: string,
+  ): Promise<ConversationRecord> {
+    return this.requireVisible(actor, conversationId);
+  }
+
+  private async deliver(
+    actor: InboxActor,
+    conversationId: string,
+    outgoing: {
+      type: MessageType;
+      text: string | null;
+      /** Runs after every check, before the message is stored. */
+      prepare?: (workspaceId: string) => Promise<MessageMedia>;
+      send: (
+        credentials: LineCredentials,
+        to: string,
+      ) => Promise<{ waMessageId: string; mediaId?: string }>;
+    },
+  ): Promise<MessageView> {
     const { workspaceId } = actor.access;
     let conversation = await this.requireVisible(actor, conversationId);
     if (conversation.status !== 'OPEN') throw InboxErrors.conversationClosed();
@@ -205,12 +309,13 @@ export class InboxService {
       conversation = claimed;
     }
 
+    const media = outgoing.prepare ? await outgoing.prepare(workspaceId) : null;
     const pending = await this.store.insertMessage(workspaceId, {
       conversationId,
       direction: 'OUT',
-      type: 'text',
-      text,
-      media: null,
+      type: outgoing.type,
+      text: outgoing.text,
+      media,
       waMessageId: null,
       status: 'pending',
       sentBy: { userId: me.userId, name: me.name },
@@ -221,14 +326,14 @@ export class InboxService {
 
     let sent: MessageRecord | null;
     try {
-      const { waMessageId } = await this.whatsapp.sendText(
+      const result = await outgoing.send(
         await this.channels.credentials(line),
         toWhatsAppId(conversation.contact.phone),
-        text,
       );
       sent = await this.store.updateMessage(workspaceId, pending.id, {
         status: 'sent',
-        waMessageId,
+        waMessageId: result.waMessageId,
+        ...(result.mediaId && { mediaId: result.mediaId }),
       });
     } catch (error: unknown) {
       if (!(error instanceof WhatsAppApiError)) throw error;
@@ -240,7 +345,12 @@ export class InboxService {
     const message = sent ?? pending;
     const updated =
       (await this.store.recordActivity(workspaceId, conversationId, {
-        lastMessage: { text, type: 'text', direction: 'OUT', at: now },
+        lastMessage: {
+          text: outgoing.text,
+          type: outgoing.type,
+          direction: 'OUT',
+          at: now,
+        },
         inbound: false,
       })) ?? conversation;
     await this.contacts.touchLastMessage(
@@ -467,6 +577,16 @@ export class InboxService {
 }
 
 export function toMessageView(message: MessageRecord): MessageView {
-  const { waMessageId: _waMessageId, ...rest } = message;
-  return rest;
+  const { waMessageId: _waMessageId, media, ...rest } = message;
+  return {
+    ...rest,
+    // Ids of our storage and of Meta stay on the server.
+    media: media && {
+      id: message.id,
+      mimeType: media.mimeType,
+      caption: media.caption,
+      filename: media.filename,
+      size: media.size ?? null,
+    },
+  };
 }

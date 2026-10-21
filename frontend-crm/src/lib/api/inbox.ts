@@ -1,5 +1,6 @@
-import { apiRequest } from './client'
-import type { CursorPage } from './types'
+import { ApiError } from './errors'
+import { apiRequest, apiResponse } from './client'
+import type { CursorPage, ErrorResponse } from './types'
 
 export interface Assignee {
   membershipId: string
@@ -52,10 +53,12 @@ export interface ChatMessage {
   type: string
   text: string | null
   media: {
+    /** The message id: the file is at …/messages/:id/media. */
     id: string
     mimeType: string | null
     caption: string | null
     filename: string | null
+    size?: number | null
   } | null
   location?: {
     latitude: number
@@ -112,6 +115,8 @@ export const inboxKeys = {
   conversation: (workspaceId: string, id: string) =>
     ['inbox', workspaceId, 'conversation', id] as const,
   messages: (workspaceId: string, id: string) => ['inbox', workspaceId, 'messages', id] as const,
+  media: (workspaceId: string, messageId: string) =>
+    ['inbox-media', workspaceId, messageId] as const,
   options: (workspaceId: string) => ['inbox', workspaceId, 'options'] as const,
   assignment: (workspaceId: string) => ['auto-assignment', workspaceId] as const,
 }
@@ -153,6 +158,32 @@ export const inboxApi = {
       `${conversationPath(workspaceId, id)}/${note ? 'notes' : 'messages'}`,
       { method: 'POST', body: { text } },
     )
+  },
+  sendMedia(workspaceId: string, id: string, file: File, caption: string | null) {
+    const form = new FormData()
+    form.set('file', file, file.name)
+    if (caption) form.set('caption', caption)
+    return apiRequest<ChatMessage>(`${conversationPath(workspaceId, id)}/media`, {
+      method: 'POST',
+      body: form,
+    })
+  },
+  /** The file of a message, downloaded with the session token. */
+  async media(
+    workspaceId: string,
+    conversationId: string,
+    messageId: string,
+    signal?: AbortSignal,
+  ) {
+    const response = await apiResponse(
+      `${conversationPath(workspaceId, conversationId)}/messages/${encodeURIComponent(messageId)}/media`,
+      { accept: '*/*', signal },
+    )
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as ErrorResponse | null
+      throw new ApiError(response.status, body)
+    }
+    return response.blob()
   },
   action(
     workspaceId: string,

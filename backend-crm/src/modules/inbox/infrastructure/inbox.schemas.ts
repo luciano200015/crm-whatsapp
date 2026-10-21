@@ -68,6 +68,8 @@ export interface MessageDocument {
     mimeType: string | null;
     caption: string | null;
     filename: string | null;
+    fileId?: string | null;
+    size?: number | null;
   } | null;
   location?: {
     latitude: number;
@@ -183,6 +185,9 @@ export const MessageSchema = new Schema<MessageDocument>(
           mimeType: { type: String, default: null },
           caption: { type: String, default: null },
           filename: { type: String, default: null },
+          // GridFS copy, once downloaded from Meta (or uploaded by an agent).
+          fileId: { type: String, default: null },
+          size: { type: Number, default: null },
         },
         { _id: false },
       ),

@@ -32,6 +32,12 @@ export interface ConversationEvent {
   to: { membershipId: string; name: string } | null;
 }
 
+/** Media of a message: Meta's id plus our stored copy (GridFS), once downloaded. */
+export interface MessageMedia extends MediaInfo {
+  fileId?: string | null;
+  size?: number | null;
+}
+
 /** Who a conversation is assigned to (a membership of the workspace). */
 export interface Assignee {
   membershipId: string;
@@ -69,7 +75,7 @@ export interface MessageRecord {
   direction: MessageDirection;
   type: MessageType;
   text: string | null;
-  media: MediaInfo | null;
+  media: MessageMedia | null;
   location: LocationInfo | null;
   event: ConversationEvent | null;
   waMessageId: string | null;
@@ -111,7 +117,7 @@ export interface NewMessage {
   direction: MessageDirection;
   type: MessageType;
   text: string | null;
-  media: MediaInfo | null;
+  media: MessageMedia | null;
   location?: LocationInfo | null;
   event?: ConversationEvent | null;
   waMessageId: string | null;
@@ -165,7 +171,19 @@ export abstract class InboxStore {
       status: MessageStatus;
       waMessageId?: string;
       error?: string | null;
+      /** Meta's id of an uploaded media file. */
+      mediaId?: string;
     },
+  ): Promise<MessageRecord | null>;
+  abstract findMessage(
+    workspaceId: string,
+    messageId: string,
+  ): Promise<MessageRecord | null>;
+  /** Our stored copy of the message media. */
+  abstract setMediaFile(
+    workspaceId: string,
+    messageId: string,
+    file: { fileId: string; size: number; mimeType: string },
   ): Promise<MessageRecord | null>;
   abstract findMessageByWaId(
     workspaceId: string,

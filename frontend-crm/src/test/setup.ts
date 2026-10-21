@@ -19,6 +19,13 @@ if (!window.matchMedia) {
   })
 }
 
+// jsdom has no object URLs; media previews and downloads use them.
+if (!URL.createObjectURL) {
+  let next = 0
+  URL.createObjectURL = () => `blob:test/${++next}`
+  URL.revokeObjectURL = () => undefined
+}
+
 // Routes are lazy-loaded: the first render of a test file compiles the page
 // on demand, which can exceed the 1 s default when several files run at once.
 configure({ asyncUtilTimeout: 15_000 })

@@ -9,6 +9,9 @@ import { ChannelsModule } from '../channels/channels.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { ConversationTimeline } from './application/conversation-timeline';
 import { InboxEvents } from './application/inbox-events';
+import { InboxMediaService } from './application/inbox-media.service';
+import { MediaStore } from './application/media';
+import { GridFsMediaStore } from './infrastructure/gridfs-media-store';
 import { InboxIngestService } from './application/inbox-ingest.service';
 import { InboxStreamService } from './application/inbox-stream.service';
 import { InboxService } from './application/inbox.service';
@@ -51,6 +54,8 @@ import {
     InboxStreamService,
     InboxEvents,
     ConversationTimeline,
+    InboxMediaService,
+    { provide: MediaStore, useClass: GridFsMediaStore },
     { provide: ContactQuota, useClass: PrismaContactQuota },
     { provide: InboxStore, useClass: MongoInboxStore },
     { provide: AssignmentStore, useClass: PrismaAssignmentStore },

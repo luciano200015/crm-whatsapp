@@ -12,6 +12,7 @@ import { ContactsStore } from '../../contacts/application/ports';
 import { normalizePhone } from '../../contacts/domain/phone';
 import { nextStatus } from '../domain/inbox-rules';
 import { ConversationTimeline } from './conversation-timeline';
+import { InboxMediaService } from './inbox-media.service';
 import { InboxEvents } from './inbox-events';
 import { AssignmentStore, InboxStore } from './ports';
 
@@ -27,6 +28,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
     private readonly contacts: ContactsStore,
     private readonly events: InboxEvents,
     private readonly timeline: ConversationTimeline,
+    private readonly media: InboxMediaService,
   ) {
     super();
   }
@@ -114,6 +116,8 @@ export class InboxIngestService extends WhatsAppEventsSink {
     if (autoAssigned) {
       await this.timeline.assignment(updated, null, null, 'auto_assigned');
     }
+    // Copy the file from Meta in the background: Meta deletes it after ~30 days.
+    this.media.prefetch(updated, message);
   }
 
   private async updateStatus(line: LineRecord, update: StatusUpdate) {

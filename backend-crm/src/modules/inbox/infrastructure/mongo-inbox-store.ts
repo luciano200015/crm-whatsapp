@@ -454,14 +454,51 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       status: MessageStatus;
       waMessageId?: string;
       error?: string | null;
+      mediaId?: string;
     },
+  ): Promise<MessageRecord | null> {
+    const _id = objectId(messageId);
+    if (!_id) return null;
+    const { mediaId, ...rest } = changes;
+    const doc = await this.messages
+      .findOneAndUpdate(
+        { workspaceId, _id },
+        { $set: { ...rest, ...(mediaId && { 'media.id': mediaId }) } },
+        { returnDocument: 'after' },
+      )
+      .lean<MessageDocument>();
+    return doc ? toMessage(doc) : null;
+  }
+
+  async findMessage(
+    workspaceId: string,
+    messageId: string,
+  ): Promise<MessageRecord | null> {
+    const _id = objectId(messageId);
+    if (!_id) return null;
+    const doc = await this.messages
+      .findOne({ workspaceId, _id })
+      .lean<MessageDocument>();
+    return doc ? toMessage(doc) : null;
+  }
+
+  async setMediaFile(
+    workspaceId: string,
+    messageId: string,
+    file: { fileId: string; size: number; mimeType: string },
   ): Promise<MessageRecord | null> {
     const _id = objectId(messageId);
     if (!_id) return null;
     const doc = await this.messages
       .findOneAndUpdate(
-        { workspaceId, _id },
-        { $set: changes },
+        { workspaceId, _id, media: { $ne: null } },
+        {
+          $set: {
+            'media.fileId': file.fileId,
+            'media.size': file.size,
+            'media.mimeType': file.mimeType,
+          },
+        },
         { returnDocument: 'after' },
       )
       .lean<MessageDocument>();

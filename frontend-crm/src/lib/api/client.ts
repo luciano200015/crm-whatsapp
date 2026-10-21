@@ -36,7 +36,9 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 
 async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers({ Accept: options.accept ?? 'application/json' })
-  if (options.body !== undefined) headers.set('Content-Type', 'application/json')
+  // FormData (file uploads) sets its own multipart Content-Type.
+  const form = options.body instanceof FormData
+  if (options.body !== undefined && !form) headers.set('Content-Type', 'application/json')
   const token = tokenStore.get()
   if (options.auth !== false && token) headers.set('Authorization', `Bearer ${token}`)
   if (options.csrf) {
@@ -48,7 +50,12 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     return await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body:
+        options.body === undefined
+          ? undefined
+          : form
+            ? (options.body as FormData)
+            : JSON.stringify(options.body),
       credentials: 'include',
       signal: options.signal,
     })
