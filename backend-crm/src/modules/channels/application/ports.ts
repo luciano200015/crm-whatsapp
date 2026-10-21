@@ -25,6 +25,8 @@ export interface LineRecord {
   displayPhone: string | null;
   verifiedName: string | null;
   accessTokenLast4: string;
+  /** When the access token expires (from the last connection test); null = unknown or never. */
+  accessTokenExpiresAt: Date | null;
   webhookVerifyToken: string;
   status: LineStatus;
   lastError: string | null;
@@ -58,6 +60,7 @@ export type LineUpdate = Partial<
     lastError: string | null;
     verifiedName: string | null;
     autoAssign: boolean;
+    accessTokenExpiresAt: Date | null;
   }
 >;
 
@@ -121,6 +124,8 @@ export class WhatsAppApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Meta's error code (e.g. 131005), when Meta returned one. */
+    readonly code: number | null = null,
   ) {
     super(message);
     this.name = 'WhatsAppApiError';
@@ -181,6 +186,21 @@ export abstract class WhatsAppGateway {
     waId: string,
     blocked: boolean,
   ): Promise<void>;
+  /** What the access token is allowed to do on this WhatsApp Business Account. */
+  abstract inspectToken(
+    credentials: LineCredentials,
+    wabaId: string | null,
+  ): Promise<TokenInfo>;
+}
+
+export interface TokenInfo {
+  valid: boolean;
+  /** null: the token does not expire (system user tokens). */
+  expiresAt: Date | null;
+  /** whatsapp_business_messaging on the account: needed to send. */
+  canMessage: boolean;
+  /** whatsapp_business_management on the account: needed to subscribe the webhook. */
+  canManage: boolean;
 }
 
 export interface OutgoingMedia {

@@ -215,6 +215,23 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     }
   }
 
+  async inspectToken(credentials: LineCredentials, wabaId: string | null) {
+    const token = encodeURIComponent(credentials.accessToken);
+    // A user or system user token may inspect itself.
+    const body = await this.call(
+      credentials,
+      `/debug_token?input_token=${token}&access_token=${token}`,
+      { method: 'GET' },
+    );
+    const data = (body.data ?? {}) as Json;
+    const expires = typeof data.expires_at === 'number' ? data.expires_at : 0;
+    return {
+      valid: data.is_valid === true,
+      expiresAt: expires > 0 ? new Date(expires * 1000) : null,
+      ...tokenScopes(data, wabaId),
+    };
+  }
+
   private async sendMessage(credentials: LineCredentials, message: Json) {
     const body = await this.call(
       credentials,
@@ -266,15 +283,57 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     const body = (await response.json().catch(() => ({}))) as Json;
     if (!response.ok) {
       const error = (body.error ?? {}) as Json;
-      const message =
-        typeof error.message === 'string' ? error.message : response.statusText;
       throw new WhatsAppApiError(
-        redactToken(message, credentials.accessToken),
+        redactToken(
+          metaErrorMessage(error, response.statusText),
+          credentials.accessToken,
+        ),
         response.status,
+        typeof error.code === 'number' ? error.code : null,
       );
     }
     return body;
   }
+}
+
+/**
+ * Meta's short message ("(#131005) Access denied") hides the cause, which
+ * comes in error_data.details; the trace id is what Meta support asks for.
+ */
+export function metaErrorMessage(error: Json, fallback: string): string {
+  const message =
+    typeof error.message === 'string' && error.message
+      ? error.message
+      : fallback;
+  const data = (error.error_data ?? {}) as Json;
+  const details = typeof data.details === 'string' ? data.details.trim() : '';
+  const trace =
+    typeof error.fbtrace_id === 'string' ? ` [trace ${error.fbtrace_id}]` : '';
+  const withDetails =
+    details && !message.includes(details) ? `${message}: ${details}` : message;
+  return `${withDetails}${trace}`;
+}
+
+/** Scopes of a token as debug_token reports them, for one WhatsApp Business Account. */
+export function tokenScopes(
+  data: Json,
+  wabaId: string | null,
+): { canMessage: boolean; canManage: boolean } {
+  const scopes = Array.isArray(data.scopes) ? (data.scopes as unknown[]) : [];
+  const granular = Array.isArray(data.granular_scopes)
+    ? (data.granular_scopes as Json[])
+    : [];
+  const allows = (scope: string) => {
+    if (!scopes.includes(scope)) return false;
+    const entry = granular.find((item) => item.scope === scope);
+    // Without target_ids the scope covers every account the user can reach.
+    if (!entry || !Array.isArray(entry.target_ids) || !wabaId) return true;
+    return (entry.target_ids as unknown[]).includes(wabaId);
+  };
+  return {
+    canMessage: allows('whatsapp_business_messaging'),
+    canManage: allows('whatsapp_business_management'),
+  };
 }
 
 /** Development and tests: everything succeeds and nothing leaves the server. */
@@ -323,6 +382,15 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
 
   sendContacts() {
     return this.sendText();
+  }
+
+  inspectToken() {
+    return Promise.resolve({
+      valid: true,
+      expiresAt: null,
+      canMessage: true,
+      canManage: true,
+    });
   }
 }
 

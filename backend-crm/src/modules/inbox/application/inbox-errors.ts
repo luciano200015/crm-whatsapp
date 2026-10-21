@@ -62,6 +62,16 @@ export const InboxErrors = {
       code: 'CONTACT_LIMIT_REACHED',
       details: { feature: 'limits.active_contacts', ...details },
     }),
+  messageNotFound: () =>
+    new NotFoundException({
+      message: 'Message not found in this conversation',
+      code: 'MESSAGE_NOT_FOUND',
+    }),
+  notRetryable: () =>
+    new ConflictException({
+      message: 'Only messages that were not delivered can be sent again',
+      code: 'MESSAGE_NOT_RETRYABLE',
+    }),
   mediaNotFound: () =>
     new NotFoundException({
       message: 'This message has no file',

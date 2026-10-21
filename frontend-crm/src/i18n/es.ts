@@ -297,6 +297,11 @@ export const es = {
     },
     phoneNumberId: 'Phone Number ID',
     token: (last4: string) => `Token ····${last4}`,
+    tokenExpires: (date: string) => `El token vence el ${date}`,
+    tokenExpiresSoon: (date: string) =>
+      `El token vence el ${date}. Genera uno permanente (usuario del sistema) o renuévalo para no dejar de enviar.`,
+    tokenExpired: (date: string) =>
+      `El token venció el ${date}: los envíos fallarán. Genera uno nuevo en Meta y guárdalo en la línea.`,
     lastWebhook: (date: string) => `Último evento de Meta: ${date}`,
     noWebhookYet: 'Meta todavía no envió eventos a esta línea.',
     agents: 'Agentes que atienden',

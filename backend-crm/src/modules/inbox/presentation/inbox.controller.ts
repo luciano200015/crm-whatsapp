@@ -207,6 +207,29 @@ export class ConversationsController {
     return this.inbox.reply(actor(auth, workspace), conversationId, dto.text);
   }
 
+  @Post(':conversationId/messages/:messageId/retry')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: 'Send a message that was not delivered again',
+    description:
+      'Only outgoing messages with status "failed" (409 MESSAGE_NOT_RETRYABLE); the same message is reused with the same text, file or contacts. Same rules as a reply.',
+  })
+  @ApiOkResponse({ type: MessageDto })
+  @ApiConflictResponse({
+    description:
+      'MESSAGE_NOT_RETRYABLE, CONVERSATION_CLOSED, WINDOW_CLOSED, LINE_UNAVAILABLE or CONTACT_LIMIT_REACHED.',
+    type: ErrorResponseDto,
+  })
+  retry(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+  ): Promise<MessageDto> {
+    return this.inbox.retry(actor(auth, workspace), conversationId, messageId);
+  }
+
   @Get(':conversationId/messages/:messageId/media')
   @RequirePermissions('messages.read')
   @ApiProduces('application/octet-stream')

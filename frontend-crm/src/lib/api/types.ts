@@ -325,6 +325,8 @@ export interface Line {
   agents: LineAgent[]
   /** Credentials are never returned: only the last 4 characters of the token. */
   accessTokenLast4: string
+  /** When the token expires (read by "Probar conexión"); null: unknown or it does not expire. */
+  accessTokenExpiresAt: string | null
   /** Configuration for Meta; only with channels.manage. */
   webhook: { url: string; verifyToken: string } | null
   createdAt: string

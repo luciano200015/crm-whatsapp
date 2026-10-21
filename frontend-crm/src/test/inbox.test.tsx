@@ -668,4 +668,33 @@ describe('Inbox', () => {
     )
     sendContacts.mockRestore()
   })
+
+  it('explains a message WhatsApp refused and sends it again', async () => {
+    chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
+    history = [
+      {
+        ...history[0]!,
+        id: 'out-failed',
+        direction: 'OUT',
+        text: 'Precio: 100',
+        status: 'failed',
+        error: '(#131005) Access denied',
+        sentBy: { userId: 'u1', name: 'Uma' },
+      },
+      ...history,
+    ]
+    const retry = vi
+      .spyOn(inboxApi, 'retry')
+      .mockResolvedValue({ ...history[0]!, status: 'sent', error: null })
+    renderAt()
+    const user = userEvent.setup()
+
+    expect(await screen.findByText(/No entregado: \(#131005\) Access denied/)).toBeInTheDocument()
+    expect(screen.getByText(/Meta negó el permiso para enviar/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    await waitFor(() => expect(retry).toHaveBeenCalledWith('w1', 'c1', 'out-failed'))
+    expect(await screen.findByText('Mensaje enviado.')).toBeInTheDocument()
+    retry.mockRestore()
+  })
 })

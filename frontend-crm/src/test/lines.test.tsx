@@ -65,6 +65,7 @@ const line = (withWebhook: boolean): Line => ({
     },
   ],
   accessTokenLast4: 'abcd',
+  accessTokenExpiresAt: null,
   webhook: withWebhook
     ? { url: 'https://api.example.com/api/v1/webhooks/whatsapp/l1', verifyToken: 'verify-123' }
     : null,

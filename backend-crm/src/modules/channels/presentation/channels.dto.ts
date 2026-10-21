@@ -223,6 +223,14 @@ export class LineDto {
   accessTokenLast4: string;
 
   @ApiProperty({
+    type: Date,
+    nullable: true,
+    description:
+      'When the access token expires, read from Meta by the last connection test. Null: unknown or it does not expire.',
+  })
+  accessTokenExpiresAt: Date | null;
+
+  @ApiProperty({
     type: LineWebhookDto,
     nullable: true,
     description: 'Only for members with channels.manage.',

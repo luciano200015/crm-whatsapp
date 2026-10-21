@@ -79,7 +79,7 @@ La reserva se hace bajo bloqueo de la fila del workspace, así que dos respuesta
 
 | Tabla | Propósito | Claves / restricciones |
 | ----- | --------- | ---------------------- |
-| `channel_lines` | Línea de WhatsApp: ids de Meta, credenciales **cifradas**, token de verificación del webhook, estado, autoasignación y cursor rotativo | `phone_number_id` único (enruta webhooks) + `CHECK` numérico; `webhook_verify_token` único; `CASCADE` con el workspace |
+| `channel_lines` | Línea de WhatsApp: ids de Meta, credenciales **cifradas**, vencimiento del token (`access_token_expires_at`, migración `line_token_expiry`), token de verificación del webhook, estado, autoasignación y cursor rotativo | `phone_number_id` único (enruta webhooks) + `CHECK` numérico; `webhook_verify_token` único; `CASCADE` con el workspace |
 | `channel_line_agents` | Agentes (membresías) que atienden cada línea | PK `(line_id, membership_id)`; `CASCADE` con la línea y la membresía |
 
 Ver [channels.md](channels.md).

@@ -24,6 +24,7 @@ function lineRecord(overrides: Partial<LineRecord> = {}): LineRecord {
     displayPhone: null,
     verifiedName: null,
     accessTokenLast4: 'abcd',
+    accessTokenExpiresAt: null,
     webhookVerifyToken: 'verify-token',
     status: 'PENDING',
     lastError: null,
@@ -63,6 +64,12 @@ function setup(line: LineRecord, gateway: Partial<WhatsAppGateway>) {
         verifiedName: 'Test Number',
       }),
       subscribeApp: jest.fn().mockResolvedValue(undefined),
+      inspectToken: jest.fn().mockResolvedValue({
+        valid: true,
+        expiresAt: null,
+        canMessage: true,
+        canManage: true,
+      }),
       ...gateway,
     } as unknown as WhatsAppGateway,
     {} as WorkspaceEntitlements,
@@ -115,5 +122,57 @@ describe('ChannelsService.test', () => {
     expect(view.lastError).toBe(
       'Could not subscribe the app to the WhatsApp Business Account: Missing permission',
     );
+  });
+
+  it('stores when the token expires', async () => {
+    const expiresAt = new Date('2026-10-22T01:00:00Z');
+    const { service } = setup(lineRecord(), {
+      inspectToken: jest.fn().mockResolvedValue({
+        valid: true,
+        expiresAt,
+        canMessage: true,
+        canManage: true,
+      }),
+    });
+
+    await expect(service.test(WS, 'line-1')).resolves.toMatchObject({
+      status: 'CONNECTED',
+      accessTokenExpiresAt: expiresAt,
+    });
+  });
+
+  it('marks the line in error when the token cannot send messages', async () => {
+    const inspectToken = jest.fn().mockResolvedValue({
+      valid: true,
+      expiresAt: null,
+      canMessage: false,
+      canManage: true,
+    });
+    const { service } = setup(lineRecord(), { inspectToken });
+
+    const view = await service.test(WS, 'line-1');
+
+    expect(inspectToken).toHaveBeenCalledWith(
+      { phoneNumberId: '358803983978663', accessToken: 'token' },
+      '360908340436091',
+    );
+    expect(view.status).toBe('ERROR');
+    expect(view.lastError).toContain('whatsapp_business_messaging');
+  });
+
+  it('marks the line in error when the token is no longer valid', async () => {
+    const { service } = setup(lineRecord(), {
+      inspectToken: jest.fn().mockResolvedValue({
+        valid: false,
+        expiresAt: null,
+        canMessage: false,
+        canManage: false,
+      }),
+    });
+
+    const view = await service.test(WS, 'line-1');
+
+    expect(view.status).toBe('ERROR');
+    expect(view.lastError).toContain('ya no es válido');
   });
 });

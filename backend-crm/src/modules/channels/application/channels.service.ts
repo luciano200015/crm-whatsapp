@@ -34,6 +34,8 @@ export interface LineView {
   agents: LineAgent[];
   /** Credentials are never returned: only that they exist and the last 4 characters. */
   accessTokenLast4: string;
+  /** From the last connection test; null when unknown or the token does not expire. */
+  accessTokenExpiresAt: Date | null;
   /** Configuration for Meta; only for members with channels.manage. */
   webhook: { url: string; verifyToken: string } | null;
   createdAt: Date;
@@ -54,6 +56,11 @@ export interface LineChanges extends Partial<LineInput> {
   enabled?: boolean;
   autoAssign?: boolean;
 }
+
+const TOKEN_INVALID =
+  'El token de acceso ya no es válido (venció o fue revocado). Genera uno nuevo en Meta y guárdalo en la línea.';
+const TOKEN_CANNOT_MESSAGE =
+  'El token no tiene permiso para enviar mensajes (whatsapp_business_messaging) en esta cuenta de WhatsApp. Genera uno nuevo con ese permiso y guárdalo en la línea.';
 
 interface Actor {
   userId: string;
@@ -153,6 +160,7 @@ export class ChannelsService {
       ...(changes.accessToken !== undefined && {
         accessTokenEnc: this.secrets.encrypt(changes.accessToken),
         accessTokenLast4: changes.accessToken.slice(-4),
+        accessTokenExpiresAt: null,
       }),
       ...(changes.appSecret !== undefined && {
         appSecretEnc: this.secrets.encrypt(changes.appSecret),
@@ -219,14 +227,28 @@ export class ChannelsService {
               ? new WhatsAppApiError(
                   `Could not subscribe the app to the WhatsApp Business Account: ${error.message}`,
                   error.status,
+                  error.code,
                 )
               : error;
           });
       }
+      // Reading the number and subscribing need only the management scope:
+      // sending also needs whatsapp_business_messaging.
+      const token = await this.gateway.inspectToken(credentials, line.wabaId);
+      const problem = !token.valid
+        ? TOKEN_INVALID
+        : !token.canMessage
+          ? TOKEN_CANNOT_MESSAGE
+          : null;
       data = {
-        status: line.status === 'DISABLED' ? 'DISABLED' : 'CONNECTED',
-        lastError: null,
+        status: problem
+          ? 'ERROR'
+          : line.status === 'DISABLED'
+            ? 'DISABLED'
+            : 'CONNECTED',
+        lastError: problem,
         verifiedName: phone.verifiedName,
+        accessTokenExpiresAt: token.expiresAt,
         ...(phone.displayPhone && { displayPhone: phone.displayPhone }),
       };
     } catch (error: unknown) {

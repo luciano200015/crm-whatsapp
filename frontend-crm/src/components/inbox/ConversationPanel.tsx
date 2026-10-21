@@ -142,6 +142,19 @@ export function ConversationPanel({
     retry: false,
   })
 
+  const retry = useMutation({
+    mutationFn: (messageId: string) => inboxApi.retry(workspaceId, id, messageId),
+    onSuccess: (message) => {
+      enqueueSnackbar(
+        message.status === 'failed' ? 'WhatsApp volvió a rechazar el mensaje.' : 'Mensaje enviado.',
+        { variant: message.status === 'failed' ? 'error' : 'success' },
+      )
+      void refresh()
+    },
+    onError: fail,
+    retry: false,
+  })
+
   // Opening a chat reads it (but not right after "Marcar como no leído").
   useEffect(() => {
     if (!conversation?.unreadCount || current.error || action.isPending) return
@@ -293,7 +306,18 @@ export function ConversationPanel({
                 {(!previous || !sameDay(previous.createdAt, message.createdAt)) && (
                   <DaySeparator label={dayLabel(message.createdAt)} />
                 )}
-                <MessageBubble message={message} />
+                <MessageBubble
+                  message={message}
+                  onRetry={
+                    message.direction === 'OUT' &&
+                    message.status === 'failed' &&
+                    has('messages.send') &&
+                    conversation?.status !== 'CLOSED'
+                      ? () => retry.mutate(message.id)
+                      : undefined
+                  }
+                  retrying={retry.isPending && retry.variables === message.id}
+                />
               </Fragment>
             )
           })}

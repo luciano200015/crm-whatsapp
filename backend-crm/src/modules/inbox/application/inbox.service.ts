@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { buffer } from 'node:stream/consumers';
 import type { CursorPage } from '../../../database/mongodb/pagination';
 import {
   planLimit,
@@ -288,6 +289,76 @@ export class InboxService {
     });
   }
 
+  /**
+   * Sends a message that WhatsApp refused again, with the same content and
+   * the same rules as a reply. The message is reused, not duplicated.
+   */
+  async retry(
+    actor: InboxActor,
+    conversationId: string,
+    messageId: string,
+  ): Promise<MessageView> {
+    const { workspaceId } = actor.access;
+    await this.requireVisible(actor, conversationId);
+    const failed = await this.store.findMessage(workspaceId, messageId);
+    if (
+      !failed ||
+      failed.conversationId !== conversationId ||
+      failed.direction !== 'OUT'
+    ) {
+      throw InboxErrors.messageNotFound();
+    }
+    if (failed.status !== 'failed') throw InboxErrors.notRetryable();
+    return this.deliver(actor, conversationId, {
+      type: failed.type,
+      text: failed.text,
+      contacts: failed.contacts,
+      retry: failed,
+      send: (credentials, to) =>
+        this.resend(workspaceId, failed, credentials, to),
+    });
+  }
+
+  private async resend(
+    workspaceId: string,
+    message: MessageRecord,
+    credentials: LineCredentials,
+    to: string,
+  ): Promise<{ waMessageId: string; mediaId?: string }> {
+    if (message.type === 'text') {
+      return this.whatsapp.sendText(credentials, to, message.text ?? '');
+    }
+    if (message.type === 'contacts') {
+      return this.whatsapp.sendContacts(credentials, to, message.contacts);
+    }
+    const media = message.media;
+    const type = message.type;
+    if (
+      !media?.fileId ||
+      (type !== 'image' &&
+        type !== 'video' &&
+        type !== 'audio' &&
+        type !== 'document')
+    ) {
+      throw InboxErrors.notRetryable();
+    }
+    const stored = await this.mediaStore.open(workspaceId, media.fileId);
+    if (!stored) throw InboxErrors.mediaNotFound();
+    const filename = media.filename ?? `archivo.${type}`;
+    const { mediaId } = await this.whatsapp.uploadMedia(credentials, {
+      body: await buffer(stored.stream),
+      mimeType: stored.mimeType,
+      filename,
+    });
+    const sent = await this.whatsapp.sendMedia(credentials, to, {
+      type,
+      mediaId,
+      caption: media.caption,
+      filename,
+    });
+    return { ...sent, mediaId };
+  }
+
   /** Conversation the actor may see (for streaming its media). */
   async visible(
     actor: InboxActor,
@@ -303,6 +374,8 @@ export class InboxService {
       type: MessageType;
       text: string | null;
       contacts?: SharedContact[];
+      /** A failed message sent again: it is reused instead of stored anew. */
+      retry?: MessageRecord;
       /** Runs after every check, before the message is stored. */
       prepare?: (workspaceId: string) => Promise<MessageMedia>;
       send: (
@@ -341,19 +414,23 @@ export class InboxService {
       conversation = claimed;
     }
 
-    const media = outgoing.prepare ? await outgoing.prepare(workspaceId) : null;
-    const pending = await this.store.insertMessage(workspaceId, {
-      conversationId,
-      direction: 'OUT',
-      type: outgoing.type,
-      text: outgoing.text,
-      media,
-      contacts: outgoing.contacts,
-      waMessageId: null,
-      status: 'pending',
-      sentBy: { userId: me.userId, name: me.name },
-      createdAt: now,
-    });
+    const pending = outgoing.retry
+      ? ((await this.store.updateMessage(workspaceId, outgoing.retry.id, {
+          status: 'pending',
+          error: null,
+        })) ?? outgoing.retry)
+      : await this.store.insertMessage(workspaceId, {
+          conversationId,
+          direction: 'OUT',
+          type: outgoing.type,
+          text: outgoing.text,
+          media: outgoing.prepare ? await outgoing.prepare(workspaceId) : null,
+          contacts: outgoing.contacts,
+          waMessageId: null,
+          status: 'pending',
+          sentBy: { userId: me.userId, name: me.name },
+          createdAt: now,
+        });
     if (pending === 'duplicate')
       throw new Error('Unexpected duplicate message');
 
@@ -376,6 +453,16 @@ export class InboxService {
       });
     }
     const message = sent ?? pending;
+    if (outgoing.retry) {
+      // The chat keeps its place: only the message changes.
+      this.events.emit({
+        workspaceId,
+        type: 'message.updated',
+        conversation,
+        message,
+      });
+      return toMessageView(message);
+    }
     const updated =
       (await this.store.recordActivity(workspaceId, conversationId, {
         lastMessage: {

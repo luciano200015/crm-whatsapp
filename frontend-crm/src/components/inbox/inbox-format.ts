@@ -133,3 +133,34 @@ export const STATUS_LABELS: Record<Conversation['status'], string> = {
   ON_HOLD: 'En espera',
   CLOSED: 'Cerrado',
 }
+
+/** Meta's error code at the start of a delivery error: "(#131005) Access denied…". */
+export function metaErrorCode(error: string | null): number | null {
+  const match = /\(#(\d+)\)/.exec(error ?? '')
+  return match ? Number(match[1]) : null
+}
+
+const DELIVERY_HINTS: Record<number, string> = {
+  131005:
+    'Meta negó el permiso para enviar. Revisa en Canales → Probar conexión que el token tenga el permiso whatsapp_business_messaging; si lo regeneraste, guárdalo en la línea.',
+  10: 'El token no tiene permiso para esta acción. Genera uno con whatsapp_business_messaging y guárdalo en la línea.',
+  200: 'El token no tiene permiso para esta acción. Genera uno con whatsapp_business_messaging y guárdalo en la línea.',
+  190: 'El token de la línea venció o fue revocado. Genera uno nuevo en Meta y guárdalo en Canales.',
+  131030:
+    'Con el número de prueba de Meta solo puedes escribir a números agregados en la lista de destinatarios permitidos.',
+  131047: 'Pasaron más de 24 horas desde el último mensaje del cliente: hace falta una plantilla.',
+  131026: 'WhatsApp no pudo entregarlo: el número puede no tener WhatsApp o una versión antigua.',
+  130429: 'Se alcanzó el límite de envíos de Meta. Espera unos minutos y reintenta.',
+  131056: 'Demasiados mensajes seguidos a este cliente. Espera un momento y reintenta.',
+  131053: 'WhatsApp no aceptó el archivo (formato o códec). Prueba con otro formato.',
+}
+
+/** What the agent can do about a message WhatsApp refused, in plain words. */
+export function deliveryHint(error: string | null): string | null {
+  const code = metaErrorCode(error)
+  if (code !== null && DELIVERY_HINTS[code]) return DELIVERY_HINTS[code]
+  if (/media file scrutiny|mediaEngineStatus/i.test(error ?? '')) {
+    return DELIVERY_HINTS[131053] ?? null
+  }
+  return null
+}

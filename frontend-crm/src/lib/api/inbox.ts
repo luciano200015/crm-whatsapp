@@ -186,6 +186,13 @@ export const inboxApi = {
       body: { contacts },
     })
   },
+  /** Sends a message WhatsApp refused again (same message, same content). */
+  retry(workspaceId: string, id: string, messageId: string) {
+    return apiRequest<ChatMessage>(
+      `${conversationPath(workspaceId, id)}/messages/${encodeURIComponent(messageId)}/retry`,
+      { method: 'POST' },
+    )
+  },
   /** The file of a message, downloaded with the session token. */
   async media(
     workspaceId: string,

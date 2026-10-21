@@ -188,6 +188,7 @@ export function LinesPage() {
                   {es.lines.phoneNumberId}: {line.phoneNumberId} ·{' '}
                   {es.lines.token(line.accessTokenLast4)}
                 </Typography>
+                <TokenExpiry expiresAt={line.accessTokenExpiresAt} />
                 <Typography variant="body2">
                   {line.lastWebhookAt
                     ? es.lines.lastWebhook(formatDate(line.lastWebhookAt))
@@ -355,5 +356,29 @@ function CopyField({ label, value }: { label: string; value: string }) {
         },
       }}
     />
+  )
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const msUntil = (iso: string) => new Date(iso).getTime() - Date.now()
+
+/** Temporary tokens of Meta last about a day: warn before sending starts failing. */
+function TokenExpiry({ expiresAt }: { expiresAt: string | null }) {
+  if (!expiresAt) return null
+  const left = msUntil(expiresAt)
+  const date = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(
+    new Date(expiresAt),
+  )
+  if (left <= 0) {
+    return (
+      <Typography variant="body2" color="error">
+        {es.lines.tokenExpired(date)}
+      </Typography>
+    )
+  }
+  return (
+    <Typography variant="body2" color={left < DAY_MS ? 'warning.main' : undefined}>
+      {left < DAY_MS ? es.lines.tokenExpiresSoon(date) : es.lines.tokenExpires(date)}
+    </Typography>
   )
 }

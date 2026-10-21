@@ -11,6 +11,7 @@ Una **línea** es un número de WhatsApp Business conectado con la **API oficial
 | `phoneNumberId` | «Phone number ID» de Meta. **Único** en todo el sistema: enruta los webhooks |
 | `wabaId`, `displayPhone`, `verifiedName` | Informativos. `verifiedName` y el número se rellenan al probar la conexión |
 | `accessTokenEnc`, `appSecretEnc` | **Cifrados** con AES-256-GCM ([`SecretBox`](../src/shared/security/secret-box.ts), clave `CHANNEL_SECRETS_KEY`). La API nunca los devuelve: solo `accessTokenLast4` |
+| `accessTokenExpiresAt` | Cuándo vence el token, leído de Meta al probar la conexión (`null`: desconocido o no vence). Se borra al cambiar el token |
 | `webhookVerifyToken` | Aleatorio, lo generamos nosotros. Se pega en Meta |
 | `status` | `PENDING` → `CONNECTED` (prueba correcta o primer webhook firmado), `ERROR` (Meta rechazó las credenciales, ver `lastError`), `DISABLED` (apagada por el workspace) |
 | `autoAssign`, agentes (`channel_line_agents`) | Quién atiende la línea y si los chats nuevos se reparten solos (ver [inbox.md](inbox.md)) |
@@ -32,11 +33,24 @@ Una **línea** es un número de WhatsApp Business conectado con la **API oficial
 3. **En el CRM:** Canales → Líneas → **Conectar número**, pega los datos y pulsa **Probar conexión**:
    - comprueba el token contra el número;
    - si la línea tiene WABA ID, **suscribe la app a la cuenta de WhatsApp Business** (`POST /{waba-id}/subscribed_apps`). Sin esa suscripción Meta no envía los mensajes entrantes de un número real;
+   - **revisa los permisos del token** con `GET /debug_token`: sin `whatsapp_business_messaging` sobre esa WABA la línea queda en ERROR, porque leer el número y suscribir la app solo necesitan *management* y los envíos fallarían igual. También guarda cuándo vence el token: la tarjeta lo muestra en naranja si faltan menos de 24 h;
    - debe quedar «Conectada» con el nombre verificado.
 4. **De vuelta en Meta, *WhatsApp → Configuration → Webhook*:**
    - pega la **URL de devolución de llamada** y el **token de verificación** que muestra la tarjeta de la línea y pulsa *Verify and save*;
    - Meta llama a `GET /api/v1/webhooks/whatsapp/:lineId` y debemos responder con el `hub.challenge`. La tarjeta muestra entonces «Último evento de Meta».
 5. En **Webhook fields**, suscríbete a **`messages`**.
+
+### Envíos rechazados por Meta
+
+Si Meta rechaza un envío, el mensaje queda «No entregado» con el error completo de Meta: código, `error_data.details` y `fbtrace_id`, que es lo que pide el soporte de Meta. El chat explica qué hacer y ofrece **Reintentar** (ver [inbox.md](inbox.md)). Los errores más comunes:
+
+| Código | Causa | Qué hacer |
+| ------ | ----- | --------- |
+| `131005` Access denied | Meta negó el permiso al enviar: token regenerado o con otros permisos, permiso retirado en Meta o app restringida | **Probar conexión** (revisa `whatsapp_business_messaging`); si lo regeneraste, guárdalo en la línea |
+| `190` | Token vencido o revocado (el temporal dura unas 24 h) | Generar uno nuevo; mejor uno permanente de *System User* |
+| `131030` | Con el número de prueba de Meta, el destinatario no está en la lista permitida | Agregarlo en *API Setup → To* |
+| `131047` | Pasaron 24 h desde el último mensaje del cliente | Hace falta una plantilla (pendiente) |
+| `131053` / *Media file scrutiny…* | WhatsApp no aceptó el archivo | Otro formato; las notas de voz van en OGG/Opus |
 
 ### ¿Por qué una URL por línea y no por workspace?
 
@@ -113,7 +127,7 @@ Todas bajo `/api/v1/workspaces/:workspaceId/channels/lines`.
 | `GET` · `GET :lineId` | `channels.read` | Líneas. `webhook` (URL y token de verificación) solo se incluye con `channels.manage` |
 | `POST` | `channels.manage` | Conectar un número |
 | `PATCH :lineId` | `channels.manage` | Nombre o credenciales (las nuevas vuelven a `PENDING`), `enabled`, `autoAssign` |
-| `POST :lineId/test` | `channels.manage` | Comprueba las credenciales contra Meta y suscribe la app a la WABA |
+| `POST :lineId/test` | `channels.manage` | Comprueba las credenciales contra Meta, suscribe la app a la WABA y revisa el permiso de envío y el vencimiento del token |
 | `PUT :lineId/agents` | `channels.manage` | Agentes que atienden la línea (solo miembros activos del workspace) |
 | `DELETE :lineId` | `channels.manage` | Elimina la línea; sus conversaciones quedan en el historial |
 

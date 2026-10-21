@@ -521,6 +521,8 @@ model ChannelLine {
   /// AES-256-GCM (SecretBox). Never returned by the API.
   accessTokenEnc           String          @map("access_token_enc")
   accessTokenLast4         String          @map("access_token_last4") @db.VarChar(4)
+  /// When the access token expires, read from Meta by the connection test (null: unknown or never).
+  accessTokenExpiresAt     DateTime?       @map("access_token_expires_at") @db.Timestamptz(3)
   appSecretEnc             String          @map("app_secret_enc")
   /// Random value the workspace pastes in Meta to verify the webhook URL.
   webhookVerifyToken       String          @unique @map("webhook_verify_token") @db.VarChar(64)

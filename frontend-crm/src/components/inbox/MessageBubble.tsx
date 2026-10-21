@@ -1,11 +1,12 @@
 import DoneAllRounded from '@mui/icons-material/DoneAllRounded'
 import DoneRounded from '@mui/icons-material/DoneRounded'
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded'
+import ReplayRounded from '@mui/icons-material/ReplayRounded'
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded'
-import { Box, Stack, Typography } from '@mui/material'
+import { Box, Button, Stack, Typography } from '@mui/material'
 import type { ChatMessage } from '../../lib/api/inbox'
 import { useChatColors, type ChatColors } from './chat-colors'
-import { DELIVERY_LABELS, eventText, messageTime } from './inbox-format'
+import { DELIVERY_LABELS, deliveryHint, eventText, messageTime } from './inbox-format'
 import { MessageContent } from './MessageContent'
 
 /** "Hoy", "Ayer" or the date, centered between the messages of each day. */
@@ -76,7 +77,16 @@ function DeliveryIcon({ message, colors }: { message: ChatMessage; colors: ChatC
   }
 }
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export function MessageBubble({
+  message,
+  onRetry,
+  retrying = false,
+}: {
+  message: ChatMessage
+  /** Shown on messages WhatsApp refused, when the member may send. */
+  onRetry?: () => void
+  retrying?: boolean
+}) {
   const colors = useChatColors()
   if (message.direction === 'EVENT') return <EventNotice message={message} />
   const incoming = message.direction === 'IN'
@@ -126,9 +136,43 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         {message.direction === 'OUT' && <DeliveryIcon message={message} colors={colors} />}
       </Stack>
       {message.status === 'failed' && (
-        <Typography variant="caption" color="error" component="div">
-          No entregado: {message.error ?? 'No se pudo enviar el mensaje.'}
+        <FailedNotice message={message} onRetry={onRetry} retrying={retrying} />
+      )}
+    </Box>
+  )
+}
+
+function FailedNotice({
+  message,
+  onRetry,
+  retrying,
+}: {
+  message: ChatMessage
+  onRetry?: () => void
+  retrying: boolean
+}) {
+  const hint = deliveryHint(message.error)
+  return (
+    <Box sx={{ mt: 0.5, maxWidth: 360 }}>
+      <Typography variant="caption" color="error" component="div">
+        No entregado: {message.error ?? 'No se pudo enviar el mensaje.'}
+      </Typography>
+      {hint && (
+        <Typography variant="caption" color="text.secondary" component="div">
+          {hint}
         </Typography>
+      )}
+      {onRetry && (
+        <Button
+          size="small"
+          color="error"
+          startIcon={<ReplayRounded />}
+          onClick={onRetry}
+          disabled={retrying}
+          sx={{ mt: 0.25, px: 0.5, minWidth: 0 }}
+        >
+          {retrying ? 'Reintentando…' : 'Reintentar'}
+        </Button>
       )}
     </Box>
   )

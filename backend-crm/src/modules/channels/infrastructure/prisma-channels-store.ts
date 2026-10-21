@@ -19,6 +19,7 @@ const LINE_SELECT = {
   displayPhone: true,
   verifiedName: true,
   accessTokenLast4: true,
+  accessTokenExpiresAt: true,
   webhookVerifyToken: true,
   status: true,
   lastError: true,

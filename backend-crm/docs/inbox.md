@@ -148,8 +148,9 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 
 - **Respuestas:** requieren una conversación abierta y un mensaje entrante del cliente en las últimas 24 horas.
 - **Notas:** son internas y nunca se envían a WhatsApp.
-- **Fallos de envío:** el mensaje se conserva como fallido y no se reintenta automáticamente, para evitar duplicados.
-- **Errores de Meta:** se guardan sin el token de acceso (Meta lo repite en algunos errores y se reemplaza por `[token]`).
+- **Fallos de envío:** el mensaje se conserva como «No entregado» y no se reintenta automáticamente, para evitar duplicados. Debajo, el chat explica la causa según el código de Meta (131005 permiso del token, 190 token vencido, 131030 número no permitido en modo prueba, 131047 fuera de las 24 h…; ver [Canales](channels.md#envíos-rechazados-por-meta)).
+- **Reintentar:** `POST /conversations/:id/messages/:messageId/retry` vuelve a enviar **el mismo mensaje** (texto, contactos o el archivo guardado en GridFS) con las mismas reglas que una respuesta. Solo para mensajes salientes en `failed` (`409 MESSAGE_NOT_RETRYABLE`); el chat no cambia de lugar en la lista.
+- **Errores de Meta:** se guardan con `error_data.details` y `fbtrace_id`, sin el token de acceso (Meta lo repite en algunos errores y se reemplaza por `[token]`).
 
 **Tiempo real:**
 - El frontend lee `/api/v1/workspaces/:workspaceId/conversations/events` con `fetch` y Bearer.
@@ -169,7 +170,7 @@ Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/ap
 - `GET /conversations`: `view` (`mine|unassigned|all`), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `cursor` y `limit`.
 - `GET /conversations/options` · `GET /conversations/counts` (`mine`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
-- `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts`.
+- `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
 - `POST /contacts/:id/block` y `/unblock`.

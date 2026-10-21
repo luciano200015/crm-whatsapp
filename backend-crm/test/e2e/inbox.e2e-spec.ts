@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { Connection } from 'mongoose';
+import { Types, type Connection } from 'mongoose';
 import request from 'supertest';
 import { seedAuthorization } from '../../prisma/seed-authorization';
 import { seedBilling } from '../../prisma/seed-billing';
@@ -829,6 +829,73 @@ describe('Inbox (e2e)', () => {
       text: 'Catálogo 2026',
       direction: 'OUT',
     });
+  });
+
+  it('sends again a text or a file that WhatsApp refused, without duplicating it', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000072', 'Hola');
+    const [chat] = await conversations(owner, '?view=all');
+    const text = (
+      await api(owner)
+        .post(`/conversations/${chat?.id}/messages`, { text: 'Precio: 100' })
+        .expect(201)
+    ).body as MessageBody;
+    const file = (
+      await http()
+        .post(
+          `/api/v1/workspaces/${owner.workspaceId}/conversations/${chat?.id}/media`,
+        )
+        .set('Authorization', `Bearer ${owner.token}`)
+        .attach('file', Buffer.from('%PDF-1.4 lista'), {
+          filename: 'lista.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201)
+    ).body as MessageBody;
+
+    // Sent messages cannot be retried.
+    const sent = await api(owner)
+      .post(`/conversations/${chat?.id}/messages/${text.id}/retry`)
+      .expect(409);
+    expect(sent.body).toMatchObject({ code: 'MESSAGE_NOT_RETRYABLE' });
+
+    // What Meta refused (the simulated gateway never fails).
+    await mongo.collection('messages').updateMany(
+      { text: { $in: ['Precio: 100', null] }, direction: 'OUT' },
+      {
+        $set: {
+          status: 'failed',
+          error: '(#131005) Access denied',
+          waMessageId: null,
+        },
+      },
+    );
+
+    for (const message of [text, file]) {
+      const retried = (
+        await api(owner)
+          .post(`/conversations/${chat?.id}/messages/${message.id}/retry`)
+          .expect(200)
+      ).body as MessageBody;
+      expect(retried).toMatchObject({
+        id: message.id,
+        status: 'sent',
+        error: null,
+      });
+    }
+    const stored = await mongo
+      .collection('messages')
+      .find({ conversationId: new Types.ObjectId(chat?.id), direction: 'OUT' })
+      .toArray();
+    expect(stored).toHaveLength(2);
+    expect(stored.every((message) => message.waMessageId)).toBe(true);
+
+    // Someone else's chat: not found.
+    const other = await signUp();
+    await api(other)
+      .post(`/conversations/${chat?.id}/messages/${text.id}/retry`)
+      .expect(404);
   });
 
   it('blocks a contact: closes the chat, ignores new messages and can unblock', async () => {
