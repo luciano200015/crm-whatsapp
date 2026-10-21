@@ -142,14 +142,14 @@ Grupo **Equipo** del menú con dos páginas: Agentes (`members.read`) y Roles (`
 
 | Pantalla | Qué hace |
 | -------- | -------- |
-| **Agentes** | Tabla con nombre, correo, rol, estado (Activo / Desactivado / Pendiente de primer acceso) y último acceso. Búsqueda y filtro por estado, indicador «N de M agentes» del plan. **Nuevo agente** pide nombre, correo y rol, y el backend envía una contraseña temporal por correo. Menú por fila: cambiar rol, reenviar acceso, desactivar (con confirmación) y reactivar |
+| **Agentes** | Tabla con nombre, correo, rol, **líneas** («Todas» si su rol ve todo, «Sin líneas» en naranja si no recibirá chats), estado (Activo / Desactivado / Pendiente de primer acceso) y último acceso. Búsqueda y filtro por estado, indicador «N de M agentes» del plan. **Nuevo agente** pide nombre, correo, rol y, con `channels.manage`, sus líneas; el backend envía una contraseña temporal por correo. Menú por fila: asignar líneas (`channels.manage`), cambiar rol, reenviar acceso, desactivar (con confirmación) y reactivar |
 | **Roles** | Tarjetas con los roles del sistema (Propietario, Administrador, Agente regular), de solo lectura con «Ver permisos», y los personalizados del workspace con Editar y Eliminar. **Nuevo rol** muestra los permisos agrupados por módulo, con «Todos» por grupo. Si el plan no incluye roles personalizados aparece un aviso con enlace a planes |
 | **Contraseña obligatoria** | Si `/users/me` trae `mustChangePassword`, cualquier ruta de la app redirige a `/account/password-required` hasta que el agente cambie la contraseña temporal |
 
 La interfaz solo ofrece lo que la API va a aceptar, con la misma regla anti-escalada:
 
 - solo se pueden asignar roles cuyos permisos tengas;
-- nunca hay acciones sobre tu propia fila;
+- en tu propia fila solo puedes asignarte líneas;
 - un Administrador no ve acciones sobre un Propietario;
 - el botón de alta se desactiva al llegar al límite del plan.
 
@@ -206,14 +206,16 @@ src/
 
 **Menú:** **Bandeja**, **Autoasignación** y **Respuestas rápidas** son entradas de primer nivel, cada una con su permiso. La bandeja imita WhatsApp Web y wasapi:
 
-- **Barra de la lista** (como wasapi): tu avatar, Ayuda, Configuración (sonido y notificaciones), Pantalla completa, botón de agentes (encendido: tus chats, los de tus agentes y los sin asignar; apagado: solo los tuyos; se recuerda por navegador), Sincronizar y ⋮ con accesos a Respuestas rápidas, Autoasignación y Líneas.
+- **Barra de la lista** (como wasapi): tu avatar (al pulsarlo, **Mi perfil** con tu rol y **tus líneas**: nombre, número y estado), Ayuda, Configuración (sonido y notificaciones), Pantalla completa, botón de agentes (encendido: tus chats, los de tus agentes y los sin asignar; apagado: solo los tuyos; se recuerda por navegador), Sincronizar y ⋮ con accesos a Respuestas rápidas, Autoasignación y Líneas.
 - **Filtros:** el embudo junto al buscador abre «Filtros de conversaciones» (etiquetas, agentes, línea, rango de fechas y orden). Se aplican con «Aplicar filtros» y se quitan con «Limpiar filtros».
 - **Pestañas** Abierto (contador rojo) / En espera / Cerrado. Los chats sin asignar están dentro de Abierto, no en una pestaña aparte.
+- **Líneas por agente:** un agente sin «ver todo» solo recibe los chats de sus líneas; sin líneas, la lista muestra un aviso para que pida una. Transferir solo ofrece a quien atiende la línea del chat.
 - **Fila del chat:** distintivo de la línea en el avatar, hora «2:21 pm», ✓ / ✓✓ / leído del último mensaje, no leídos, etiquetas del contacto y quién atiende («Tú» o «C. Arze»).
 - **Chat:**
   - burbujas con fondo de chat, separadores por día y avisos centrados de cada movimiento (asignado, transferido, cerrado…);
   - visores de imagen, sticker, audio, video, documento y ubicación.
-- **Cabecera:** transferir, cerrar, reabrir, marcar como no leído y bloquear contacto.
+- **Cabecera:** **etiquetar chat** (🏷, con buscador; son las etiquetas del contacto y se ven bajo el nombre), transferir, cerrar, reabrir, marcar como no leído y bloquear contacto.
+- **Envío inmediato:** como en WhatsApp, el mensaje (texto, archivo, nota de voz, contacto o nota) aparece al instante con 🕒 y pasa a ✓, ✓✓ y ✓✓ azul; el editor nunca se bloquea y los envíos de un chat salen en orden. La cola vive en [`outbox.ts`](src/components/inbox/outbox.ts) y [`useSendQueue.ts`](src/components/inbox/useSendQueue.ts): cada envío lleva un `clientId` y el mensaje del servidor con ese id reemplaza la burbuja local. Si la petición falla queda «No enviado» con **Reintentar** y **Descartar**.
 - **No entregado:** explica el error de Meta en palabras simples y ofrece **Reintentar**.
 - **Editor:** emojis, adjuntos con vista previa, notas de voz y respuestas rápidas con «/».
 - **Avisos:**
@@ -226,6 +228,8 @@ src/
 | Chat | [`ConversationPanel.tsx`](src/components/inbox/ConversationPanel.tsx), [`ChatHeader.tsx`](src/components/inbox/ChatHeader.tsx), [`MessageBubble.tsx`](src/components/inbox/MessageBubble.tsx), [`MediaViewer.tsx`](src/components/inbox/MediaViewer.tsx), [`Composer.tsx`](src/components/inbox/Composer.tsx) |
 | Tiempo real y avisos | [`InboxRealtime.tsx`](src/components/inbox/InboxRealtime.tsx) (SSE con `fetch`), [`notifications.ts`](src/components/inbox/notifications.ts) |
 | Colores claro/oscuro del chat | [`chat-colors.ts`](src/components/inbox/chat-colors.ts) |
+
+**Scrollbar:** fino y transparente hasta pasar el mouse sobre la zona que se desplaza (tema, `MuiCssBaseline`), en claro y oscuro.
 
 **Archivos:** se descargan con el token de sesión y se muestran desde URLs `blob:` (un `<img src>` no puede enviar el token).
 

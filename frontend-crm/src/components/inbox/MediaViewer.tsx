@@ -174,7 +174,7 @@ function DocumentMedia({ message }: { message: ChatMessage }) {
             <IconButton
               aria-label={`Descargar ${name}`}
               onClick={() => void download()}
-              disabled={downloading}
+              disabled={downloading || !!message.localFile}
             >
               <DownloadRounded />
             </IconButton>

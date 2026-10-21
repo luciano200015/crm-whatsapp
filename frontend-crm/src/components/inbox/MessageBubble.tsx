@@ -80,11 +80,14 @@ function DeliveryIcon({ message, colors }: { message: ChatMessage; colors: ChatC
 export function MessageBubble({
   message,
   onRetry,
+  onDiscard,
   retrying = false,
 }: {
   message: ChatMessage
   /** Shown on messages WhatsApp refused, when the member may send. */
   onRetry?: () => void
+  /** A message that never reached the server: drop it from the chat. */
+  onDiscard?: () => void
   retrying?: boolean
 }) {
   const colors = useChatColors()
@@ -133,10 +136,18 @@ export function MessageBubble({
         <Typography variant="caption" sx={{ fontSize: 11 }}>
           {messageTime(message.createdAt)}
         </Typography>
-        {message.direction === 'OUT' && <DeliveryIcon message={message} colors={colors} />}
+        {(message.direction === 'OUT' ||
+          (note && (message.status === 'pending' || message.status === 'failed'))) && (
+          <DeliveryIcon message={message} colors={colors} />
+        )}
       </Stack>
       {message.status === 'failed' && (
-        <FailedNotice message={message} onRetry={onRetry} retrying={retrying} />
+        <FailedNotice
+          message={message}
+          onRetry={onRetry}
+          onDiscard={onDiscard}
+          retrying={retrying}
+        />
       )}
     </Box>
   )
@@ -145,17 +156,21 @@ export function MessageBubble({
 function FailedNotice({
   message,
   onRetry,
+  onDiscard,
   retrying,
 }: {
   message: ChatMessage
   onRetry?: () => void
+  onDiscard?: () => void
   retrying: boolean
 }) {
   const hint = deliveryHint(message.error)
   return (
     <Box sx={{ mt: 0.5, maxWidth: 360 }}>
       <Typography variant="caption" color="error" component="div">
-        No entregado: {message.error ?? 'No se pudo enviar el mensaje.'}
+        {/* Without onDiscard the server has it: WhatsApp refused it. */}
+        {onDiscard ? 'No enviado' : 'No entregado'}:{' '}
+        {message.error ?? 'No se pudo enviar el mensaje.'}
       </Typography>
       {hint && (
         <Typography variant="caption" color="text.secondary" component="div">
@@ -172,6 +187,16 @@ function FailedNotice({
           sx={{ mt: 0.25, px: 0.5, minWidth: 0 }}
         >
           {retrying ? 'Reintentando…' : 'Reintentar'}
+        </Button>
+      )}
+      {onDiscard && (
+        <Button
+          size="small"
+          color="inherit"
+          onClick={onDiscard}
+          sx={{ mt: 0.25, ml: 0.5, px: 0.5, minWidth: 0 }}
+        >
+          Descartar
         </Button>
       )}
     </Box>

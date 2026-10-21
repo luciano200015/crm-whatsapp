@@ -163,6 +163,7 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 
 - **Respuestas:** requieren una conversación abierta y un mensaje entrante del cliente en las últimas 24 horas.
 - **Notas:** son internas y nunca se envían a WhatsApp.
+- **Envío inmediato:** el mensaje se guarda en `pending` y se emite `message.created` **antes** de llamar a Meta; al terminar se emite `message.updated` con `sent` o `failed`. Así los demás agentes lo ven al instante con 🕒. El navegador que envía manda un `clientId` (UUID) que vuelve en el mensaje y en sus eventos, para reemplazar su burbuja local sin duplicarla.
 - **Fallos de envío:** el mensaje se conserva como «No entregado» y no se reintenta automáticamente, para evitar duplicados. Debajo, el chat explica la causa según el código de Meta (131005 permiso del token, 190 token vencido, 131030 número no permitido en modo prueba, 131047 fuera de las 24 h…; ver [Canales](channels.md#envíos-rechazados-por-meta)).
 - **Reintentar:** `POST /conversations/:id/messages/:messageId/retry` vuelve a enviar **el mismo mensaje** (texto, contactos o el archivo guardado en GridFS) con las mismas reglas que una respuesta. Solo para mensajes salientes en `failed` (`409 MESSAGE_NOT_RETRYABLE`); el chat no cambia de lugar en la lista.
 - **Errores de Meta:** se guardan con `error_data.details` y `fbtrace_id`, sin el token de acceso (Meta lo repite en algunos errores y se reemplaza por `[token]`).
@@ -185,7 +186,7 @@ Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/ap
 - `GET /conversations`: `view` (`mine|all`; `unassigned` se mantiene para clientes anteriores), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `tagIds`, `assigneeIds` (ids de membresía o `none`; solo con `conversations.view_all`, si no `403 AGENT_FILTER_FORBIDDEN`), `from`, `to`, `sort` (`recent|oldest`), `cursor` y `limit`. Cada chat trae `contactTagIds` y `lastMessage.status`.
 - `GET /conversations/options`: `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
-- `POST /conversations/:id/messages` y `/notes` (`{ "text": "..." }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
+- `POST /conversations/:id/messages` y `/notes` (`{ "text": "...", "clientId": "uuid opcional" }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
 - `PUT /conversations/:id/tags`: `{ "tagIds": [...] }` (`contacts.write`). Reemplaza las etiquetas del contacto del chat, devuelve el chat con `contactTagIds` y emite `conversation.updated`. Una etiqueta desconocida da `404 TAG_NOT_FOUND`.

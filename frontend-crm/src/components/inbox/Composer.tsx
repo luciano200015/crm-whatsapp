@@ -89,7 +89,6 @@ function RoundButton({
  */
 export function Composer({
   replyBlockedReason,
-  sending,
   onSend,
   onSendFile,
   onSendContacts,
@@ -97,8 +96,7 @@ export function Composer({
 }: {
   /** Why WhatsApp replies are not possible now (closed chat, 24 h window); notes still work. */
   replyBlockedReason: string | null
-  sending: boolean
-  /** Resolves true when it was saved, so the text can be cleared. */
+  /** Resolves true when it was queued, so the text can be cleared. */
   onSend: (text: string, mode: ComposerMode) => Promise<boolean>
   onSendFile: (file: File, caption: string | null) => Promise<boolean>
   onSendContacts: (contacts: OutgoingContact[]) => Promise<boolean>
@@ -152,7 +150,8 @@ export function Composer({
   }
   const note = mode === 'note'
   const blocked = !note && replyBlockedReason !== null
-  const canSend = !blocked && !sending && text.trim().length > 0
+  // Sending never blocks the editor: messages go out in order, like WhatsApp.
+  const canSend = !blocked && text.trim().length > 0
   const submit = () => {
     if (!canSend) return
     void onSend(text.trim(), mode).then((saved) => {
@@ -282,7 +281,7 @@ export function Composer({
           >
             <RoundButton
               label="Emojis"
-              disabled={blocked || sending}
+              disabled={blocked}
               onClick={(event) => setEmojiAnchor(event.currentTarget)}
             >
               <InsertEmoticonRounded />
@@ -308,7 +307,7 @@ export function Composer({
               <>
                 <RoundButton
                   label="Adjuntar archivo"
-                  disabled={blocked || sending}
+                  disabled={blocked}
                   onClick={(event) => setAttachMenu(event.currentTarget)}
                 >
                   <AttachFileRounded />
@@ -392,7 +391,7 @@ export function Composer({
                   submit()
                 }
               }}
-              disabled={blocked || sending}
+              disabled={blocked}
               inputProps={{
                 maxLength: 4096,
                 'aria-label': note ? 'Escribir nota interna' : 'Escribir respuesta',
@@ -408,7 +407,7 @@ export function Composer({
             {!note && !text.trim() && voice.supported ? (
               <RoundButton
                 label="Grabar nota de voz"
-                disabled={blocked || sending}
+                disabled={blocked}
                 onClick={() => void voice.start()}
               >
                 <MicRounded />
@@ -428,7 +427,6 @@ export function Composer({
       )}
       {sharingContact && (
         <SendContactDialog
-          sending={sending}
           onClose={() => setSharingContact(false)}
           onSend={(contacts) =>
             void onSendContacts(contacts).then((sent) => {
@@ -440,7 +438,6 @@ export function Composer({
       {attachment && (
         <AttachmentDialog
           file={attachment}
-          sending={sending}
           onClose={() => setAttachment(null)}
           onSend={(caption) =>
             void onSendFile(attachment, caption).then((sent) => {

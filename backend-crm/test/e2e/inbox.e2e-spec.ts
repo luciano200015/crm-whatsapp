@@ -491,6 +491,7 @@ describe('Inbox (e2e)', () => {
       await api(owner)
         .post(`/conversations/${chat?.id}/messages`, {
           text: '¡Hola! ¿En qué te ayudo?',
+          clientId: '0b9f6d3e-6c1a-4d8e-9a5e-2f1c3b4a5d6e',
         })
         .expect(201)
     ).body as MessageBody;
@@ -498,6 +499,8 @@ describe('Inbox (e2e)', () => {
       direction: 'OUT',
       status: 'sent',
       sentBy: { name: 'Olga Owner' },
+      // The browser matches its own bubble by this id.
+      clientId: '0b9f6d3e-6c1a-4d8e-9a5e-2f1c3b4a5d6e',
     });
 
     const after = (
@@ -1353,8 +1356,27 @@ describe('Inbox (e2e)', () => {
       if (done) break;
       received += decoder.decode(value);
     }
-    controller.abort();
     expect(received).toContain('event: message.created');
     expect(received).toContain('en vivo');
+
+    // A reply shows at once as pending, then its result follows.
+    const [chat] = await conversations(owner, '?view=all');
+    const clientId = '5c2a7e1b-3d4f-4a6b-8c9d-0e1f2a3b4c5d';
+    await api(owner)
+      .post(`/conversations/${chat?.id}/messages`, {
+        text: 'al instante',
+        clientId,
+      })
+      .expect(201);
+    while (reader && !received.includes('event: message.updated')) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value);
+    }
+    controller.abort();
+    const pending = received.indexOf('"status":"pending"');
+    expect(pending).toBeGreaterThan(-1);
+    expect(received.indexOf(`"clientId":"${clientId}"`)).toBeGreaterThan(-1);
+    expect(received.indexOf('event: message.updated')).toBeGreaterThan(pending);
   });
 });

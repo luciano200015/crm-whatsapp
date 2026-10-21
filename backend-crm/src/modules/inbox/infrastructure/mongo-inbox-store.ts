@@ -103,6 +103,7 @@ function toMessage(doc: MessageDocument): MessageRecord {
     status: doc.status as MessageStatus,
     error: doc.error,
     sentBy: doc.sentBy,
+    clientId: doc.clientId ?? null,
     createdAt: doc.createdAt,
   };
 }

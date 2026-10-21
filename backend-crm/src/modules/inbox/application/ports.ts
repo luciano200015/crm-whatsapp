@@ -91,6 +91,8 @@ export interface MessageRecord {
   status: MessageStatus;
   error: string | null;
   sentBy: { userId: string; name: string } | null;
+  /** Id the sending browser gave the message, to match its own bubble. */
+  clientId: string | null;
   createdAt: Date;
 }
 
@@ -148,6 +150,7 @@ export interface NewMessage {
   waMessageId: string | null;
   status: MessageStatus;
   sentBy: { userId: string; name: string } | null;
+  clientId?: string | null;
   createdAt: Date;
 }
 

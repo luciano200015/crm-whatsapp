@@ -29,6 +29,7 @@ import { Composer, type ComposerMode } from './Composer'
 import { ContactPanel } from './ContactPanel'
 import { contactName, dayLabel, sameDay } from './inbox-format'
 import { DaySeparator, MessageBubble } from './MessageBubble'
+import { useSendQueue } from './useSendQueue'
 
 export function ConversationPanel({
   workspaceId,
@@ -100,48 +101,7 @@ export function ConversationPanel({
     },
     onError: fail,
   })
-  const send = useMutation({
-    mutationFn: ({ text, mode }: { text: string; mode: ComposerMode }) =>
-      inboxApi.send(workspaceId, id, text, mode === 'note'),
-    onSuccess: (message) => {
-      if (message.status === 'failed')
-        enqueueSnackbar(
-          'No se pudo enviar. Revisa el estado del mensaje antes de intentar nuevamente.',
-          { variant: 'error' },
-        )
-      void refresh()
-    },
-    onError: fail,
-    retry: false,
-  })
-
-  const sendFile = useMutation({
-    mutationFn: ({ file, caption }: { file: File; caption: string | null }) =>
-      inboxApi.sendMedia(workspaceId, id, file, caption),
-    onSuccess: (message) => {
-      if (message.status === 'failed')
-        enqueueSnackbar(`WhatsApp no aceptó el archivo: ${message.error ?? 'error desconocido'}`, {
-          variant: 'error',
-        })
-      void refresh()
-    },
-    onError: fail,
-    retry: false,
-  })
-
-  const sendContacts = useMutation({
-    mutationFn: (contacts: { name: string; phone: string }[]) =>
-      inboxApi.sendContacts(workspaceId, id, contacts),
-    onSuccess: (message) => {
-      if (message.status === 'failed')
-        enqueueSnackbar(`WhatsApp no aceptó el contacto: ${message.error ?? 'error desconocido'}`, {
-          variant: 'error',
-        })
-      void refresh()
-    },
-    onError: fail,
-    retry: false,
-  })
+  const queue = useSendQueue(workspaceId, id)
 
   const retry = useMutation({
     mutationFn: (messageId: string) => inboxApi.retry(workspaceId, id, messageId),
@@ -184,17 +144,22 @@ export function ConversationPanel({
     action.variables,
   ])
 
-  const history = [
+  const stored = [
     ...new Map(
       messages.data?.pages.flatMap((page) => page.items).map((message) => [message.id, message]),
     ).values(),
   ].reverse()
+  // Messages still on their way go last; once the server has one (same
+  // clientId), its own bubble takes over.
+  const arrived = new Set(stored.map((message) => message.clientId).filter(Boolean))
+  const pending = queue.pending.filter((message) => !arrived.has(message.clientId))
+  const history = [...stored, ...pending]
   const end = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const newest = messages.data?.pages[0]?.items[0]?.id
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'nearest' })
-  }, [newest])
+  }, [newest, pending.length])
   // Only the latest messages load first; older ones come when scrolling up
   // (like WhatsApp), keeping the view where it was.
   const keepPosition = useRef<{ height: number; top: number } | null>(null)
@@ -313,18 +278,26 @@ export function ConversationPanel({
                 {(!previous || !sameDay(previous.createdAt, message.createdAt)) && (
                   <DaySeparator label={dayLabel(message.createdAt)} />
                 )}
-                <MessageBubble
-                  message={message}
-                  onRetry={
-                    message.direction === 'OUT' &&
-                    message.status === 'failed' &&
-                    has('messages.send') &&
-                    conversation?.status !== 'CLOSED'
-                      ? () => retry.mutate(message.id)
-                      : undefined
-                  }
-                  retrying={retry.isPending && retry.variables === message.id}
-                />
+                {message.id.startsWith('local-') ? (
+                  <MessageBubble
+                    message={message}
+                    onRetry={() => queue.retry(message.clientId ?? '')}
+                    onDiscard={() => queue.discard(message.clientId ?? '')}
+                  />
+                ) : (
+                  <MessageBubble
+                    message={message}
+                    onRetry={
+                      message.direction === 'OUT' &&
+                      message.status === 'failed' &&
+                      has('messages.send') &&
+                      conversation?.status !== 'CLOSED'
+                        ? () => retry.mutate(message.id)
+                        : undefined
+                    }
+                    retrying={retry.isPending && retry.variables === message.id}
+                  />
+                )}
               </Fragment>
             )
           })}
@@ -333,25 +306,18 @@ export function ConversationPanel({
         {has('messages.send') ? (
           <Composer
             replyBlockedReason={replyBlockedReason}
-            sending={send.isPending || sendFile.isPending || sendContacts.isPending}
-            onSend={(text, mode) =>
-              send
-                .mutateAsync({ text, mode })
-                .then(() => true)
-                .catch(() => false)
-            }
-            onSendFile={(file, caption) =>
-              sendFile
-                .mutateAsync({ file, caption })
-                .then(() => true)
-                .catch(() => false)
-            }
-            onSendContacts={(contacts) =>
-              sendContacts
-                .mutateAsync(contacts)
-                .then(() => true)
-                .catch(() => false)
-            }
+            onSend={(text, mode: ComposerMode) => {
+              queue.send({ kind: 'text', text, note: mode === 'note' })
+              return Promise.resolve(true)
+            }}
+            onSendFile={(file, caption) => {
+              queue.send({ kind: 'media', file, caption })
+              return Promise.resolve(true)
+            }}
+            onSendContacts={(contacts) => {
+              queue.send({ kind: 'contacts', contacts })
+              return Promise.resolve(true)
+            }}
             onError={(message) => enqueueSnackbar(message, { variant: 'warning' })}
           />
         ) : (

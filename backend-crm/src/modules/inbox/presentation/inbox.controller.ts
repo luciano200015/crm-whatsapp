@@ -206,7 +206,12 @@ export class ConversationsController {
     @Param('conversationId') conversationId: string,
     @Body() dto: SendTextDto,
   ): Promise<MessageDto> {
-    return this.inbox.reply(actor(auth, workspace), conversationId, dto.text);
+    return this.inbox.reply(
+      actor(auth, workspace),
+      conversationId,
+      dto.text,
+      dto.clientId ?? null,
+    );
   }
 
   @Post(':conversationId/messages/:messageId/retry')
@@ -304,6 +309,7 @@ export class ConversationsController {
         size: file.size,
       },
       dto.caption || null,
+      dto.clientId ?? null,
     );
   }
 
@@ -325,6 +331,7 @@ export class ConversationsController {
       actor(auth, workspace),
       conversationId,
       dto.contacts,
+      dto.clientId ?? null,
     );
   }
 
@@ -340,7 +347,12 @@ export class ConversationsController {
     @Param('conversationId') conversationId: string,
     @Body() dto: SendTextDto,
   ): Promise<MessageDto> {
-    return this.inbox.note(actor(auth, workspace), conversationId, dto.text);
+    return this.inbox.note(
+      actor(auth, workspace),
+      conversationId,
+      dto.text,
+      dto.clientId ?? null,
+    );
   }
 
   @Post(':conversationId/assign')

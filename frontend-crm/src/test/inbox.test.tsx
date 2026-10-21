@@ -9,6 +9,7 @@ import { API_BASE_URL } from '../lib/api/client'
 import { tokenStore } from '../lib/api/token-store'
 import type { Me } from '../lib/api/types'
 import { inboxApi, type ChatMessage, type Conversation } from '../lib/api/inbox'
+import { outbox } from '../components/inbox/outbox'
 import { createQueryClient } from '../lib/query-client'
 import { routes } from '../router'
 
@@ -215,6 +216,7 @@ beforeEach(() => {
   ]
 })
 afterEach(() => {
+  outbox.clear()
   server.resetHandlers()
   tokenStore.clear()
   document.cookie = 'crm_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
@@ -451,6 +453,88 @@ describe('Inbox', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Marcar como no leído' }))
     await waitFor(() => expect(actions.map((action) => action.name)).toContain('unread'))
   })
+  it('shows a message at once with the clock and then its tick', async () => {
+    let release = () => {}
+    const answered = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let sentBody: { text: string; clientId?: string } | null = null
+    server.use(
+      http.post(api(`${base}/c1/messages`), async ({ request }) => {
+        sentBody = (await request.json()) as { text: string; clientId?: string }
+        await answered
+        const message: ChatMessage = {
+          ...history[0]!,
+          id: 'msg-sent',
+          direction: 'OUT',
+          status: 'sent',
+          text: sentBody.text,
+          clientId: sentBody.clientId,
+          sentBy: { userId: 'u1', name: 'Uma' },
+        }
+        history.unshift(message)
+        return HttpResponse.json(message, { status: 201 })
+      }),
+    )
+    renderAt()
+    const user = userEvent.setup()
+    const editor = await screen.findByLabelText('Escribir respuesta')
+
+    await user.type(editor, 'Ya te lo envío{Enter}')
+    // Shown before the server answers, with the clock, and the editor stays free.
+    expect(await screen.findByText('Ya te lo envío')).toBeInTheDocument()
+    expect(screen.getByLabelText('Enviando')).toBeInTheDocument()
+    expect(editor).toHaveValue('')
+    expect(editor).toBeEnabled()
+    await waitFor(() => expect(sentBody?.clientId).toMatch(/^[0-9a-f-]{36}$/))
+
+    release()
+    await waitFor(() => expect(screen.queryByLabelText('Enviando')).not.toBeInTheDocument())
+    expect(screen.getAllByText('Ya te lo envío')).toHaveLength(1)
+    expect(screen.getByLabelText('Enviado')).toBeInTheDocument()
+  })
+
+  it('keeps a message that could not be sent, to send it again or discard it', async () => {
+    let refuse = true
+    server.use(
+      http.post(api(`${base}/c1/messages`), async ({ request }) => {
+        const body = (await request.json()) as { text: string; clientId?: string }
+        if (refuse) {
+          return HttpResponse.json(
+            { statusCode: 503, message: 'Servicio no disponible', code: 'UNAVAILABLE' },
+            { status: 503 },
+          )
+        }
+        const message: ChatMessage = {
+          ...history[0]!,
+          id: `msg-${history.length + 1}`,
+          direction: 'OUT',
+          status: 'sent',
+          text: body.text,
+          clientId: body.clientId,
+        }
+        history.unshift(message)
+        return HttpResponse.json(message, { status: 201 })
+      }),
+    )
+    renderAt()
+    const user = userEvent.setup()
+    const editor = await screen.findByLabelText('Escribir respuesta')
+
+    await user.type(editor, 'Primero{Enter}')
+    expect(await screen.findByText(/No enviado/)).toBeInTheDocument()
+    refuse = false
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+    await waitFor(() => expect(screen.queryByText(/No enviado/)).not.toBeInTheDocument())
+    expect(screen.getByText('Primero')).toBeInTheDocument()
+
+    refuse = true
+    await user.type(editor, 'Segundo{Enter}')
+    expect(await screen.findByText(/No enviado/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Descartar' }))
+    expect(screen.queryByText('Segundo')).not.toBeInTheDocument()
+  })
+
   it('shows my WhatsApp lines in my profile', async () => {
     renderAt('/inbox')
     const user = userEvent.setup()
@@ -556,6 +640,7 @@ describe('Inbox', () => {
         'c1',
         expect.objectContaining({ name: 'foto.png' }),
         'Tu pedido',
+        expect.any(String),
       ),
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -814,9 +899,12 @@ describe('Inbox', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Enviar' }))
 
     await waitFor(() =>
-      expect(sendContacts).toHaveBeenCalledWith('w1', 'c1', [
-        { name: 'Técnico Juan', phone: '+591 71234567' },
-      ]),
+      expect(sendContacts).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        [{ name: 'Técnico Juan', phone: '+591 71234567' }],
+        expect.any(String),
+      ),
     )
     sendContacts.mockRestore()
   })

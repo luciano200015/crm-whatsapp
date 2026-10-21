@@ -179,6 +179,15 @@ export class SendTextDto {
   @IsString()
   @Length(1, 4096)
   text: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Id the browser gives the message to show it at once; it comes back on the message and its events.',
+  })
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
 }
 
 export class OutgoingContactDto {
@@ -206,6 +215,15 @@ export class SendContactsDto {
   @ValidateNested({ each: true })
   @Type(() => OutgoingContactDto)
   contacts: OutgoingContactDto[];
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Id the browser gives the message to show it at once; it comes back on the message and its events.',
+  })
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
 }
 
 /** Text fields of the multipart upload; the file itself is read by multer. */
@@ -219,6 +237,15 @@ export class SendMediaDto {
   @IsString()
   @MaxLength(1024)
   caption?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Id the browser gives the message to show it at once; it comes back on the message and its events.',
+  })
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
 }
 
 export class AssignConversationDto {
@@ -589,6 +616,13 @@ export class MessageDto {
 
   @ApiProperty({ type: SentByDto, nullable: true })
   sentBy: SentByDto | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'clientId sent by the browser that wrote the message.',
+  })
+  clientId: string | null;
 
   @ApiProperty()
   createdAt: Date;

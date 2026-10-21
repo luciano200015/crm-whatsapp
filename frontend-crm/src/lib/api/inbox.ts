@@ -91,6 +91,10 @@ export interface ChatMessage {
   status: 'received' | 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   error: string | null
   sentBy: { userId: string; name: string } | null
+  /** Id this browser gave the message when sending it. */
+  clientId?: string | null
+  /** Only on a bubble still being sent: the file, shown from memory. */
+  localFile?: File
   createdAt: string
 }
 
@@ -193,25 +197,37 @@ export const inboxApi = {
       { signal },
     )
   },
-  send(workspaceId: string, id: string, text: string, note: boolean) {
+  send(workspaceId: string, id: string, text: string, note: boolean, clientId?: string) {
     return apiRequest<ChatMessage>(
       `${conversationPath(workspaceId, id)}/${note ? 'notes' : 'messages'}`,
-      { method: 'POST', body: { text } },
+      { method: 'POST', body: { text, ...(clientId && { clientId }) } },
     )
   },
-  sendMedia(workspaceId: string, id: string, file: File, caption: string | null) {
+  sendMedia(
+    workspaceId: string,
+    id: string,
+    file: File,
+    caption: string | null,
+    clientId?: string,
+  ) {
     const form = new FormData()
     form.set('file', file, file.name)
     if (caption) form.set('caption', caption)
+    if (clientId) form.set('clientId', clientId)
     return apiRequest<ChatMessage>(`${conversationPath(workspaceId, id)}/media`, {
       method: 'POST',
       body: form,
     })
   },
-  sendContacts(workspaceId: string, id: string, contacts: { name: string; phone: string }[]) {
+  sendContacts(
+    workspaceId: string,
+    id: string,
+    contacts: { name: string; phone: string }[],
+    clientId?: string,
+  ) {
     return apiRequest<ChatMessage>(`${conversationPath(workspaceId, id)}/contacts`, {
       method: 'POST',
-      body: { contacts },
+      body: { contacts, ...(clientId && { clientId }) },
     })
   },
   /** Sends a message WhatsApp refused again (same message, same content). */

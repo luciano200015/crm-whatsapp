@@ -16,12 +16,10 @@ import { formatBytes, useObjectUrl } from './media-url'
 /** Preview of a file before sending it, with an optional caption. */
 export function AttachmentDialog({
   file,
-  sending,
   onClose,
   onSend,
 }: {
   file: File
-  sending: boolean
   onClose: () => void
   onSend: (caption: string | null) => void
 }) {
@@ -31,7 +29,7 @@ export function AttachmentDialog({
   const video = file.type.startsWith('video/')
   const audio = file.type.startsWith('audio/')
   return (
-    <Dialog open onClose={sending ? undefined : onClose} fullWidth maxWidth="sm">
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>Enviar archivo</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ alignItems: 'center' }}>
@@ -78,21 +76,14 @@ export function AttachmentDialog({
               multiline
               maxRows={4}
               slotProps={{ htmlInput: { maxLength: 1024 } }}
-              disabled={sending}
             />
           )}
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={sending}>
-          Cancelar
-        </Button>
-        <Button
-          variant="contained"
-          disabled={sending}
-          onClick={() => onSend(caption.trim() || null)}
-        >
-          {sending ? 'Enviando…' : 'Enviar'}
+        <Button onClick={onClose}>Cancelar</Button>
+        <Button variant="contained" onClick={() => onSend(caption.trim() || null)}>
+          Enviar
         </Button>
       </DialogActions>
     </Dialog>

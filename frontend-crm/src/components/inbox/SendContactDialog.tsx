@@ -28,11 +28,9 @@ const PHONE = /^\+?[\d\s()-]{6,24}$/
 
 /** Pick up to 5 contacts (from the CRM or typed) to send as contact cards. */
 export function SendContactDialog({
-  sending,
   onClose,
   onSend,
 }: {
-  sending: boolean
   onClose: () => void
   onSend: (contacts: OutgoingContact[]) => void
 }) {
@@ -55,7 +53,7 @@ export function SendContactDialog({
   }
   const phoneError = phone.trim() && !PHONE.test(phone.trim()) ? 'Número no válido' : null
   return (
-    <Dialog open onClose={sending ? undefined : onClose} fullWidth maxWidth="sm">
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>Enviar contacto</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
@@ -135,15 +133,9 @@ export function SendContactDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={sending}>
-          Cancelar
-        </Button>
-        <Button
-          variant="contained"
-          disabled={sending || chosen.length === 0}
-          onClick={() => onSend(chosen)}
-        >
-          {sending ? 'Enviando…' : 'Enviar'}
+        <Button onClick={onClose}>Cancelar</Button>
+        <Button variant="contained" disabled={chosen.length === 0} onClick={() => onSend(chosen)}>
+          Enviar
         </Button>
       </DialogActions>
     </Dialog>

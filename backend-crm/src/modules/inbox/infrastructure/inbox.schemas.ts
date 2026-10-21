@@ -97,6 +97,7 @@ export interface MessageDocument {
   status: string;
   error: string | null;
   sentBy: { userId: string; name: string } | null;
+  clientId?: string | null;
   createdAt: Date;
 }
 
@@ -263,6 +264,7 @@ export const MessageSchema = new Schema<MessageDocument>(
     waMessageId: { type: String, default: null },
     status: { type: String, required: true },
     error: { type: String, default: null },
+    clientId: { type: String, default: null },
     sentBy: {
       type: new Schema(
         {

@@ -48,6 +48,7 @@ function release(blob: Blob): void {
  */
 export function useMediaUrl(message: ChatMessage) {
   const workspaceId = useActiveWorkspace().active?.id ?? ''
+  const local = message.localFile ?? null
   const file = useQuery({
     queryKey: inboxKeys.media(workspaceId, message.id),
     queryFn: ({ signal }) =>
@@ -56,8 +57,10 @@ export function useMediaUrl(message: ChatMessage) {
     staleTime: Infinity,
     gcTime: 10 * 60_000,
     retry: 1,
+    // A message still being sent shows the file from memory.
+    enabled: !local,
   })
-  return { url: useObjectUrl(file.data ?? null), file }
+  return { url: useObjectUrl(local ?? file.data ?? null), file }
 }
 
 /** Object URL of a blob or file (e.g. an attachment preview), released after unmount. */

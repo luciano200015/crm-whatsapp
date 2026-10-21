@@ -49,6 +49,22 @@ export function createAppTheme(config: ThemeConfig = themeConfig) {
       authBackground: config.authBackground,
     },
     components: {
+      MuiCssBaseline: {
+        styleOverrides: (theme) => {
+          // Thin scrollbars that only show while the pointer is over the
+          // scrolling area (chat list, messages…), like WhatsApp Web.
+          const thumb = `rgba(${(theme.vars ?? theme).palette.text.primaryChannel} / 0.28)`
+          return {
+            '*': { scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' },
+            '*:hover, *:focus-within': { scrollbarColor: `${thumb} transparent` },
+            // Safari and older Chromium only read the ::-webkit-scrollbar rules.
+            '*::-webkit-scrollbar': { width: 6, height: 6 },
+            '*::-webkit-scrollbar-track': { background: 'transparent' },
+            '*::-webkit-scrollbar-thumb': { backgroundColor: 'transparent', borderRadius: 3 },
+            '*:hover::-webkit-scrollbar-thumb': { backgroundColor: thumb },
+          }
+        },
+      },
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: { root: { paddingBlock: 10 } },

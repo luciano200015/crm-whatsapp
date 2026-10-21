@@ -245,10 +245,12 @@ export class InboxService {
     actor: InboxActor,
     conversationId: string,
     text: string,
+    clientId: string | null = null,
   ): Promise<MessageView> {
     return this.deliver(actor, conversationId, {
       type: 'text',
       text,
+      clientId,
       send: (credentials, to) => this.whatsapp.sendText(credentials, to, text),
     });
   }
@@ -262,6 +264,7 @@ export class InboxService {
     conversationId: string,
     file: { buffer: Buffer; mimeType: string; filename: string; size: number },
     caption: string | null,
+    clientId: string | null = null,
   ): Promise<MessageView> {
     const checked = outgoingMedia(file.mimeType, file.size);
     if ('error' in checked) {
@@ -276,6 +279,7 @@ export class InboxService {
     return this.deliver(actor, conversationId, {
       type,
       text,
+      clientId,
       prepare: async (workspaceId) => {
         const stored = await this.mediaStore.put(workspaceId, {
           body: file.buffer,
@@ -314,6 +318,7 @@ export class InboxService {
     actor: InboxActor,
     conversationId: string,
     contacts: { name: string; phone: string }[],
+    clientId: string | null = null,
   ): Promise<MessageView> {
     const cards: SharedContact[] = contacts.map((contact) => {
       const phone = normalizePhone(contact.phone);
@@ -329,6 +334,7 @@ export class InboxService {
       type: 'contacts',
       text: cards.map((card) => card.name).join(', '),
       contacts: cards,
+      clientId,
       send: (credentials, to) =>
         this.whatsapp.sendContacts(credentials, to, cards),
     });
@@ -419,6 +425,7 @@ export class InboxService {
       type: MessageType;
       text: string | null;
       contacts?: SharedContact[];
+      clientId?: string | null;
       /** A failed message sent again: it is reused instead of stored anew. */
       retry?: MessageRecord;
       /** Runs after every check, before the message is stored. */
@@ -474,10 +481,19 @@ export class InboxService {
           waMessageId: null,
           status: 'pending',
           sentBy: { userId: me.userId, name: me.name },
+          clientId: outgoing.clientId ?? null,
           createdAt: now,
         });
     if (pending === 'duplicate')
       throw new Error('Unexpected duplicate message');
+    // Shown at once with its clock, like WhatsApp; the result follows as
+    // message.updated.
+    this.events.emit({
+      workspaceId,
+      type: outgoing.retry ? 'message.updated' : 'message.created',
+      conversation,
+      message: pending,
+    });
 
     let sent: MessageRecord | null;
     try {
@@ -534,7 +550,7 @@ export class InboxService {
 
     this.events.emit({
       workspaceId,
-      type: 'message.created',
+      type: 'message.updated',
       conversation: updated,
       message,
     });
@@ -546,6 +562,7 @@ export class InboxService {
     actor: InboxActor,
     conversationId: string,
     text: string,
+    clientId: string | null = null,
   ): Promise<MessageView> {
     const { workspaceId } = actor.access;
     const conversation = await this.requireVisible(actor, conversationId);
@@ -559,6 +576,7 @@ export class InboxService {
       waMessageId: null,
       status: 'sent',
       sentBy: { userId: me.userId, name: me.name },
+      clientId,
       createdAt: this.clock.now(),
     });
     if (note === 'duplicate') throw new Error('Unexpected duplicate note');
