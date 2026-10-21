@@ -1,14 +1,45 @@
 import Chip from '@mui/material/Chip'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router'
 import { usePermissions } from '../../auth/usePermissions'
 import { apiResponse } from '../../lib/api/client'
 import { readEvents } from '../../lib/api/event-stream'
-import { inboxBase, inboxKeys } from '../../lib/api/inbox'
+import { inboxBase, inboxKeys, type ChatMessage, type Conversation } from '../../lib/api/inbox'
 import { tokenStore } from '../../lib/api/token-store'
 import { meQueryKey } from '../../lib/api/users'
 import { useActiveWorkspace } from '../../workspace/active-workspace-context'
+import { contactName, mediaLabel } from './inbox-format'
+import { getAlertPreferences, playChime, showDesktopAlert, withUnreadCount } from './notifications'
 import { useInboxCounts } from './useInboxCounts'
+
+/** Keeps "(N) " with the unread messages in front of the tab title. */
+function useUnreadTitle(unread: number) {
+  useEffect(() => {
+    const apply = () => {
+      const next = withUnreadCount(document.title, unread)
+      if (next !== document.title) document.title = next
+    }
+    apply()
+    // Pages set their own title: put the count back when it changes.
+    const title = document.querySelector('title')
+    const observer = title ? new MutationObserver(apply) : null
+    if (title) observer?.observe(title, { childList: true, characterData: true, subtree: true })
+    return () => {
+      observer?.disconnect()
+      document.title = withUnreadCount(document.title, 0)
+    }
+  }, [unread])
+}
+
+/** Is the member looking at this chat right now? Then no alert is needed. */
+function viewing(conversationId: string): boolean {
+  return (
+    document.visibilityState === 'visible' &&
+    window.location.pathname === '/inbox' &&
+    new URLSearchParams(window.location.search).get('conversation') === conversationId
+  )
+}
 
 export function UnreadBadge() {
   const { data } = useInboxCounts()
@@ -26,6 +57,13 @@ export function InboxRealtime() {
   const { active } = useActiveWorkspace()
   const { has } = usePermissions()
   const client = useQueryClient()
+  const counts = useInboxCounts()
+  useUnreadTitle(counts.data?.unread ?? 0)
+  const navigate = useNavigate()
+  const navigateRef = useRef(navigate)
+  useEffect(() => {
+    navigateRef.current = navigate
+  }, [navigate])
   const workspaceId = active?.id ?? ''
   const allowed = has('messages.read')
   const permissionKey = active?.permissions.join(',') ?? ''
@@ -37,6 +75,25 @@ export function InboxRealtime() {
     let timeout: ReturnType<typeof setTimeout> | undefined
     let attempt = 0
     const invalidate = () => client.invalidateQueries({ queryKey: inboxKeys.all(workspaceId) })
+    // Sound and desktop notification for customer messages, like WhatsApp Web.
+    const alert = (data: unknown) => {
+      const { conversation, message } = (data ?? {}) as {
+        conversation?: Conversation
+        message?: ChatMessage
+      }
+      if (!conversation || message?.direction !== 'IN' || viewing(conversation.id)) return
+      const preferences = getAlertPreferences()
+      if (preferences.sound) playChime()
+      if (preferences.desktop && document.visibilityState !== 'visible') {
+        showDesktopAlert({
+          title: contactName(conversation.contact),
+          body: message.text ?? mediaLabel(message.type),
+          tag: conversation.id,
+          onClick: () =>
+            void navigateRef.current(`/inbox?conversation=${encodeURIComponent(conversation.id)}`),
+        })
+      }
+    }
     const connect = async () => {
       if (stopped || !tokenStore.get()) return
       const current = new AbortController()
@@ -54,8 +111,9 @@ export function InboxRealtime() {
         }
         if (!response.ok || !response.body) throw new Error('Stream unavailable')
         await invalidate()
-        await readEvents(response.body, current.signal, (type) => {
+        await readEvents(response.body, current.signal, (type, data) => {
           attempt = 0
+          if (type === 'message.created') alert(data)
           if (type === 'ping') {
             void client.invalidateQueries({ queryKey: meQueryKey })
             return

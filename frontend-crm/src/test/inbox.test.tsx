@@ -552,4 +552,46 @@ describe('Inbox', () => {
       }),
     )
   })
+  it('chimes and shows the unread count in the title when a customer writes', async () => {
+    const oscillators: number[] = []
+    class FakeAudioContext {
+      state = 'running'
+      currentTime = 0
+      destination = {}
+      createOscillator() {
+        return {
+          type: 'sine',
+          frequency: { value: 0 },
+          connect: (node: unknown) => node,
+          start: () => oscillators.push(1),
+          stop: () => undefined,
+        }
+      }
+      createGain() {
+        return {
+          gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+          connect: (node: unknown) => node,
+        }
+      }
+      resume() {
+        return Promise.resolve()
+      }
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+    const incoming = { ...history[0]!, id: 'msg-new', text: 'Hola otra vez' }
+    server.use(
+      http.get(api(`${base}/events`), () => {
+        streamCount++
+        return new HttpResponse(
+          `event: message.created\ndata: ${JSON.stringify({ conversation: chat, message: incoming })}\n\n`,
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        )
+      }),
+    )
+    renderAt('/inbox')
+
+    await waitFor(() => expect(oscillators.length).toBeGreaterThan(0))
+    await waitFor(() => expect(document.title).toMatch(/^\(2\) /))
+    vi.unstubAllGlobals()
+  })
 })

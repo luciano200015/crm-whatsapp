@@ -22,6 +22,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { usePermissions } from '../../../auth/usePermissions'
+import { AlertSettings } from '../../../components/inbox/AlertSettings'
 import { useChatColors } from '../../../components/inbox/chat-colors'
 import { ConversationListItem } from '../../../components/inbox/ConversationList'
 import { ConversationPanel } from '../../../components/inbox/ConversationPanel'
@@ -114,9 +115,12 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
         }}
       >
         <Stack spacing={1.25} sx={{ p: 1.5 }}>
-          <Typography variant="h6" component="h1">
-            Chats
-          </Typography>
+          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" component="h1">
+              Chats
+            </Typography>
+            <AlertSettings />
+          </Stack>
           {contactId && (
             <Chip
               label="Conversaciones del contacto"
