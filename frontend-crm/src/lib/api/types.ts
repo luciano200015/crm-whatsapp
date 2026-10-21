@@ -264,8 +264,18 @@ export interface Contact {
   tags: TagSummary[]
   source: 'manual' | 'whatsapp'
   lastMessageAt: string | null
+  /** Their WhatsApp messages are ignored. */
+  blocked?: boolean
+  blockedAt?: string | null
+  blockedBy?: { userId: string; name: string } | null
   createdAt: string
   updatedAt: string
+}
+
+export interface BlockResult {
+  blocked: boolean
+  /** WhatsApp block per line the contact wrote to. */
+  whatsapp: { lineId: string; lineName: string; ok: boolean; error: string | null }[]
 }
 
 export interface CursorPage<T> {

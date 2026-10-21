@@ -166,6 +166,15 @@ export abstract class WhatsAppGateway {
     to: string,
     media: OutgoingMedia,
   ): Promise<{ waMessageId: string }>;
+  /**
+   * Blocks or unblocks a WhatsApp user on the number. Meta only allows
+   * blocking users who wrote in the last 24 hours.
+   */
+  abstract setUserBlocked(
+    credentials: LineCredentials,
+    waId: string,
+    blocked: boolean,
+  ): Promise<void>;
 }
 
 export interface OutgoingMedia {

@@ -7,6 +7,9 @@ import {
   Stack,
   Typography,
   useMediaQuery,
+  ListItemIcon,
+  ListItemText,
+  MenuItem,
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,12 +17,15 @@ import { useSnackbar } from 'notistack'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { usePermissions } from '../../auth/usePermissions'
 import { ApiError, errorMessage } from '../../lib/api/errors'
+import BlockRounded from '@mui/icons-material/BlockRounded'
+import { contactKeys, contactsApi } from '../../lib/api/contacts'
 import { inboxApi, inboxKeys } from '../../lib/api/inbox'
+import { BlockContactDialog, type BlockTarget } from '../contacts/BlockContactDialog'
 import { ChatHeader, type ChatAction } from './ChatHeader'
 import { useChatColors } from './chat-colors'
 import { Composer, type ComposerMode } from './Composer'
 import { ContactPanel } from './ContactPanel'
-import { dayLabel, sameDay } from './inbox-format'
+import { contactName, dayLabel, sameDay } from './inbox-format'
 import { DaySeparator, MessageBubble } from './MessageBubble'
 
 export function ConversationPanel({
@@ -64,6 +70,14 @@ export function ConversationPanel({
     queryKey: inboxKeys.options(workspaceId),
     queryFn: ({ signal }) => inboxApi.options(workspaceId, signal),
   })
+  // Same query as the contact panel: tells whether the contact is blocked.
+  const contactId = current.data?.contactId ?? ''
+  const contact = useQuery({
+    queryKey: [...contactKeys.all(workspaceId), 'detail', contactId],
+    queryFn: ({ signal }) => contactsApi.get(workspaceId, contactId, signal),
+    enabled: !!contactId && has('contacts.read'),
+  })
+  const [blockTarget, setBlockTarget] = useState<BlockTarget | null>(null)
   const refresh = () => client.invalidateQueries({ queryKey: inboxKeys.all(workspaceId) })
   const fail = (error: unknown) => enqueueSnackbar(errorMessage(error), { variant: 'error' })
 
@@ -184,6 +198,35 @@ export function ConversationPanel({
           onAction={(chosen) => action.mutate(chosen)}
           onBack={onBack}
           onToggleInfo={() => setInfoChoice(!showInfo)}
+          blocked={contact.data?.blocked ?? false}
+          extraMenuItems={
+            has('contacts.write') && contact.data
+              ? (close) => (
+                  <MenuItem
+                    onClick={() => {
+                      close()
+                      setBlockTarget({
+                        id: conversation.contactId,
+                        name: contactName(conversation.contact),
+                        blocked: contact.data?.blocked ?? false,
+                      })
+                    }}
+                  >
+                    <ListItemIcon>
+                      <BlockRounded color="error" />
+                    </ListItemIcon>
+                    <ListItemText>
+                      {contact.data?.blocked ? 'Desbloquear contacto' : 'Bloquear contacto'}
+                    </ListItemText>
+                  </MenuItem>
+                )
+              : undefined
+          }
+        />
+        <BlockContactDialog
+          workspaceId={workspaceId}
+          contact={blockTarget}
+          onClose={() => setBlockTarget(null)}
         />
         <Stack
           spacing={0.75}

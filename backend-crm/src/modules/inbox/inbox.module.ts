@@ -7,6 +7,7 @@ import { BillingModule } from '../billing/billing.module';
 import { BillingService } from '../billing/application/billing.service';
 import { ChannelsModule } from '../channels/channels.module';
 import { ContactsModule } from '../contacts/contacts.module';
+import { ContactBlockService } from './application/contact-block.service';
 import { ConversationTimeline } from './application/conversation-timeline';
 import { InboxEvents } from './application/inbox-events';
 import { InboxMediaService } from './application/inbox-media.service';
@@ -28,6 +29,7 @@ import { MongoInboxStore } from './infrastructure/mongo-inbox-store';
 import { PrismaAssignmentStore } from './infrastructure/prisma-assignment-store';
 import {
   AutoAssignmentController,
+  ContactBlockController,
   ConversationsController,
 } from './presentation/inbox.controller';
 
@@ -47,7 +49,11 @@ import {
       { name: MESSAGE_MODEL, schema: MessageSchema },
     ]),
   ],
-  controllers: [ConversationsController, AutoAssignmentController],
+  controllers: [
+    ConversationsController,
+    AutoAssignmentController,
+    ContactBlockController,
+  ],
   providers: [
     InboxService,
     InboxIngestService,
@@ -55,6 +61,7 @@ import {
     InboxEvents,
     ConversationTimeline,
     InboxMediaService,
+    ContactBlockService,
     { provide: MediaStore, useClass: GridFsMediaStore },
     { provide: ContactQuota, useClass: PrismaContactQuota },
     { provide: InboxStore, useClass: MongoInboxStore },

@@ -210,6 +210,12 @@ export abstract class InboxStore {
     workspaceId: string,
     conversationId: string,
   ): Promise<ConversationRecord | null>;
+  /** Most recent conversations of a contact, newest first. */
+  abstract contactConversations(
+    workspaceId: string,
+    contactId: string,
+    limit: number,
+  ): Promise<ConversationRecord[]>;
   /** At least one unread message, so it shows as pending again. */
   abstract markUnread(
     workspaceId: string,

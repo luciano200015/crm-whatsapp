@@ -45,12 +45,14 @@ import {
   RequirePermissions,
 } from '../../authorization/presentation/workspace-access.decorators';
 import { WorkspaceAccessGuard } from '../../authorization/presentation/workspace-access.guard';
+import { ContactBlockService } from '../application/contact-block.service';
 import { InboxMediaService } from '../application/inbox-media.service';
 import { InboxService, type InboxActor } from '../application/inbox.service';
 import { MAX_MEDIA_BYTES, mediaHeaders } from '../application/media';
 import { InboxStreamService } from '../application/inbox-stream.service';
 import {
   AssignConversationDto,
+  BlockResultDto,
   InboxOptionsDto,
   AutoAssignmentOptionsDto,
   ConversationDto,
@@ -410,5 +412,55 @@ export class AutoAssignmentController {
   })
   options(@CurrentWorkspace() workspace: WorkspaceAccess) {
     return this.inbox.autoAssignmentOptions(workspace.workspaceId);
+  }
+}
+
+@ApiTags('contacts')
+@ApiBearerAuth(SWAGGER_BEARER)
+@ApiParam({ name: 'workspaceId', format: 'uuid' })
+@UseGuards(WorkspaceAccessGuard)
+@Controller({
+  path: 'workspaces/:workspaceId/contacts/:contactId',
+  version: '1',
+})
+export class ContactBlockController {
+  constructor(private readonly blocks: ContactBlockService) {}
+
+  @Post('block')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('contacts.write')
+  @ApiOperation({
+    summary: 'Block a contact',
+    description:
+      'Their WhatsApp messages are ignored, their open chats are closed with a notice, and the number is blocked on WhatsApp on every line they wrote to. Meta only blocks users who wrote in the last 24 h: see `whatsapp[].ok`.',
+  })
+  @ApiOkResponse({ type: BlockResultDto })
+  @ApiNotFoundResponse({
+    description: 'CONTACT_NOT_FOUND',
+    type: ErrorResponseDto,
+  })
+  block(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('contactId') contactId: string,
+  ): Promise<BlockResultDto> {
+    return this.blocks.setBlocked(actor(auth, workspace), contactId, true);
+  }
+
+  @Post('unblock')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('contacts.write')
+  @ApiOperation({ summary: 'Unblock a contact (in the CRM and on WhatsApp)' })
+  @ApiOkResponse({ type: BlockResultDto })
+  @ApiNotFoundResponse({
+    description: 'CONTACT_NOT_FOUND',
+    type: ErrorResponseDto,
+  })
+  unblock(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('contactId') contactId: string,
+  ): Promise<BlockResultDto> {
+    return this.blocks.setBlocked(actor(auth, workspace), contactId, false);
   }
 }

@@ -389,6 +389,19 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     return doc ? toConversation(doc) : null;
   }
 
+  async contactConversations(
+    workspaceId: string,
+    contactId: string,
+    limit: number,
+  ): Promise<ConversationRecord[]> {
+    const rows = await this.conversations
+      .find({ workspaceId, contactId })
+      .sort({ lastActivityAt: -1, _id: -1 })
+      .limit(limit)
+      .lean<ConversationDocument[]>();
+    return rows.map(toConversation);
+  }
+
   async markUnread(
     workspaceId: string,
     conversationId: string,

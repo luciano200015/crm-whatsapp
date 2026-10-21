@@ -9,6 +9,7 @@ import TaskAltRounded from '@mui/icons-material/TaskAltRounded'
 import {
   Box,
   Button,
+  Chip,
   Divider,
   IconButton,
   ListItemIcon,
@@ -35,6 +36,7 @@ export function ChatHeader({
   onAction,
   onBack,
   onToggleInfo,
+  blocked = false,
   extraMenuItems,
 }: {
   conversation: Conversation
@@ -43,6 +45,8 @@ export function ChatHeader({
   onAction: (action: ChatAction) => void
   onBack: () => void
   onToggleInfo: () => void
+  /** The contact is blocked: shown next to the name. */
+  blocked?: boolean
   /** More entries for the ⋮ menu (e.g. block contact); they close the menu themselves. */
   extraMenuItems?: (close: () => void) => ReactNode
 }) {
@@ -100,9 +104,12 @@ export function ChatHeader({
       >
         <ContactAvatar contact={conversation.contact} size={40} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography noWrap sx={{ fontWeight: 600 }}>
-            {contactName(conversation.contact)}
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+            <Typography noWrap sx={{ fontWeight: 600 }}>
+              {contactName(conversation.contact)}
+            </Typography>
+            {blocked && <Chip size="small" color="error" label="Bloqueado" />}
+          </Stack>
           <Typography variant="caption" noWrap component="div" color="text.secondary">
             {conversation.contact.phone} · {conversation.lineName ?? 'Línea eliminada'} ·{' '}
             {conversation.assignee ? `Atiende ${conversation.assignee.name}` : 'Sin asignar'}

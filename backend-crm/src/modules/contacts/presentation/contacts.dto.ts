@@ -195,6 +195,14 @@ export class TagSummaryDto {
   color: string;
 }
 
+export class BlockedByDto {
+  @ApiProperty({ format: 'uuid' })
+  userId: string;
+
+  @ApiProperty()
+  name: string;
+}
+
 export class ContactDto {
   @ApiProperty({ example: '6716f0c2a1b2c3d4e5f60718' })
   id: string;
@@ -219,6 +227,18 @@ export class ContactDto {
 
   @ApiProperty({ nullable: true, type: Date })
   lastMessageAt: Date | null;
+
+  @ApiProperty({
+    description:
+      'Blocked: their WhatsApp messages are ignored (POST …/contacts/:id/block).',
+  })
+  blocked: boolean;
+
+  @ApiProperty({ nullable: true, type: Date })
+  blockedAt: Date | null;
+
+  @ApiProperty({ type: BlockedByDto, nullable: true })
+  blockedBy: BlockedByDto | null;
 
   @ApiProperty()
   createdAt: Date;

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   WhatsAppEventsSink,
   type LineRecord,
@@ -22,6 +22,8 @@ import { AssignmentStore, InboxStore } from './ports';
  */
 @Injectable()
 export class InboxIngestService extends WhatsAppEventsSink {
+  private readonly logger = new Logger(InboxIngestService.name);
+
   constructor(
     private readonly store: InboxStore,
     private readonly assignments: AssignmentStore,
@@ -52,6 +54,13 @@ export class InboxIngestService extends WhatsAppEventsSink {
       phone,
       inbound.profileName,
     );
+    if (contact.blocked) {
+      // Never the content: only that something was dropped.
+      this.logger.log(
+        `Ignored a message of blocked contact ${contact.id} on line ${line.id}`,
+      );
+      return;
+    }
     const { conversation, created } = await this.store.openConversation(
       workspaceId,
       {

@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { Contact, ContactRequest, CursorPage, Tag, TagRequest } from './types'
+import type { BlockResult, Contact, ContactRequest, CursorPage, Tag, TagRequest } from './types'
 
 const base = (workspaceId: string) => `/workspaces/${encodeURIComponent(workspaceId)}`
 
@@ -26,6 +26,12 @@ export const contactsApi = {
     return apiRequest<Contact>(`${base(workspaceId)}/contacts`, { method: 'POST', body })
   },
 
+  setBlocked(workspaceId: string, contactId: string, blocked: boolean) {
+    return apiRequest<BlockResult>(
+      `${base(workspaceId)}/contacts/${encodeURIComponent(contactId)}/${blocked ? 'block' : 'unblock'}`,
+      { method: 'POST' },
+    )
+  },
   update(workspaceId: string, contactId: string, body: Partial<ContactRequest>) {
     return apiRequest<Contact>(`${base(workspaceId)}/contacts/${encodeURIComponent(contactId)}`, {
       method: 'PATCH',

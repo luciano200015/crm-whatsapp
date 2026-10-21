@@ -14,6 +14,9 @@ export interface ContactDocument {
   tagIds: Types.ObjectId[];
   source: 'manual' | 'whatsapp';
   lastMessageAt: Date | null;
+  blocked?: boolean;
+  blockedAt?: Date | null;
+  blockedBy?: { userId: string; name: string } | null;
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -40,6 +43,18 @@ export const ContactSchema = new Schema<ContactDocument>(
     tagIds: { type: [Schema.Types.ObjectId], default: [] },
     source: { type: String, enum: ['manual', 'whatsapp'], required: true },
     lastMessageAt: { type: Date, default: null },
+    blocked: { type: Boolean, default: false },
+    blockedAt: { type: Date, default: null },
+    blockedBy: {
+      type: new Schema(
+        {
+          userId: { type: String, required: true },
+          name: { type: String, required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     createdBy: { type: String, default: null },
   },
   { collection: 'contacts', timestamps: true, versionKey: false },

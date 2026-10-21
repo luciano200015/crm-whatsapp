@@ -448,4 +448,54 @@ describe('Inbox', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     sendMedia.mockRestore()
   })
+  it('blocks the contact from the chat and explains when WhatsApp refuses it', async () => {
+    permissions = ['messages.read', 'messages.send', 'contacts.read', 'contacts.write']
+    let blocked = false
+    const contact = () => ({
+      id: 'ct1',
+      phone: '+59170000001',
+      name: 'Lucía Cliente',
+      email: null,
+      notes: null,
+      tags: [],
+      source: 'whatsapp',
+      lastMessageAt: null,
+      blocked,
+      blockedAt: null,
+      blockedBy: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    server.use(
+      http.get(api('/workspaces/w1/contacts/ct1'), () => HttpResponse.json(contact())),
+      http.get(api('/workspaces/w1/tags'), () => HttpResponse.json([])),
+      http.post(api('/workspaces/w1/contacts/ct1/block'), () => {
+        blocked = true
+        return HttpResponse.json({
+          blocked: true,
+          whatsapp: [
+            {
+              lineId: 'l1',
+              lineName: 'Ventas',
+              ok: false,
+              error: 'User must have messaged in the last 24 hours',
+            },
+          ],
+        })
+      }),
+    )
+    renderAt()
+    const user = userEvent.setup()
+
+    await screen.findByLabelText('Escribir respuesta')
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Bloquear contacto' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Bloquear' }))
+
+    expect(
+      await screen.findByText(/Bloqueado en el CRM. WhatsApp no lo bloqueó en «Ventas»/),
+    ).toBeInTheDocument()
+    expect(await screen.findAllByText('Bloqueado')).not.toHaveLength(0)
+  })
 })

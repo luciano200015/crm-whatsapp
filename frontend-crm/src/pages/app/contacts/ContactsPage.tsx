@@ -1,3 +1,4 @@
+import BlockRounded from '@mui/icons-material/BlockRounded'
 import DeleteOutline from '@mui/icons-material/DeleteOutlineOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
 import PersonAddAlt1Outlined from '@mui/icons-material/PersonAddAlt1Outlined'
@@ -35,6 +36,10 @@ import { Link } from 'react-router'
 import { Can } from '../../../auth/permissions'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { PageHeader } from '../../../components/PageHeader'
+import {
+  BlockContactDialog,
+  type BlockTarget,
+} from '../../../components/contacts/BlockContactDialog'
 import { ContactDialog } from '../../../components/contacts/ContactDialog'
 import { TagChip } from '../../../components/contacts/TagChip'
 import { useTags, useWorkspaceId } from '../../../components/contacts/useContacts'
@@ -72,6 +77,7 @@ export function ContactsPage() {
 
   const [editing, setEditing] = useState<Contact | 'new' | null>(null)
   const [deleting, setDeleting] = useState<Contact | null>(null)
+  const [blocking, setBlocking] = useState<BlockTarget | null>(null)
 
   // Tag counts change with contacts, so the whole contacts cache is refreshed.
   const refresh = () => queryClient.invalidateQueries({ queryKey: contactKeys.all(workspaceId) })
@@ -207,9 +213,14 @@ export function ContactsPage() {
                             {initials(contact.name ?? contact.phone)}
                           </Avatar>
                           <Box sx={{ minWidth: 0 }}>
-                            <Typography noWrap sx={{ fontWeight: 600 }}>
-                              {name}
-                            </Typography>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                              <Typography noWrap sx={{ fontWeight: 600 }}>
+                                {name}
+                              </Typography>
+                              {contact.blocked && (
+                                <Chip size="small" color="error" label="Bloqueado" />
+                              )}
+                            </Stack>
                             {contact.email && (
                               <Typography variant="body2" noWrap sx={{ color: 'text.secondary' }}>
                                 {contact.email}
@@ -260,6 +271,19 @@ export function ContactsPage() {
                               <EditOutlined fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          <Tooltip title={contact.blocked ? 'Desbloquear' : 'Bloquear'}>
+                            <IconButton
+                              aria-label={`${contact.blocked ? 'Desbloquear' : 'Bloquear'} ${name}`}
+                              onClick={() =>
+                                setBlocking({ id: contact.id, name, blocked: !!contact.blocked })
+                              }
+                            >
+                              <BlockRounded
+                                fontSize="small"
+                                color={contact.blocked ? 'error' : 'inherit'}
+                              />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title={es.contacts.delete}>
                             <IconButton
                               aria-label={`${es.contacts.delete} ${name}`}
@@ -299,6 +323,11 @@ export function ContactsPage() {
           onSubmit={save}
         />
       )}
+      <BlockContactDialog
+        workspaceId={workspaceId}
+        contact={blocking}
+        onClose={() => setBlocking(null)}
+      />
       <ConfirmDialog
         open={deleting !== null}
         title={es.contacts.deleteTitle}

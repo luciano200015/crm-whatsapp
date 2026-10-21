@@ -413,3 +413,28 @@ export class MessagePageDto {
   @ApiProperty({ nullable: true, type: String })
   nextCursor: string | null;
 }
+
+export class LineBlockResultDto {
+  @ApiProperty({ format: 'uuid' })
+  lineId: string;
+
+  @ApiProperty()
+  lineName: string;
+
+  @ApiProperty({ description: 'False when WhatsApp refused it.' })
+  ok: boolean;
+
+  @ApiProperty({ nullable: true, type: String })
+  error: string | null;
+}
+
+export class BlockResultDto {
+  @ApiProperty()
+  blocked: boolean;
+
+  @ApiProperty({
+    type: [LineBlockResultDto],
+    description: 'WhatsApp block per line the contact wrote to.',
+  })
+  whatsapp: LineBlockResultDto[];
+}

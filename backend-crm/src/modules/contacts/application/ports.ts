@@ -21,6 +21,10 @@ export interface ContactRecord {
   tagIds: string[];
   source: ContactSource;
   lastMessageAt: Date | null;
+  /** Blocked contacts' messages are ignored (see inbox ContactBlockService). */
+  blocked: boolean;
+  blockedAt: Date | null;
+  blockedBy: { userId: string; name: string } | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -90,6 +94,12 @@ export abstract class ContactsStore {
     phone: string,
     profileName: string | null,
   ): Promise<ContactRecord>;
+  /** Blocks (with who and when) or unblocks (null) a contact. */
+  abstract setBlocked(
+    workspaceId: string,
+    contactId: string,
+    block: { at: Date; by: { userId: string; name: string } } | null,
+  ): Promise<ContactRecord | null>;
   abstract touchLastMessage(
     workspaceId: string,
     contactId: string,

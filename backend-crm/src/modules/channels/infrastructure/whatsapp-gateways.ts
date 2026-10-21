@@ -155,6 +155,39 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     });
   }
 
+  async setUserBlocked(
+    credentials: LineCredentials,
+    waId: string,
+    blocked: boolean,
+  ) {
+    const body = await this.call(
+      credentials,
+      `/${encodeURIComponent(credentials.phoneNumberId)}/block_users`,
+      {
+        method: blocked ? 'POST' : 'DELETE',
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          block_users: [{ user: waId }],
+        }),
+      },
+    );
+    // A 200 can still list the user under failed_users.
+    const result = (body.block_users ?? {}) as Json;
+    const failed = Array.isArray(result.failed_users)
+      ? (result.failed_users as Json[])
+      : [];
+    if (failed.length > 0) {
+      const errors = Array.isArray(failed[0]?.errors)
+        ? (failed[0].errors as Json[])
+        : [];
+      const reason = errors[0]?.message ?? errors[0]?.error_data;
+      throw new WhatsAppApiError(
+        typeof reason === 'string' ? reason : 'WhatsApp refused the request',
+        400,
+      );
+    }
+  }
+
   private async sendMessage(credentials: LineCredentials, message: Json) {
     const body = await this.call(
       credentials,
@@ -255,6 +288,10 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
 
   sendMedia() {
     return this.sendText();
+  }
+
+  setUserBlocked() {
+    return Promise.resolve();
   }
 }
 

@@ -26,6 +26,7 @@ interface Session {
 
 interface ConversationBody {
   id: string;
+  contactId: string;
   lineId: string;
   lineName: string | null;
   status: string;
@@ -669,6 +670,47 @@ describe('Inbox (e2e)', () => {
       text: 'Catálogo 2026',
       direction: 'OUT',
     });
+  });
+
+  it('blocks a contact: closes the chat, ignores new messages and can unblock', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000080', 'Spam');
+    const [chat] = await conversations(owner, '?view=all');
+
+    const blocked = await api(owner)
+      .post(`/contacts/${chat?.contactId}/block`)
+      .expect(200);
+    expect(blocked.body).toEqual({
+      blocked: true,
+      whatsapp: [
+        { lineId: line.id, lineName: 'Ventas', ok: true, error: null },
+      ],
+    });
+    const contact = await api(owner)
+      .get(`/contacts/${chat?.contactId}`)
+      .expect(200);
+    expect(contact.body).toMatchObject({
+      blocked: true,
+      blockedBy: { name: 'Olga Owner' },
+    });
+    const [closed] = await conversations(owner, '?view=all&status=ALL');
+    expect(closed).toMatchObject({ id: chat?.id, status: 'CLOSED' });
+    const history = (
+      (await api(owner).get(`/conversations/${chat?.id}/messages`).expect(200))
+        .body as { items: { event: { kind: string } | null }[] }
+    ).items;
+    expect(history[0]?.event?.kind).toBe('contact_blocked');
+
+    // Their messages no longer open chats.
+    await incoming(line, '59170000080', 'Hola de nuevo');
+    expect(await conversations(owner, '?view=all&status=ALL')).toHaveLength(1);
+
+    await api(owner).post(`/contacts/${chat?.contactId}/unblock`).expect(200);
+    await incoming(line, '59170000080', 'Ya puedo escribir');
+    const open = await conversations(owner, '?view=all');
+    expect(open).toHaveLength(1);
+    expect(open[0]?.lastMessage).toMatchObject({ text: 'Ya puedo escribir' });
   });
 
   it('exposes minimal options without granting administrative read permissions', async () => {

@@ -47,6 +47,9 @@ function toContact(doc: ContactDocument): ContactRecord {
     tagIds: doc.tagIds.map((id) => id.toHexString()),
     source: doc.source,
     lastMessageAt: doc.lastMessageAt,
+    blocked: doc.blocked ?? false,
+    blockedAt: doc.blockedAt ?? null,
+    blockedBy: doc.blockedBy ?? null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -192,6 +195,26 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
       _id,
     });
     return deletedCount === 1;
+  }
+
+  async setBlocked(
+    workspaceId: string,
+    contactId: string,
+    block: { at: Date; by: { userId: string; name: string } } | null,
+  ): Promise<ContactRecord | null> {
+    if (!isValidObjectId(contactId)) return null;
+    const doc = await this.contacts
+      .findOneAndUpdate(
+        { workspaceId, _id: new Types.ObjectId(contactId) },
+        {
+          $set: block
+            ? { blocked: true, blockedAt: block.at, blockedBy: block.by }
+            : { blocked: false, blockedAt: null, blockedBy: null },
+        },
+        { returnDocument: 'after' },
+      )
+      .lean<ContactDocument>();
+    return doc ? toContact(doc) : null;
   }
 
   async upsertWhatsAppContact(
