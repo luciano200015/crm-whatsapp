@@ -30,6 +30,11 @@ export const ChatbotsErrors = {
       message: `Invalid schedule: ${problem}`,
       code: 'SCHEDULE_INVALID',
     }),
+  variablesInvalid: (problem: string) =>
+    new BadRequestException({
+      message: `Invalid variables: ${problem}`,
+      code: 'VARIABLES_INVALID',
+    }),
   lineNotFound: () =>
     new NotFoundException({
       message: 'Line not found',

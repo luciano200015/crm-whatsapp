@@ -125,6 +125,9 @@ export class ChatbotsController {
       text: dto.text ?? null,
       replyId: dto.replyId ?? null,
       contactName: dto.contactName ?? null,
+      fallbackText: dto.fallbackText ?? '',
+      restartKeywords: dto.restartKeywords ?? [],
+      variables: dto.variables ?? [],
     });
   }
 
@@ -144,7 +147,8 @@ export class ChatbotsController {
 
   @Patch(':chatbotId')
   @ApiOperation({
-    summary: 'Save the flow, rename, set hours or turn the chatbot on/off',
+    summary:
+      'Save the flow, the settings (hours, messages, variables…) or turn the chatbot on/off',
   })
   @ApiOkResponse({ type: ChatbotDto })
   @ApiConflictResponse({

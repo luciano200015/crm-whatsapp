@@ -12,10 +12,16 @@ const CHATBOT_SELECT = {
   id: true,
   workspaceId: true,
   name: true,
+  description: true,
   enabled: true,
   graph: true,
   schedule: true,
   restartAfterMinutes: true,
+  fallbackText: true,
+  restartKeywords: true,
+  inactivityMinutes: true,
+  inactivityText: true,
+  variables: true,
   createdAt: true,
   updatedAt: true,
   lines: { orderBy: { createdAt: 'asc' }, select: { id: true, name: true } },
@@ -88,9 +94,36 @@ export class PrismaChatbotsStore extends ChatbotsStore {
         ...(changes.restartAfterMinutes !== undefined && {
           restartAfterMinutes: changes.restartAfterMinutes,
         }),
+        ...(changes.description !== undefined && {
+          description: changes.description,
+        }),
+        ...(changes.fallbackText !== undefined && {
+          fallbackText: changes.fallbackText,
+        }),
+        ...(changes.restartKeywords !== undefined && {
+          restartKeywords: changes.restartKeywords,
+        }),
+        ...(changes.inactivityMinutes !== undefined && {
+          inactivityMinutes: changes.inactivityMinutes,
+        }),
+        ...(changes.inactivityText !== undefined && {
+          inactivityText: changes.inactivityText,
+        }),
+        ...(changes.variables !== undefined && {
+          variables: json(changes.variables),
+        }),
       },
     });
     return count === 0 ? null : this.find(workspaceId, chatbotId);
+  }
+
+  async workspacesWithInactivity(): Promise<string[]> {
+    const rows = await this.prisma.chatbot.findMany({
+      where: { enabled: true, inactivityMinutes: { not: null } },
+      distinct: ['workspaceId'],
+      select: { workspaceId: true },
+    });
+    return rows.map((row) => row.workspaceId);
   }
 
   async remove(workspaceId: string, chatbotId: string): Promise<boolean> {

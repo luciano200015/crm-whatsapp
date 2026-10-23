@@ -48,6 +48,8 @@ export interface ConversationEvent {
   to: { membershipId: string; name: string } | null;
   /** bot_tagged: names of the tags added and removed. */
   tags?: { added: string[]; removed: string[] } | null;
+  /** bot_paused, bot_transferred: until when the chatbot is off (null: until turned on). */
+  pause?: { until: Date | null } | null;
 }
 
 /** Media of a message: Meta's id plus our stored copy (GridFS), once downloaded. */
@@ -76,19 +78,26 @@ export interface LastMessage {
 /** Where a chatbot is in its flow for one conversation. */
 export interface BotSession {
   chatbotId: string;
-  /** The node waiting for the customer's answer (buttons, list, question). */
-  nodeId: string;
+  /**
+   * The node waiting for the customer's answer (buttons, list, question).
+   * null: the flow reached its end but the conversation is still active.
+   */
+  nodeId: string | null;
   /** Answers saved by "Guardar respuesta" nodes. */
   vars: Record<string, string>;
   /** Answers that matched no option in a row. */
   attempts: number;
   updatedAt: Date;
+  /** When to send the inactivity message if the customer does not answer. */
+  nudgeAt: Date | null;
 }
 
 /** The chatbot in one conversation: paused by an agent, or its progress. */
 export interface ConversationBot {
   paused: boolean;
   pausedBy: { userId: string; name: string } | null;
+  /** End of a 24 h pause; null with `paused`: until someone turns it on. */
+  pausedUntil: Date | null;
   session: BotSession | null;
 }
 
@@ -180,6 +189,10 @@ export interface InboxCounts {
   onHold: number;
   /** Closed and visible to me. */
   closed: number;
+  /** Closed, visible to me and with messages nobody read (e.g. a chatbot closed them). */
+  closedUnread: number;
+  /** Closed, assigned to me and with messages nobody read. */
+  mineClosedUnread: number;
   /** Unread messages in open or on-hold conversations visible to me. */
   unread: number;
 }
@@ -246,7 +259,12 @@ export abstract class InboxStore {
   abstract recordActivity(
     workspaceId: string,
     conversationId: string,
-    activity: { lastMessage: LastMessage; inbound: boolean },
+    /** keepUnread: a chatbot replied, so nobody read the chat. */
+    activity: {
+      lastMessage: LastMessage;
+      inbound: boolean;
+      keepUnread?: boolean;
+    },
   ): Promise<ConversationRecord | null>;
   /**
    * The delivery status of the conversation's last message changed: the
@@ -299,6 +317,8 @@ export abstract class InboxStore {
     conversationId: string,
     status: ConversationStatus,
     at: Date,
+    /** keepUnread: closed by a chatbot, so its unread messages stay unread. */
+    options?: { keepUnread?: boolean },
   ): Promise<ConversationRecord | 'already_open' | null>;
   abstract markRead(
     workspaceId: string,
@@ -326,7 +346,17 @@ export abstract class InboxStore {
     workspaceId: string,
     conversationId: string,
     session: BotSession | null,
+    now: Date,
   ): Promise<void>;
+  /**
+   * Conversations of the workspace whose inactivity message is due. Each
+   * one is claimed (its nudgeAt cleared) so it is sent only once.
+   */
+  abstract claimBotNudges(
+    workspaceId: string,
+    now: Date,
+    limit: number,
+  ): Promise<ConversationRecord[]>;
 }
 
 /** Assignment data that lives in PostgreSQL (lines, agents, memberships). */

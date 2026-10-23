@@ -1,4 +1,4 @@
-import type { Connection } from 'mongoose';
+import { Types, type Connection } from 'mongoose';
 import request from 'supertest';
 import { seedAuthorization } from '../../prisma/seed-authorization';
 import { seedBilling } from '../../prisma/seed-billing';
@@ -30,12 +30,15 @@ interface Line {
 
 interface ConversationBody {
   id: string;
+  status: string;
+  unreadCount: number;
   assignee: { membershipId: string; name: string } | null;
   contactTagIds: string[];
   bot: {
     state: string;
     name: string | null;
     pausedBy: { name: string } | null;
+    pausedUntil: string | null;
   };
 }
 
@@ -74,6 +77,7 @@ const menuGraph = (tagId: string) => ({
           { id: 'sales', title: 'Ventas' },
           { id: 'help', title: 'Soporte' },
         ],
+        invalidText: 'Toca uno de los botones',
       },
     },
     { id: 'tag', type: 'tags', position: at, data: { add: [tagId] } },
@@ -266,12 +270,17 @@ describe('Chatbots (e2e)', () => {
     return ((page.body as { items: MessageBody[] }).items ?? []).reverse();
   }
 
-  async function botOn(owner: Session, line: Line, graph: object) {
+  async function botOn(
+    owner: Session,
+    line: Line,
+    graph: object,
+    settings: object = {},
+  ) {
     const bot = (
       await api(owner).post('/chatbots', { name: 'Bot de ventas' }).expect(201)
     ).body as { id: string };
     await api(owner)
-      .patch(`/chatbots/${bot.id}`, { graph, enabled: true })
+      .patch(`/chatbots/${bot.id}`, { graph, enabled: true, ...settings })
       .expect(200);
     await api(owner)
       .put(`/chatbots/${bot.id}/lines`, { lineIds: [line.id] })
@@ -295,6 +304,8 @@ describe('Chatbots (e2e)', () => {
     // The bot answers first: auto-assignment waits for its transfer.
     expect(chat.assignee).toBeNull();
     expect(chat.bot).toMatchObject({ state: 'active', name: 'Bot de ventas' });
+    // Its replies are not a person reading the chat.
+    expect(chat.unreadCount).toBe(1);
     let messages = await messagesOf(owner, chat.id);
     expect(messages.map((m) => [m.direction, m.type, m.text])).toEqual([
       ['IN', 'text', 'hola'],
@@ -315,7 +326,12 @@ describe('Chatbots (e2e)', () => {
     chat = await chatOf(owner, line);
     expect(chat.assignee).toMatchObject({ name: 'Ana Agente' });
     expect(chat.contactTagIds).toEqual([tag.id]);
-    expect(chat.bot.state).toBe('paused');
+    // Off for a day after the handover (the node's default).
+    expect(chat.bot).toMatchObject({ state: 'paused', pausedBy: null });
+    expect(
+      new Date(chat.bot.pausedUntil ?? 0).getTime() - Date.now(),
+    ).toBeGreaterThan(23 * 3_600_000);
+    expect(chat.unreadCount).toBe(2);
     messages = await messagesOf(owner, chat.id);
     expect(messages.at(-4)?.reply).toEqual({
       id: 'menu:sales',
@@ -354,11 +370,12 @@ describe('Chatbots (e2e)', () => {
     const chat = await chatOf(owner, line);
 
     const paused = await api(owner)
-      .post(`/conversations/${chat.id}/bot/pause`)
+      .post(`/conversations/${chat.id}/bot/pause`, { duration: 'permanent' })
       .expect(200);
     expect((paused.body as ConversationBody).bot).toMatchObject({
       state: 'paused',
       pausedBy: { name: 'Olga Owner' },
+      pausedUntil: null,
     });
     await incoming(line, 'Soporte');
     let outgoing = (await messagesOf(owner, chat.id)).filter(
@@ -492,8 +509,202 @@ describe('Chatbots (e2e)', () => {
         to: 'auto',
         membershipId: null,
         message: 'Te comunicamos con {{agente}}. En breve te atenderá.',
+        pause: '24h',
       },
     ]);
+  });
+
+  it('turns off for 24 hours, and the bot answers again once they pass', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    await botOn(owner, line, menuGraph('6716f0c2a1b2c3d4e5f60718'));
+    await incoming(line, 'hola');
+    const chat = await chatOf(owner, line);
+
+    const paused = await api(owner)
+      .post(`/conversations/${chat.id}/bot/pause`)
+      .expect(200);
+    const until = (paused.body as ConversationBody).bot.pausedUntil;
+    expect(new Date(until ?? 0).getTime() - Date.now()).toBeGreaterThan(
+      23.9 * 3_600_000,
+    );
+    await api(owner)
+      .post(`/conversations/${chat.id}/bot/pause`, { duration: 'forever' })
+      .expect(400);
+    await incoming(line, 'Soporte');
+    expect(
+      (await messagesOf(owner, chat.id)).filter((m) => m.direction === 'OUT'),
+    ).toHaveLength(2);
+
+    // A day later (the pause ended), it starts its flow again.
+    await mongo
+      .collection('conversations')
+      .updateOne(
+        { _id: new Types.ObjectId(chat.id) },
+        { $set: { 'bot.pausedUntil': new Date(Date.now() - 1000) } },
+      );
+    expect((await chatOf(owner, line)).bot).toMatchObject({
+      state: 'active',
+      pausedUntil: null,
+    });
+    await incoming(line, 'hola');
+    const outgoing = (await messagesOf(owner, chat.id)).filter(
+      (m) => m.direction === 'OUT',
+    );
+    expect(outgoing.map((m) => m.text).slice(-2)).toEqual([
+      'Hola Lucía',
+      '¿Qué necesitas?',
+    ]);
+  });
+
+  it('keeps unread what nobody read when the bot closes the chat', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    await botOn(owner, line, {
+      nodes: [
+        { id: 'start', type: 'start', position: at, data: {} },
+        {
+          id: 'bye',
+          type: 'message',
+          position: at,
+          data: { text: 'Gracias, ¡hasta luego!' },
+        },
+        {
+          id: 'close',
+          type: 'status',
+          position: at,
+          data: { status: 'CLOSED' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', sourceHandle: 'next', target: 'bye' },
+        { id: 'e2', source: 'bye', sourceHandle: 'next', target: 'close' },
+      ],
+    });
+    await incoming(line, 'hola');
+    const chat = (
+      (
+        await api(owner)
+          .get(`/conversations?view=all&status=CLOSED&lineId=${line.id}`)
+          .expect(200)
+      ).body as { items: ConversationBody[] }
+    ).items[0];
+    expect(chat).toMatchObject({ status: 'CLOSED', unreadCount: 1 });
+    const counts = (await api(owner).get('/conversations/counts').expect(200))
+      .body as Record<string, number>;
+    expect(counts).toMatchObject({ closed: 1, closedUnread: 1 });
+
+    // Once someone opens it, it is read.
+    await api(owner).post(`/conversations/${chat?.id}/read`).expect(200);
+    expect(
+      (
+        (await api(owner).get('/conversations/counts').expect(200)).body as {
+          closedUnread: number;
+        }
+      ).closedUnread,
+    ).toBe(0);
+  });
+
+  it('answers the fallback after the end, starts again with "menu" and nudges the idle', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    await botOn(owner, line, menuGraph('6716f0c2a1b2c3d4e5f60718'), {
+      fallbackText: 'Mensaje inválido. Escribe menu para volver.',
+      restartKeywords: ['Menu', ' inicio '],
+      inactivityMinutes: 5,
+      inactivityText: '¿Sigues ahí?',
+    });
+    await incoming(line, 'hola');
+    const chat = await chatOf(owner, line);
+    const outTexts = async () =>
+      (await messagesOf(owner, chat.id))
+        .filter((m) => m.direction === 'OUT')
+        .map((m) => m.text);
+
+    // Nobody answers the menu: after the wait, one inactivity message.
+    await mongo
+      .collection('conversations')
+      .updateOne(
+        { _id: new Types.ObjectId(chat.id) },
+        { $set: { 'bot.session.nudgeAt': new Date(Date.now() - 1000) } },
+      );
+    await runner.sendDueNudges();
+    await runner.idle();
+    await runner.sendDueNudges();
+    await runner.idle();
+    expect(await outTexts()).toEqual([
+      'Hola Lucía',
+      '¿Qué necesitas?',
+      '¿Sigues ahí?',
+    ]);
+
+    await incoming(line, 'Soporte', { id: 'menu:help', title: 'Soporte' });
+    await incoming(line, 'gracias');
+    expect((await outTexts()).slice(-2)).toEqual([
+      'Escribe tu consulta',
+      'Mensaje inválido. Escribe menu para volver.',
+    ]);
+    await incoming(line, 'MENU');
+    expect((await outTexts()).slice(-2)).toEqual([
+      'Hola Lucía',
+      '¿Qué necesitas?',
+    ]);
+  });
+
+  it('saves the general settings and the variables of the bot', async () => {
+    const owner = await signUp();
+    const bot = (
+      await api(owner).post('/chatbots', { name: 'Call Center' }).expect(201)
+    ).body as { id: string; restartAfterMinutes: number };
+    expect(bot.restartAfterMinutes).toBe(30);
+    const saved = await api(owner)
+      .patch(`/chatbots/${bot.id}`, {
+        description: 'Atención al cliente',
+        fallbackText: 'Mensaje inválido.',
+        restartKeywords: ['Menu', 'menu', ' inicio '],
+        restartAfterMinutes: 2,
+        inactivityMinutes: 29,
+        variables: [
+          { name: 'cuotas', type: 'number', defaultValue: '0' },
+          { name: 'cliente', type: 'boolean', description: '¿Ya compró?' },
+        ],
+      })
+      .expect(200);
+    expect(saved.body).toMatchObject({
+      description: 'Atención al cliente',
+      fallbackText: 'Mensaje inválido.',
+      restartKeywords: ['menu', 'inicio'],
+      restartAfterMinutes: 2,
+      inactivityMinutes: 29,
+      variables: [
+        { name: 'cuotas', type: 'number', defaultValue: '0', description: '' },
+        {
+          name: 'cliente',
+          type: 'boolean',
+          defaultValue: 'false',
+          description: '¿Ya compró?',
+        },
+      ],
+      contactVariables: [
+        'nombre',
+        'apellido',
+        'nombre_completo',
+        'email',
+        'telefono',
+      ],
+    });
+    await api(owner)
+      .patch(`/chatbots/${bot.id}`, { inactivityMinutes: 30 })
+      .expect(400);
+    await api(owner)
+      .patch(`/chatbots/${bot.id}`, { restartAfterMinutes: 1 })
+      .expect(400);
+    const invalid = await api(owner)
+      .patch(`/chatbots/${bot.id}`, {
+        variables: [{ name: 'email', type: 'text' }],
+      })
+      .expect(400);
+    expect(invalid.body).toMatchObject({ code: 'VARIABLES_INVALID' });
   });
 
   it('is only for chatbots.manage', async () => {

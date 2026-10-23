@@ -3,10 +3,20 @@ export interface ChatbotRecord {
   id: string;
   workspaceId: string;
   name: string;
+  description: string;
   enabled: boolean;
   graph: unknown;
   schedule: unknown;
   restartAfterMinutes: number;
+  /** Sent when the customer writes something the flow does not expect. */
+  fallbackText: string;
+  /** Words that send the customer back to the greeting. */
+  restartKeywords: string[];
+  /** Minutes without an answer before the inactivity message; null: never. */
+  inactivityMinutes: number | null;
+  inactivityText: string;
+  /** [{ name, type, defaultValue, description }] (see domain/variables.ts). */
+  variables: unknown;
   /** Lines this chatbot answers on. */
   lines: { id: string; name: string }[];
   createdAt: Date;
@@ -15,11 +25,17 @@ export interface ChatbotRecord {
 
 export interface ChatbotChanges {
   name?: string;
+  description?: string;
   enabled?: boolean;
   graph?: unknown;
   /** null: always available. */
   schedule?: unknown;
   restartAfterMinutes?: number;
+  fallbackText?: string;
+  restartKeywords?: string[];
+  inactivityMinutes?: number | null;
+  inactivityText?: string;
+  variables?: unknown;
 }
 
 export type SetLinesResult =
@@ -46,6 +62,8 @@ export abstract class ChatbotsStore {
     changes: ChatbotChanges,
   ): Promise<ChatbotRecord | null>;
   abstract remove(workspaceId: string, chatbotId: string): Promise<boolean>;
+  /** Workspaces with an enabled chatbot that sends inactivity messages. */
+  abstract workspacesWithInactivity(): Promise<string[]>;
   /**
    * Replaces the lines of a chatbot. Lines of another chatbot are moved
    * only with `takeOver`.

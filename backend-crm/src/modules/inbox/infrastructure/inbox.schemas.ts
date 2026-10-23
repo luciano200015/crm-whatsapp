@@ -65,12 +65,14 @@ export interface ConversationDocument {
   bot?: {
     paused: boolean;
     pausedBy: { userId: string; name: string } | null;
+    pausedUntil?: Date | null;
     session: {
       chatbotId: string;
-      nodeId: string;
+      nodeId: string | null;
       vars: Record<string, string>;
       attempts: number;
       updatedAt: Date;
+      nudgeAt?: Date | null;
     } | null;
   } | null;
   createdAt: Date;
@@ -110,6 +112,7 @@ export interface MessageDocument {
     from: PartyDocument | null;
     to: PartyDocument | null;
     tags?: { added: string[]; removed: string[] } | null;
+    pause?: { until: Date | null } | null;
   } | null;
   interactive?: InteractiveContent | null;
   reply?: { id: string; title: string } | null;
@@ -188,14 +191,19 @@ export const ConversationSchema = new Schema<ConversationDocument>(
         {
           paused: { type: Boolean, default: false },
           pausedBy: { type: PersonSchema(), default: null },
+          // A 24 h pause ends alone; null with paused: until turned on.
+          pausedUntil: { type: Date, default: null },
           session: {
             type: new Schema(
               {
                 chatbotId: { type: String, required: true },
-                nodeId: { type: String, required: true },
+                // null: the flow ended but the conversation is still active.
+                nodeId: { type: String, default: null },
                 vars: { type: Schema.Types.Mixed, default: {} },
                 attempts: { type: Number, default: 0 },
                 updatedAt: { type: Date, required: true },
+                // When the inactivity message is due.
+                nudgeAt: { type: Date, default: null },
               },
               { _id: false, minimize: false },
             ),
@@ -215,6 +223,11 @@ export const ONE_CONVERSATION_INDEX = 'workspaceId_1_lineId_1_contactId_1';
 ConversationSchema.index(
   { workspaceId: 1, lineId: 1, contactId: 1 },
   { unique: true, name: ONE_CONVERSATION_INDEX },
+);
+// Chatbot inactivity messages that are due (only chats waiting for one).
+ConversationSchema.index(
+  { workspaceId: 1, 'bot.session.nudgeAt': 1 },
+  { partialFilterExpression: { 'bot.session.nudgeAt': { $type: 'date' } } },
 );
 ConversationSchema.index({
   workspaceId: 1,
@@ -307,6 +320,13 @@ export const MessageSchema = new Schema<MessageDocument>(
                 added: { type: [String], default: [] },
                 removed: { type: [String], default: [] },
               },
+              { _id: false },
+            ),
+            default: undefined,
+          },
+          pause: {
+            type: new Schema(
+              { until: { type: Date, default: null } },
               { _id: false },
             ),
             default: undefined,

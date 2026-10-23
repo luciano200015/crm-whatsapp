@@ -55,14 +55,18 @@ import {
   type MessageRecord,
   type MessageSender,
 } from './ports';
+import { isBotPaused, pauseEnd, type BotPause } from '../domain/bot-pause';
 
 /** The line's chatbot in a conversation, as agents see it. */
 export interface ConversationBotView {
-  /** none: the line has no enabled chatbot; paused: an agent turned it off here. */
+  /** none: the line has no enabled chatbot; paused: it is off in this chat. */
   state: 'none' | 'active' | 'paused';
   /** Name of the line's chatbot. */
   name: string | null;
+  /** The agent who turned it off (null: the chatbot's own transfer). */
   pausedBy: { userId: string; name: string } | null;
+  /** When it turns on again by itself; null while paused: until someone turns it on. */
+  pausedUntil: Date | null;
 }
 
 /** A chatbot sending in a conversation. */
@@ -653,6 +657,8 @@ export class InboxService {
           status: message.status,
         },
         inbound: false,
+        // A chatbot's reply leaves the chat unread: no person has seen it.
+        keepUnread: sentBy.kind === 'bot',
       })) ?? conversation;
     await this.contacts.touchLastMessage(
       workspaceId,
@@ -746,6 +752,8 @@ export class InboxService {
     target: {
       to: 'auto' | 'unassigned' | 'member';
       membershipId: string | null;
+      /** How long the chatbot stays off in this chat after the handover. */
+      pause: BotPause;
     },
   ): Promise<Assignee | null> {
     const conversation = await this.store.findConversation(
@@ -774,10 +782,12 @@ export class InboxService {
       }
     }
     await this.store.setAssignee(workspaceId, conversationId, assignee);
+    const until = pauseEnd(target.pause, this.clock.now());
     const updated =
       (await this.store.setBot(workspaceId, conversationId, {
         paused: true,
         pausedBy: null,
+        pausedUntil: until,
         session: null,
       })) ?? conversation;
     this.emitConversation(updated, conversation);
@@ -786,6 +796,7 @@ export class InboxService {
       by: botPerson(bot),
       from: party(conversation.assignee),
       to: party(assignee),
+      pause: { until },
     });
     return assignee;
   }
@@ -802,11 +813,13 @@ export class InboxService {
       conversationId,
     );
     if (!conversation || conversation.status === status) return;
+    // Closed by the chatbot: what nobody read stays unread under Cerrado.
     const updated = await this.store.setStatus(
       workspaceId,
       conversationId,
       status,
       this.clock.now(),
+      { keepUnread: true },
     );
     if (!updated || updated === 'already_open') return;
     this.emitConversation(updated, conversation);
@@ -886,15 +899,44 @@ export class InboxService {
     conversationId: string,
     session: BotSession | null,
   ): Promise<void> {
-    await this.store.setBotSession(workspaceId, conversationId, session);
+    await this.store.setBotSession(
+      workspaceId,
+      conversationId,
+      session,
+      this.clock.now(),
+    );
   }
 
-  /** An agent turns the line's chatbot off in this chat. */
+  /** Chats whose chatbot inactivity message is due, claimed to send it once. */
+  claimBotNudges(workspaceId: string, limit = 50) {
+    return this.store.claimBotNudges(workspaceId, this.clock.now(), limit);
+  }
+
+  /** The contact of a chat, for the chatbot's variables ({{email}}…). */
+  async botContact(workspaceId: string, contactId: string) {
+    return this.contacts.findContact(workspaceId, contactId);
+  }
+
+  /** "Guardar respuesta" in a contact field: the name or the email. */
+  async botUpdateContact(
+    workspaceId: string,
+    contactId: string,
+    field: 'name' | 'email',
+    value: string,
+  ): Promise<void> {
+    await this.contactTags.update(workspaceId, contactId, { [field]: value });
+  }
+
+  /**
+   * An agent turns the line's chatbot off in this chat: for 24 h (it comes
+   * back on alone) or until someone turns it on again.
+   */
   async pauseBot(
     actor: InboxActor,
     conversationId: string,
+    pause: BotPause = '24h',
   ): Promise<ConversationView> {
-    return this.switchBot(actor, conversationId, true);
+    return this.switchBot(actor, conversationId, pause);
   }
 
   /** An agent turns the chatbot back on: it starts its flow again. */
@@ -902,32 +944,36 @@ export class InboxService {
     actor: InboxActor,
     conversationId: string,
   ): Promise<ConversationView> {
-    return this.switchBot(actor, conversationId, false);
+    return this.switchBot(actor, conversationId, null);
   }
 
   private async switchBot(
     actor: InboxActor,
     conversationId: string,
-    paused: boolean,
+    pause: BotPause | null,
   ): Promise<ConversationView> {
     const { workspaceId } = actor.access;
     const conversation = await this.requireVisible(actor, conversationId);
-    if ((conversation.bot?.paused ?? false) === paused)
-      return this.view(conversation);
+    const now = this.clock.now();
+    const paused = isBotPaused(conversation.bot, now);
+    if (!pause && !paused) return this.view(conversation);
     const me = await this.me(actor);
     const by = { userId: me.userId, name: me.name };
+    const until = pause ? pauseEnd(pause, now) : null;
     const updated = await this.store.setBot(workspaceId, conversationId, {
-      paused,
-      pausedBy: paused ? by : null,
+      paused: !!pause,
+      pausedBy: pause ? by : null,
+      pausedUntil: until,
       session: null,
     });
     if (!updated) throw InboxErrors.conversationNotFound();
     this.emitConversation(updated, conversation);
     await this.timeline.record(updated, {
-      kind: paused ? 'bot_paused' : 'bot_resumed',
+      kind: pause ? 'bot_paused' : 'bot_resumed',
       by,
       from: null,
       to: null,
+      ...(pause && { pause: { until } }),
     });
     return this.view(updated);
   }
@@ -1183,13 +1229,16 @@ export class InboxService {
   ): ConversationView {
     const { workspaceId: _workspaceId, bot, ...rest } = conversation;
     const line = lines.get(conversation.lineId);
+    const now = this.clock.now();
+    const paused = isBotPaused(bot, now);
     return {
       ...rest,
       lineName: line?.name ?? null,
       bot: {
-        state: !line?.chatbot ? 'none' : bot?.paused ? 'paused' : 'active',
+        state: !line?.chatbot ? 'none' : paused ? 'paused' : 'active',
         name: line?.chatbot ?? null,
-        pausedBy: bot?.pausedBy ?? null,
+        pausedBy: paused ? (bot?.pausedBy ?? null) : null,
+        pausedUntil: paused ? (bot?.pausedUntil ?? null) : null,
       },
       contactTagIds,
       windowOpen: isWindowOpen(conversation.lastInboundAt, this.clock.now()),

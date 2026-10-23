@@ -1,5 +1,11 @@
 import { INTERACTIVE_LIMITS as LIMITS } from '../../channels/domain/interactive';
+import { BOT_PAUSES, type BotPause } from '../../inbox/domain/bot-pause';
 import { scheduleProblem, type Schedule } from './schedule';
+import {
+  CONTACT_VARIABLES,
+  VARIABLE_NAME as VARIABLE,
+  type BotVariable,
+} from './variables';
 
 /**
  * The flow of a chatbot as the editor saves it: nodes (with their position
@@ -28,6 +34,10 @@ export const MAX_NODES = 200;
 export const DEFAULT_TRANSFER_TEXT =
   'Te comunicamos con {{agente}}. En breve te atenderá.';
 export const MAX_EDGES = 400;
+/** Files a node sends (each one is its own WhatsApp message). */
+export const MAX_ATTACHMENTS = 5;
+/** Name of a card in the diagram, only for whoever builds the flow. */
+export const MAX_TITLE = 60;
 
 /** A file uploaded for the chatbot (GridFS), sent with a message node. */
 export interface BotMedia {
@@ -60,7 +70,13 @@ export const OPERATORS = [
   'starts_with',
   'is_number',
   'is_empty',
+  'greater_than',
+  'less_than',
+  'is_true',
+  'is_false',
 ] as const;
+/** Contact fields "Guardar respuesta" can also update. */
+export const CONTACT_FIELDS = ['none', 'name', 'email'] as const;
 
 export interface ConditionRule {
   id: string;
@@ -74,7 +90,8 @@ export interface ConditionRule {
 /** Optional texts are '' when empty, so the editor's forms stay simple. */
 export interface NodeData {
   start: Record<string, never>;
-  message: { text: string; media: BotMedia | null };
+  /** Files go after the text; a single file takes the text as its caption. */
+  message: { text: string; attachments: BotMedia[] };
   buttons: {
     header: string;
     body: string;
@@ -82,6 +99,8 @@ export interface NodeData {
     buttons: FlowOption[];
     /** Said before repeating the question when the answer matches no option. */
     invalidText: string;
+    /** Sent before the buttons. */
+    attachments: BotMedia[];
   };
   list: {
     header: string;
@@ -90,6 +109,7 @@ export interface NodeData {
     button: string;
     sections: FlowListSection[];
     invalidText: string;
+    attachments: BotMedia[];
   };
   url: {
     header: string;
@@ -103,6 +123,8 @@ export interface NodeData {
     variable: string;
     validation: (typeof VALIDATIONS)[number];
     invalidText: string;
+    /** Also saves the answer in the contact (name or email). */
+    saveTo: (typeof CONTACT_FIELDS)[number];
   };
   condition: { rules: ConditionRule[] };
   hours: { schedule: Schedule };
@@ -113,6 +135,8 @@ export interface NodeData {
     membershipId: string | null;
     /** Told to the customer after the handover ({{agente}}: who got it). Empty: nothing. */
     message: string;
+    /** How long the chatbot stays off in the chat afterwards. */
+    pause: BotPause;
   };
   status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED' };
   end: Record<string, never>;
@@ -122,6 +146,8 @@ export type FlowNode = {
   [K in NodeKind]: {
     id: string;
     type: K;
+    /** Name of the card in the diagram ('' none). */
+    title: string;
     position: { x: number; y: number };
     data: NodeData[K];
   };
@@ -190,7 +216,6 @@ export function outputs(node: FlowNode): string[] {
 // ─────────────────────────── Reading ───────────────────────────
 
 const ID = /^[A-Za-z0-9_-]{1,40}$/;
-const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]{0,30}$/;
 
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json =>
@@ -272,6 +297,18 @@ const options = (
     };
   });
 
+/** Files of a node; flows saved with one `media` keep it. */
+function readAttachments(read: Reader, data: Json): BotMedia[] {
+  if (data.attachments === undefined && data.media !== undefined) {
+    const single = readMedia(read, data.media);
+    return single ? [single] : [];
+  }
+  return read
+    .list(data, 'attachments', MAX_ATTACHMENTS, 'Archivos')
+    .map((item) => readMedia(read, item))
+    .filter((media): media is BotMedia => media !== null);
+}
+
 function readMedia(read: Reader, value: unknown): BotMedia | null {
   if (value === undefined || value === null) return null;
   if (!isObject(value)) {
@@ -307,7 +344,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
     case 'message':
       return {
         text: read.text(data, 'text', LIMITS.text, 'Texto'),
-        media: readMedia(read, data.media),
+        attachments: readAttachments(read, data),
       };
     case 'buttons':
       return {
@@ -326,6 +363,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           1024,
           'Respuesta no válida',
         ),
+        attachments: readAttachments(read, data),
       };
     case 'list':
       return {
@@ -373,6 +411,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           1024,
           'Respuesta no válida',
         ),
+        attachments: readAttachments(read, data),
       };
     case 'url':
       return {
@@ -393,6 +432,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           1024,
           'Respuesta no válida',
         ),
+        saveTo: read.oneOf(data, 'saveTo', CONTACT_FIELDS, 'none'),
       };
     case 'condition':
       return {
@@ -450,6 +490,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           data.message === undefined
             ? DEFAULT_TRANSFER_TEXT
             : read.text(data, 'message', LIMITS.text, 'Mensaje al transferir'),
+        pause: read.oneOf(data, 'pause', BOT_PAUSES, '24h'),
       };
     }
     case 'status':
@@ -500,6 +541,7 @@ export function parseFlow(value: unknown): Flow {
     nodes.push({
       id,
       type,
+      title: read.text(raw, 'title', MAX_TITLE, 'Título'),
       position: {
         x: Number.isFinite(x) ? x : 0,
         y: Number.isFinite(y) ? y : 0,
@@ -562,7 +604,10 @@ export const isEmail = (value: string) => EMAIL.test(value);
  * What still needs work before the chatbot can answer customers (errors)
  * and what is probably a mistake (warnings, e.g. a node nobody reaches).
  */
-export function flowIssues(flow: Flow): FlowIssue[] {
+export function flowIssues(
+  flow: Flow,
+  variables: BotVariable[] = [],
+): FlowIssue[] {
   const issues: FlowIssue[] = [];
   const error = (nodeId: string | null, message: string) =>
     issues.push({ nodeId, level: 'error', message });
@@ -577,6 +622,15 @@ export function flowIssues(flow: Flow): FlowIssue[] {
   const unique = (titles: string[]) =>
     new Set(titles.map((title) => title.trim().toLowerCase())).size ===
     titles.length;
+  // Created in Variables, contact data, or filled by a "Guardar respuesta".
+  const known = new Set([
+    ...variables.map((variable) => variable.name.toLowerCase()),
+    ...CONTACT_VARIABLES,
+    ...flow.nodes.flatMap((node) =>
+      node.type === 'question' ? [node.data.variable.toLowerCase()] : [],
+    ),
+  ]);
+  const contactVariables = new Set<string>(CONTACT_VARIABLES);
 
   for (const node of flow.nodes) {
     const id = node.id;
@@ -586,7 +640,7 @@ export function flowIssues(flow: Flow): FlowIssue[] {
           error(id, 'Conecta el inicio con el primer mensaje');
         break;
       case 'message':
-        if (!node.data.text.trim() && !node.data.media)
+        if (!node.data.text.trim() && node.data.attachments.length === 0)
           error(id, 'Escribe el mensaje o adjunta un archivo');
         break;
       case 'buttons':
@@ -598,6 +652,8 @@ export function flowIssues(flow: Flow): FlowIssue[] {
           error(id, 'Cada botón necesita un texto');
         else if (!unique(node.data.buttons.map((button) => button.title)))
           error(id, 'Los botones no pueden repetirse');
+        if (!node.data.invalidText.trim())
+          error(id, 'Escribe la respuesta cuando el cliente no elige un botón');
         break;
       case 'list': {
         const rows = node.data.sections.flatMap((section) => section.rows);
@@ -616,6 +672,11 @@ export function flowIssues(flow: Flow): FlowIssue[] {
           node.data.sections.some((s) => !s.title.trim())
         )
           error(id, 'Con varias secciones, cada una necesita título');
+        if (!node.data.invalidText.trim())
+          error(
+            id,
+            'Escribe la respuesta cuando el cliente no elige una opción',
+          );
         break;
       }
       case 'url':
@@ -627,7 +688,18 @@ export function flowIssues(flow: Flow): FlowIssue[] {
       case 'question':
         if (!node.data.text.trim()) error(id, 'Escribe la pregunta');
         if (!VARIABLE.test(node.data.variable))
-          error(id, 'Nombra la variable (letras, números y _)');
+          error(id, 'Elige la variable donde se guarda la respuesta');
+        else if (contactVariables.has(node.data.variable.toLowerCase()))
+          error(
+            id,
+            'Los datos del contacto no se sobrescriben: usa «Guardar también en el contacto»',
+          );
+        else if (
+          !variables.some(
+            (v) => v.name.toLowerCase() === node.data.variable.toLowerCase(),
+          )
+        )
+          warn(id, `Crea la variable «${node.data.variable}» en Variables`);
         break;
       case 'condition':
         if (node.data.rules.length === 0)
@@ -635,8 +707,19 @@ export function flowIssues(flow: Flow): FlowIssue[] {
         for (const rule of node.data.rules) {
           if (rule.source === 'variable' && !VARIABLE.test(rule.variable))
             error(id, 'Elige la variable de cada condición');
+          else if (
+            rule.source === 'variable' &&
+            !known.has(rule.variable.toLowerCase())
+          )
+            warn(id, `La variable «${rule.variable}» no existe`);
           if (
-            ['equals', 'contains', 'starts_with'].includes(rule.operator) &&
+            [
+              'equals',
+              'contains',
+              'starts_with',
+              'greater_than',
+              'less_than',
+            ].includes(rule.operator) &&
             !rule.value.trim()
           )
             error(id, 'Escribe el valor de cada condición');
@@ -681,14 +764,21 @@ export function flowIssues(flow: Flow): FlowIssue[] {
 export function starterFlow(): Flow {
   return {
     nodes: [
-      { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
+      {
+        id: 'start',
+        type: 'start',
+        title: '',
+        position: { x: 0, y: 0 },
+        data: {},
+      },
       {
         id: 'welcome',
         type: 'message',
+        title: 'Saludo inicial',
         position: { x: 0, y: 140 },
         data: {
           text: '¡Hola {{nombre}}! 👋 Gracias por escribirnos.',
-          media: null,
+          attachments: [],
         },
       },
     ],

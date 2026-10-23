@@ -19,6 +19,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { BOT_PAUSES, type BotPause } from '../domain/bot-pause';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -382,15 +383,40 @@ export class ConversationBotDto {
   @ApiProperty({
     enum: ['none', 'active', 'paused'],
     description:
-      'none: the line has no enabled chatbot. paused: an agent turned it off in this chat.',
+      'none: the line has no enabled chatbot. paused: it is off in this chat (an agent, or its own transfer).',
   })
   state: string;
 
   @ApiProperty({ nullable: true, type: String, example: 'Bot de ventas' })
   name: string | null;
 
-  @ApiProperty({ type: () => SentByDto, nullable: true })
+  @ApiProperty({
+    type: () => SentByDto,
+    nullable: true,
+    description:
+      'The agent who turned it off; null after a transfer of the chatbot.',
+  })
   pausedBy: SentByDto | null;
+
+  @ApiProperty({
+    type: Date,
+    nullable: true,
+    description:
+      'When it turns on again by itself (24 h pause). null while paused: until someone turns it on.',
+  })
+  pausedUntil: Date | null;
+}
+
+export class PauseBotDto {
+  @ApiPropertyOptional({
+    enum: BOT_PAUSES,
+    default: '24h',
+    description:
+      '24h: it turns on again by itself after a day. permanent: until someone turns it on.',
+  })
+  @IsOptional()
+  @IsIn(BOT_PAUSES)
+  duration?: BotPause;
 }
 
 export class ConversationDto {
@@ -480,6 +506,17 @@ export class InboxCountsDto {
 
   @ApiProperty({ description: 'Closed and visible to me.' })
   closed: number;
+
+  @ApiProperty({
+    description:
+      'Closed, visible to me and with messages nobody read (e.g. a chatbot closed them).',
+  })
+  closedUnread: number;
+
+  @ApiProperty({
+    description: 'Closed, assigned to me and with messages nobody read.',
+  })
+  mineClosedUnread: number;
 
   @ApiProperty({
     description: 'Unread messages in open conversations visible to me.',
@@ -654,6 +691,19 @@ export class ConversationEventDto {
     description: 'bot_tagged: names of the tags added and removed.',
   })
   tags?: EventTagsDto | null;
+
+  @ApiPropertyOptional({
+    type: () => EventPauseDto,
+    nullable: true,
+    description:
+      'bot_paused, bot_transferred: until when the chatbot is off (until: null, until someone turns it on).',
+  })
+  pause?: EventPauseDto | null;
+}
+
+export class EventPauseDto {
+  @ApiProperty({ type: Date, nullable: true })
+  until: Date | null;
 }
 
 export class EventTagsDto {

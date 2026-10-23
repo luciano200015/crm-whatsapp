@@ -68,15 +68,76 @@ export class UpdateChatbotDto {
   schedule?: Record<string, unknown> | null;
 
   @ApiPropertyOptional({
-    minimum: 5,
+    minimum: 2,
     maximum: 10080,
-    description: 'A conversation idle this long starts the flow again.',
+    description:
+      'A conversation idle this long starts again with the greeting when the customer writes (30 by default).',
   })
   @IsOptional()
   @IsInt()
-  @Min(5)
+  @Min(2)
   @Max(10080)
   restartAfterMinutes?: number;
+
+  @ApiPropertyOptional({ maxLength: 300 })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(300)
+  description?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 1024,
+    description:
+      'Sent when the customer writes something the flow does not expect (also after the end of the flow). Empty: nothing.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  fallbackText?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['menu'],
+    description: 'Words that send the customer back to the greeting.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  restartKeywords?: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 1,
+    maximum: 29,
+    description:
+      'Minutes without an answer before the inactivity message; null: never sent.',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(1)
+  @Max(29)
+  inactivityMinutes?: number | null;
+
+  @ApiPropertyOptional({ maxLength: 1024 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  inactivityText?: string;
+
+  @ApiPropertyOptional({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description:
+      'Variables of the chatbot: [{ name, type: text | number | boolean, defaultValue, description }] (400 VARIABLES_INVALID).',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  variables?: Record<string, unknown>[];
 }
 
 export class SetChatbotLinesDto {
@@ -131,6 +192,38 @@ export class SimulateChatbotDto {
   @IsString()
   @MaxLength(80)
   contactName?: string | null;
+
+  @ApiPropertyOptional({
+    maxLength: 1024,
+    description:
+      'Sent when the customer writes something the flow does not expect (also after the end of the flow). Empty: nothing.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  fallbackText?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['menu'],
+    description: 'Words that send the customer back to the greeting.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  restartKeywords?: string[];
+
+  @ApiPropertyOptional({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description: 'The variables being edited, with their types and defaults.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  variables?: Record<string, unknown>[];
 }
 
 // ─────────────────────────── Responses ───────────────────────────
@@ -149,6 +242,9 @@ export class ChatbotSummaryDto {
 
   @ApiProperty({ example: 'Bot de ventas' })
   name: string;
+
+  @ApiProperty({ example: 'Atención al cliente' })
+  description: string;
 
   @ApiProperty()
   enabled: boolean;
@@ -192,8 +288,34 @@ export class ChatbotDto extends ChatbotSummaryDto {
   })
   schedule: object | null;
 
-  @ApiProperty({ example: 60 })
+  @ApiProperty({ example: 30 })
   restartAfterMinutes: number;
+
+  @ApiProperty()
+  fallbackText: string;
+
+  @ApiProperty({ type: [String], example: ['menu'] })
+  restartKeywords: string[];
+
+  @ApiProperty({ nullable: true, type: Number, example: 5 })
+  inactivityMinutes: number | null;
+
+  @ApiProperty()
+  inactivityText: string;
+
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description: '[{ name, type, defaultValue, description }]',
+  })
+  variables: object[];
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Contact data every chatbot can use in texts: {{nombre}}, {{apellido}}, {{nombre_completo}}, {{email}}, {{telefono}}.',
+  })
+  contactVariables: string[];
 
   @ApiProperty({ type: [FlowIssueDto] })
   issues: FlowIssueDto[];
@@ -221,7 +343,7 @@ export class SimulationDto {
     type: 'array',
     items: { type: 'object', additionalProperties: true },
     description:
-      'What the chatbot would do, in order: send (a message), tags, transfer, status.',
+      'What the chatbot would do, in order: send (a message), tags, transfer, status, contact.',
   })
   actions: object[];
 
@@ -229,7 +351,8 @@ export class SimulationDto {
     nullable: true,
     type: 'object',
     additionalProperties: true,
-    description: 'Send it back with the next answer; null = the flow ended.',
+    description:
+      'Send it back with the next answer; null = the next message starts again. nodeId null: the flow ended but the conversation is still active.',
   })
   session: object | null;
 }

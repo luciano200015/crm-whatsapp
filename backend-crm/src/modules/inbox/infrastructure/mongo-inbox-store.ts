@@ -83,13 +83,15 @@ function toConversation(doc: ConversationDocument): ConversationRecord {
       ? {
           paused: doc.bot.paused,
           pausedBy: doc.bot.pausedBy ?? null,
+          pausedUntil: doc.bot.pausedUntil ?? null,
           session: doc.bot.session
             ? {
                 chatbotId: doc.bot.session.chatbotId,
-                nodeId: doc.bot.session.nodeId,
+                nodeId: doc.bot.session.nodeId ?? null,
                 vars: { ...(doc.bot.session.vars ?? {}) },
                 attempts: doc.bot.session.attempts ?? 0,
                 updatedAt: doc.bot.session.updatedAt,
+                nudgeAt: doc.bot.session.nudgeAt ?? null,
               }
             : null,
         }
@@ -116,6 +118,9 @@ function toMessage(doc: MessageDocument): MessageRecord {
           to: doc.event.to,
           // Only the events of a chatbot's tags carry them.
           ...(doc.event.tags && { tags: doc.event.tags }),
+          ...(doc.event.pause && {
+            pause: { until: doc.event.pause.until ?? null },
+          }),
         }
       : null,
     interactive: doc.interactive ?? null,
@@ -304,6 +309,8 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       closed,
       mineOnHold,
       mineClosed,
+      closedUnread,
+      mineClosedUnread,
     ] = await Promise.all([
       this.conversations.countDocuments({ ...open, ...mineOnly }),
       this.conversations.countDocuments({
@@ -335,6 +342,19 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         status: 'CLOSED',
         ...mineOnly,
       }),
+      // Closed with messages nobody read (a chatbot closed them).
+      this.conversations.countDocuments({
+        workspaceId,
+        status: 'CLOSED',
+        unreadCount: { $gt: 0 },
+        ...visible,
+      }),
+      this.conversations.countDocuments({
+        workspaceId,
+        status: 'CLOSED',
+        unreadCount: { $gt: 0 },
+        ...mineOnly,
+      }),
     ]);
     return {
       mine,
@@ -344,6 +364,8 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       all,
       onHold,
       closed,
+      closedUnread,
+      mineClosedUnread,
       unread: unread[0]?.total ?? 0,
     };
   }
@@ -379,15 +401,15 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       contactId: input.contactId,
     };
     // A closed chat comes back to life, unassigned, for whoever takes it.
-    // Its chatbot answers again from the start, unless an agent turned it
-    // off for this contact: that lasts until someone turns it back on.
+    // Its chatbot answers again from the start, unless it is off for this
+    // contact (for 24 h or until someone turns it back on).
     const reopen = (keepPause: boolean) =>
       this.conversations
         .findOneAndUpdate(
           {
             ...filter,
             status: 'CLOSED',
-            ...(keepPause && { 'bot.pausedBy': { $ne: null } }),
+            ...(keepPause && { 'bot.paused': true }),
           },
           {
             $set: {
@@ -458,11 +480,15 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
   async recordActivity(
     workspaceId: string,
     conversationId: string,
-    activity: { lastMessage: LastMessage; inbound: boolean },
+    activity: {
+      lastMessage: LastMessage;
+      inbound: boolean;
+      keepUnread?: boolean;
+    },
   ): Promise<ConversationRecord | null> {
     const _id = objectId(conversationId);
     if (!_id) return null;
-    const { lastMessage, inbound } = activity;
+    const { lastMessage, inbound, keepUnread } = activity;
     const doc = await this.conversations
       .findOneAndUpdate(
         { workspaceId, _id },
@@ -476,11 +502,12 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
               $inc: { unreadCount: 1 },
             }
           : {
-              // Replying means the agent read the conversation.
+              // Replying means the agent read the conversation; a chatbot's
+              // reply does not.
               $set: {
                 lastMessage,
                 lastActivityAt: lastMessage.at,
-                unreadCount: 0,
+                ...(!keepUnread && { unreadCount: 0 }),
               },
             },
         { returnDocument: 'after' },
@@ -516,6 +543,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     conversationId: string,
     status: ConversationStatus,
     at: Date,
+    options: { keepUnread?: boolean } = {},
   ): Promise<ConversationRecord | 'already_open' | null> {
     const _id = objectId(conversationId);
     if (!_id) return null;
@@ -524,7 +552,13 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         .findOneAndUpdate(
           { workspaceId, _id },
           status === 'CLOSED'
-            ? { $set: { status, closedAt: at, unreadCount: 0 } }
+            ? {
+                $set: {
+                  status,
+                  closedAt: at,
+                  ...(!options.keepUnread && { unreadCount: 0 }),
+                },
+              }
             : status === 'ON_HOLD'
               ? { $set: { status, closedAt: null } }
               : { $set: { status, closedAt: null, lastActivityAt: at } },
@@ -559,13 +593,46 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     workspaceId: string,
     conversationId: string,
     session: BotSession | null,
+    now: Date,
   ): Promise<void> {
     const _id = objectId(conversationId);
     if (!_id) return;
     await this.conversations.updateOne(
-      { workspaceId, _id, 'bot.paused': { $ne: true } },
-      { $set: { bot: { paused: false, pausedBy: null, session } } },
+      {
+        workspaceId,
+        _id,
+        // Not when an agent turned it off meanwhile (an ended 24 h pause is over).
+        $or: [
+          { 'bot.paused': { $ne: true } },
+          { 'bot.pausedUntil': { $lte: now } },
+        ],
+      },
+      {
+        $set: {
+          bot: { paused: false, pausedBy: null, pausedUntil: null, session },
+        },
+      },
     );
+  }
+
+  async claimBotNudges(
+    workspaceId: string,
+    now: Date,
+    limit: number,
+  ): Promise<ConversationRecord[]> {
+    const claimed: ConversationRecord[] = [];
+    while (claimed.length < limit) {
+      const doc = await this.conversations
+        .findOneAndUpdate(
+          { workspaceId, 'bot.session.nudgeAt': { $lte: now } },
+          { $set: { 'bot.session.nudgeAt': null } },
+          { returnDocument: 'after' },
+        )
+        .lean<ConversationDocument>();
+      if (!doc) break;
+      claimed.push(toConversation(doc));
+    }
+    return claimed;
   }
 
   async markRead(

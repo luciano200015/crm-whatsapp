@@ -552,20 +552,30 @@ model ChannelLine {
 /// A chatbot of a workspace: its flow (nodes and edges of the editor) answers
 /// the customers of the lines that point to it.
 model Chatbot {
-  id                  String    @id @default(uuid(7)) @db.Uuid
-  workspaceId         String    @map("workspace_id") @db.Uuid
-  name                String    @db.VarChar(80)
+  id                  String   @id @default(uuid(7)) @db.Uuid
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  name                String   @db.VarChar(80)
+  description         String   @default("") @db.VarChar(300)
   /// Only enabled bots answer; enabling requires a complete flow.
-  enabled             Boolean   @default(false)
+  enabled             Boolean  @default(false)
   /// { nodes, edges } as the flow editor saves them (see chatbots/domain/flow.ts).
   graph               Json
   /// null: always available. Otherwise { timezone, days: [{ day, ranges: [{ from, to }] }] }.
   schedule            Json?
-  /// A conversation idle this long starts the flow again.
-  restartAfterMinutes Int       @default(60) @map("restart_after_minutes")
-  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// A conversation idle this long starts the flow again (with the greeting).
+  restartAfterMinutes Int      @default(30) @map("restart_after_minutes")
+  /// Sent when the customer writes something the flow does not expect.
+  fallbackText        String   @default("Mensaje inválido. Por favor escoge una de las opciones.") @map("fallback_text") @db.VarChar(1024)
+  /// Words that send the customer back to the greeting.
+  restartKeywords     String[] @default(["menu"]) @map("restart_keywords")
+  /// Minutes without an answer before the inactivity message; null: never.
+  inactivityMinutes   Int?     @map("inactivity_minutes")
+  inactivityText      String   @default("Parece que te detuviste un momento. ¿Quieres que avancemos?") @map("inactivity_text") @db.VarChar(1024)
+  /// [{ name, type: text | number | boolean, defaultValue, description }]
+  variables           Json     @default("[]")
+  createdByUserId     String?  @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lines     ChannelLine[]

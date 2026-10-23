@@ -26,6 +26,12 @@ import {
   type EngineSession,
 } from '../domain/flow-engine';
 import { scheduleProblem, type Schedule } from '../domain/schedule';
+import {
+  CONTACT_VARIABLES,
+  parseVariables,
+  storedVariables,
+  type BotVariable,
+} from '../domain/variables';
 import { ChatbotsErrors } from './chatbots-errors';
 import {
   ChatbotsStore,
@@ -36,6 +42,7 @@ import {
 export interface ChatbotSummary {
   id: string;
   name: string;
+  description: string;
   enabled: boolean;
   lines: { id: string; name: string }[];
   /** Errors to fix before it can be enabled. */
@@ -48,6 +55,13 @@ export interface ChatbotView extends ChatbotSummary {
   graph: Flow;
   schedule: Schedule | null;
   restartAfterMinutes: number;
+  fallbackText: string;
+  restartKeywords: string[];
+  inactivityMinutes: number | null;
+  inactivityText: string;
+  variables: BotVariable[];
+  /** Contact data every chatbot can use: {{nombre}}, {{email}}… */
+  contactVariables: string[];
   issues: FlowIssue[];
 }
 
@@ -71,7 +85,7 @@ function storedFlow(graph: unknown): Flow {
 function testSession(value: unknown): EngineSession | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
-  if (typeof raw.nodeId !== 'string') return null;
+  if (typeof raw.nodeId !== 'string' && raw.nodeId !== null) return null;
   const vars: Record<string, string> = {};
   if (typeof raw.vars === 'object' && raw.vars !== null) {
     for (const [key, item] of Object.entries(raw.vars).slice(0, 50)) {
@@ -80,7 +94,7 @@ function testSession(value: unknown): EngineSession | null {
   }
   const attempts = Number(raw.attempts);
   return {
-    nodeId: raw.nodeId.slice(0, 40),
+    nodeId: raw.nodeId === null ? null : raw.nodeId.slice(0, 40),
     vars,
     attempts: Number.isInteger(attempts) && attempts >= 0 ? attempts : 0,
   };
@@ -100,6 +114,15 @@ export class ChatbotsService {
   async list(workspaceId: string): Promise<ChatbotSummary[]> {
     const bots = await this.store.list(workspaceId);
     return bots.map((bot) => this.summary(bot, storedFlow(bot.graph)));
+  }
+
+  /** Words of "Palabras para volver al saludo": trimmed, lowercase, unique. */
+  private keywords(words: string[]): string[] {
+    return [
+      ...new Set(
+        words.map((word) => word.trim().toLowerCase()).filter(Boolean),
+      ),
+    ];
   }
 
   async get(workspaceId: string, chatbotId: string): Promise<ChatbotView> {
@@ -139,13 +162,21 @@ export class ChatbotsService {
       const problem = scheduleProblem(changes.schedule);
       if (problem) throw ChatbotsErrors.scheduleInvalid(problem);
     }
+    let variables: BotVariable[] | undefined;
+    if (changes.variables !== undefined) {
+      const parsed = parseVariables(changes.variables);
+      if ('problem' in parsed)
+        throw ChatbotsErrors.variablesInvalid(parsed.problem);
+      variables = parsed.variables;
+    }
     const enabled = changes.enabled ?? current.enabled;
     if (enabled) {
       if (changes.enabled === true) await this.assertIncluded(workspaceId);
       // A chatbot never answers customers with a half-built flow.
-      const errors = flowIssues(graph ?? storedFlow(current.graph)).filter(
-        (issue) => issue.level === 'error',
-      );
+      const errors = flowIssues(
+        graph ?? storedFlow(current.graph),
+        variables ?? storedVariables(current.variables),
+      ).filter((issue) => issue.level === 'error');
       if (errors.length > 0) throw ChatbotsErrors.flowIncomplete(errors);
     }
     const updated = await this.store.update(workspaceId, chatbotId, {
@@ -156,6 +187,22 @@ export class ChatbotsService {
       ...(changes.restartAfterMinutes !== undefined && {
         restartAfterMinutes: changes.restartAfterMinutes,
       }),
+      ...(changes.description !== undefined && {
+        description: changes.description.trim(),
+      }),
+      ...(changes.fallbackText !== undefined && {
+        fallbackText: changes.fallbackText.trim(),
+      }),
+      ...(changes.restartKeywords !== undefined && {
+        restartKeywords: this.keywords(changes.restartKeywords),
+      }),
+      ...(changes.inactivityMinutes !== undefined && {
+        inactivityMinutes: changes.inactivityMinutes,
+      }),
+      ...(changes.inactivityText !== undefined && {
+        inactivityText: changes.inactivityText.trim(),
+      }),
+      ...(variables && { variables }),
     });
     if (!updated) throw ChatbotsErrors.chatbotNotFound();
     await this.record(
@@ -197,8 +244,14 @@ export class ChatbotsService {
     });
     const withSettings =
       (await this.store.update(workspaceId, copy.id, {
+        description: source.description,
         schedule: source.schedule ?? null,
         restartAfterMinutes: source.restartAfterMinutes,
+        fallbackText: source.fallbackText,
+        restartKeywords: source.restartKeywords,
+        inactivityMinutes: source.inactivityMinutes,
+        inactivityText: source.inactivityText,
+        variables: storedVariables(source.variables),
       })) ?? copy;
     await this.record('chatbots.chatbot.created', workspaceId, copy.id, actor, {
       duplicateOf: chatbotId,
@@ -295,11 +348,16 @@ export class ChatbotsService {
     text: string | null;
     replyId: string | null;
     contactName: string | null;
+    fallbackText: string;
+    restartKeywords: string[];
+    variables: unknown;
   }): { actions: BotAction[]; session: EngineSession | null } {
     const flow = this.parse(input.graph);
     const session = testSession(input.session);
     const waiting =
-      session && flow.nodes.some((node) => node.id === session.nodeId)
+      session &&
+      (session.nodeId === null ||
+        flow.nodes.some((node) => node.id === session.nodeId))
         ? session
         : null;
     return advance(
@@ -308,7 +366,16 @@ export class ChatbotsService {
       { text: input.text, replyId: input.replyId },
       {
         now: this.clock.now(),
-        contact: { name: input.contactName, phone: '+00000000000' },
+        contact: {
+          name: input.contactName,
+          phone: '+59170000000',
+          email: 'cliente@ejemplo.com',
+        },
+        settings: {
+          fallbackText: input.fallbackText,
+          restartKeywords: this.keywords(input.restartKeywords),
+        },
+        variables: storedVariables(input.variables),
       },
     );
   }
@@ -367,10 +434,12 @@ export class ChatbotsService {
     return {
       id: bot.id,
       name: bot.name,
+      description: bot.description,
       enabled: bot.enabled,
       lines: bot.lines,
-      errors: flowIssues(flow).filter((issue) => issue.level === 'error')
-        .length,
+      errors: flowIssues(flow, storedVariables(bot.variables)).filter(
+        (issue) => issue.level === 'error',
+      ).length,
       createdAt: bot.createdAt,
       updatedAt: bot.updatedAt,
     };
@@ -378,12 +447,19 @@ export class ChatbotsService {
 
   private toView(bot: ChatbotRecord): ChatbotView {
     const graph = storedFlow(bot.graph);
+    const variables = storedVariables(bot.variables);
     return {
       ...this.summary(bot, graph),
       graph,
       schedule: (bot.schedule as Schedule | null) ?? null,
       restartAfterMinutes: bot.restartAfterMinutes,
-      issues: flowIssues(graph),
+      fallbackText: bot.fallbackText,
+      restartKeywords: bot.restartKeywords,
+      inactivityMinutes: bot.inactivityMinutes,
+      inactivityText: bot.inactivityText,
+      variables,
+      contactVariables: [...CONTACT_VARIABLES],
+      issues: flowIssues(graph, variables),
     };
   }
 }

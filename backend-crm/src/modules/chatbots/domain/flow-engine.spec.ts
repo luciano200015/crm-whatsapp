@@ -14,13 +14,26 @@ import {
   type Flow,
   type FlowNode,
 } from './flow';
+import { isBotPaused, pauseEnd } from '../../inbox/domain/bot-pause';
 import { scheduleProblem, withinSchedule } from './schedule';
+import { booleanValue, contactValues, parseVariables } from './variables';
 
 const at = (x = 0, y = 0) => ({ x, y });
 const context: EngineContext = {
   now: new Date('2026-10-23T15:00:00Z'), // Friday 11:00 in La Paz (UTC-4)
-  contact: { name: 'Lucía', phone: '+59170000001' },
+  contact: { name: 'Lucía', phone: '+59170000001', email: null },
 };
+const settings = {
+  fallbackText: 'Mensaje inválido. Escribe menu para volver al inicio.',
+  restartKeywords: ['menu', 'inicio'],
+};
+const photo = (name: string) => ({
+  fileId: '6716f0c2a1b2c3d4e5f6071' + name,
+  type: 'image' as const,
+  mimeType: 'image/jpeg',
+  filename: `${name}.jpg`,
+  size: 10,
+});
 const edge = (source: string, target: string, sourceHandle = 'next') => ({
   id: `${source}-${sourceHandle}-${target}`,
   source,
@@ -31,16 +44,18 @@ const edge = (source: string, target: string, sourceHandle = 'next') => ({
 /** Start → greeting → menu (Ventas / Soporte) → tag + transfer, or a question. */
 function menuFlow(extra: Partial<Flow> = {}): Flow {
   const nodes: FlowNode[] = [
-    { id: 'start', type: 'start', position: at(), data: {} },
+    { id: 'start', type: 'start', title: '', position: at(), data: {} },
     {
       id: 'hello',
       type: 'message',
+      title: '',
       position: at(),
-      data: { text: 'Hola {{nombre}}', media: null },
+      data: { text: 'Hola {{nombre}}', attachments: [] },
     },
     {
       id: 'menu',
       type: 'buttons',
+      title: '',
       position: at(),
       data: {
         header: '',
@@ -51,40 +66,47 @@ function menuFlow(extra: Partial<Flow> = {}): Flow {
           { id: 'help', title: 'Soporte' },
         ],
         invalidText: '',
+        attachments: [],
       },
     },
     {
       id: 'tag',
       type: 'tags',
+      title: '',
       position: at(),
       data: { add: ['6716f0c2a1b2c3d4e5f60718'], remove: [] },
     },
     {
       id: 'agent',
       type: 'transfer',
+      title: '',
       position: at(),
       data: {
         to: 'auto',
         membershipId: null,
         message: 'Hola {{nombre}}, te atiende {{agente}}.',
+        pause: '24h',
       },
     },
     {
       id: 'ask',
       type: 'question',
+      title: '',
       position: at(),
       data: {
         text: '¿Cuál es tu correo?',
         variable: 'correo',
         validation: 'email',
         invalidText: 'Ese correo no parece válido',
+        saveTo: 'none',
       },
     },
     {
       id: 'thanks',
       type: 'message',
+      title: '',
       position: at(),
-      data: { text: 'Gracias, te escribiremos a {{correo}}', media: null },
+      data: { text: 'Gracias, te escribiremos a {{correo}}', attachments: [] },
     },
     ...(extra.nodes ?? []),
   ];
@@ -149,6 +171,7 @@ describe('chatbot flow engine', () => {
         to: 'auto',
         membershipId: null,
         message: 'Hola Lucía, te atiende {{agente}}.',
+        pause: '24h',
       },
     ]);
     expect(result.session).toBeNull();
@@ -213,8 +236,9 @@ describe('chatbot flow engine', () => {
         {
           id: 'sorry',
           type: 'message',
+          title: '',
           position: at(),
-          data: { text: 'Un agente te ayudará', media: null },
+          data: { text: 'Un agente te ayudará', attachments: [] },
         },
       ],
       edges: [edge('menu', 'sorry', 'other')],
@@ -228,7 +252,8 @@ describe('chatbot flow engine', () => {
     expect(result.actions).toEqual([
       { kind: 'send', message: { kind: 'text', text: 'Un agente te ayudará' } },
     ]);
-    expect(result.session).toBeNull();
+    // The flow ran out: still the same conversation.
+    expect(result.session).toEqual({ nodeId: null, vars: {}, attempts: 0 });
   });
 
   it('saves a valid answer in its variable and uses it later', () => {
@@ -259,16 +284,21 @@ describe('chatbot flow engine', () => {
         },
       },
     ]);
-    expect(right.session).toBeNull();
+    expect(right.session).toEqual({
+      nodeId: null,
+      vars: { correo: 'lu@example.com' },
+      attempts: 0,
+    });
   });
 
   it('branches on conditions and opening hours', () => {
     const flow: Flow = {
       nodes: [
-        { id: 'start', type: 'start', position: at(), data: {} },
+        { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
           id: 'cond',
           type: 'condition',
+          title: '',
           position: at(),
           data: {
             rules: [
@@ -285,6 +315,7 @@ describe('chatbot flow engine', () => {
         {
           id: 'hours',
           type: 'hours',
+          title: '',
           position: at(),
           data: {
             schedule: {
@@ -296,20 +327,23 @@ describe('chatbot flow engine', () => {
         {
           id: 'open',
           type: 'message',
+          title: '',
           position: at(),
-          data: { text: 'Abiertos', media: null },
+          data: { text: 'Abiertos', attachments: [] },
         },
         {
           id: 'closed',
           type: 'message',
+          title: '',
           position: at(),
-          data: { text: 'Cerrados', media: null },
+          data: { text: 'Cerrados', attachments: [] },
         },
         {
           id: 'list',
           type: 'message',
+          title: '',
           position: at(),
-          data: { text: 'Lista', media: null },
+          data: { text: 'Lista', attachments: [] },
         },
       ],
       edges: [
@@ -338,18 +372,20 @@ describe('chatbot flow engine', () => {
   it('stops a flow that loops forever', () => {
     const flow: Flow = {
       nodes: [
-        { id: 'start', type: 'start', position: at(), data: {} },
+        { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
           id: 'a',
           type: 'message',
+          title: '',
           position: at(),
-          data: { text: 'a', media: null },
+          data: { text: 'a', attachments: [] },
         },
         {
           id: 'b',
           type: 'message',
+          title: '',
           position: at(),
-          data: { text: 'b', media: null },
+          data: { text: 'b', attachments: [] },
         },
       ],
       edges: [edge('start', 'a'), edge('a', 'b'), edge('b', 'a')],
@@ -367,10 +403,11 @@ describe('chatbot flow engine', () => {
   it('closes the chat with the status node and ends there', () => {
     const flow: Flow = {
       nodes: [
-        { id: 'start', type: 'start', position: at(), data: {} },
+        { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
           id: 'bye',
           type: 'status',
+          title: '',
           position: at(),
           data: { status: 'CLOSED' },
         },
@@ -398,10 +435,11 @@ describe('chatbot flow engine', () => {
   it('shows a list, follows the row chosen, sends a link button and ends', () => {
     const flow = parseFlow({
       nodes: [
-        { id: 'start', type: 'start', position: at(), data: {} },
+        { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
           id: 'menu',
           type: 'list',
+          title: '',
           position: at(),
           data: {
             header: '',
@@ -424,6 +462,7 @@ describe('chatbot flow engine', () => {
         {
           id: 'link',
           type: 'url',
+          title: '',
           position: at(),
           data: {
             header: '',
@@ -433,7 +472,7 @@ describe('chatbot flow engine', () => {
             url: 'https://pagos.example.com',
           },
         },
-        { id: 'bye', type: 'end', position: at(), data: {} },
+        { id: 'bye', type: 'end', title: '', position: at(), data: {} },
       ],
       edges: [
         edge('start', 'menu'),
@@ -510,7 +549,10 @@ describe('chatbot flow engine', () => {
       { text: 'Comprar', replyId: optionReplyId('menu', 'buy') },
       context,
     );
-    expect(loose).toEqual({ actions: [], session: null });
+    expect(loose).toEqual({
+      actions: [],
+      session: { nodeId: null, vars: {}, attempts: 0 },
+    });
   });
 
   it('fills variables, the name and the phone', () => {
@@ -521,6 +563,356 @@ describe('chatbot flow engine', () => {
         context.contact,
       ),
     ).toBe('Lucía (+59170000001) quiere TV');
+  });
+
+  it('answers the fallback text after the end, and "menu" starts again', () => {
+    const ended = {
+      nodeId: null,
+      vars: { correo: 'lu@example.com' },
+      attempts: 0,
+    };
+    const after = advance(
+      menuFlow(),
+      ended,
+      { text: 'gracias', replyId: null },
+      { ...context, settings },
+    );
+    expect(after).toEqual({
+      actions: [
+        {
+          kind: 'send',
+          message: { kind: 'text', text: settings.fallbackText },
+        },
+      ],
+      session: ended,
+    });
+
+    // From anywhere, even while a menu waits.
+    for (const session of [ended, { nodeId: 'ask', vars: {}, attempts: 1 }]) {
+      const again = advance(
+        menuFlow(),
+        session,
+        { text: ' Menú ', replyId: null },
+        { ...context, settings },
+      );
+      expect(again.actions[0]).toEqual({
+        kind: 'send',
+        message: { kind: 'text', text: 'Hola Lucía' },
+      });
+      expect(again.session).toEqual({ nodeId: 'menu', vars: {}, attempts: 0 });
+    }
+  });
+
+  it("uses the node's invalid-answer text, or the bot's when it is empty", () => {
+    const flow = menuFlow();
+    const menu = flow.nodes.find((node) => node.id === 'menu');
+    const session = { nodeId: 'menu', vars: {}, attempts: 0 };
+    const general = advance(
+      flow,
+      session,
+      { text: 'precio?', replyId: null },
+      { ...context, settings },
+    );
+    expect(general.actions[0]).toEqual({
+      kind: 'send',
+      message: { kind: 'text', text: settings.fallbackText },
+    });
+    if (menu?.type === 'buttons') menu.data.invalidText = 'Toca un botón 👇';
+    const own = advance(
+      flow,
+      session,
+      { text: 'precio?', replyId: null },
+      { ...context, settings },
+    );
+    expect(own.actions[0]).toEqual({
+      kind: 'send',
+      message: { kind: 'text', text: 'Toca un botón 👇' },
+    });
+  });
+
+  it('sends the files of a node: one takes the text as caption, several go after it', () => {
+    const flow = parseFlow({
+      nodes: [
+        { id: 'start', type: 'start', position: at(), data: {} },
+        {
+          id: 'one',
+          type: 'message',
+          position: at(),
+          data: { text: 'Catálogo', attachments: [photo('1')] },
+        },
+        {
+          id: 'many',
+          type: 'message',
+          position: at(),
+          data: { text: 'Sucursales', attachments: [photo('2'), photo('3')] },
+        },
+        {
+          id: 'menu',
+          type: 'buttons',
+          position: at(),
+          data: {
+            body: '¿Te gustó?',
+            buttons: [{ id: 'yes', title: 'Sí' }],
+            invalidText: 'Toca Sí',
+            attachments: [photo('4')],
+          },
+        },
+      ],
+      edges: [edge('start', 'one'), edge('one', 'many'), edge('many', 'menu')],
+    });
+    const result = advance(
+      flow,
+      null,
+      { text: 'hola', replyId: null },
+      context,
+    );
+    expect(
+      result.actions.map((action) =>
+        action.kind === 'send' && action.message.kind === 'media'
+          ? `${action.message.media.filename}:${action.message.caption}`
+          : action.kind === 'send' && action.message.kind === 'text'
+            ? action.message.text
+            : action.kind,
+      ),
+    ).toEqual([
+      '1.jpg:Catálogo',
+      'Sucursales',
+      '2.jpg:null',
+      '3.jpg:null',
+      '4.jpg:null',
+      'send',
+    ]);
+    // A message saved with one file (before several were allowed) keeps it.
+    const legacy = parseFlow({
+      nodes: [
+        { id: 'start', type: 'start', position: at(), data: {} },
+        {
+          id: 'm',
+          type: 'message',
+          position: at(),
+          data: { text: '', media: photo('5') },
+        },
+      ],
+      edges: [edge('start', 'm')],
+    });
+    expect(legacy.nodes[1]).toMatchObject({
+      title: '',
+      data: { attachments: [photo('5')] },
+    });
+  });
+
+  it('starts with the default values and saves answers by the type of the variable', () => {
+    const variables = parseVariables([
+      { name: 'cuotas', type: 'number', defaultValue: '0', description: '' },
+      { name: 'cliente', type: 'boolean', defaultValue: 'no', description: '' },
+    ]);
+    if (!('variables' in variables)) throw new Error(variables.problem);
+    const flow = parseFlow({
+      nodes: [
+        { id: 'start', type: 'start', position: at(), data: {} },
+        {
+          id: 'q1',
+          type: 'question',
+          position: at(),
+          data: {
+            text: '¿Cuántas cuotas? Llevas {{cuotas}}',
+            variable: 'cuotas',
+            invalidText: 'Solo números',
+          },
+        },
+        {
+          id: 'q2',
+          type: 'question',
+          position: at(),
+          data: {
+            text: '¿Ya eres cliente?',
+            variable: 'cliente',
+            invalidText: 'Responde sí o no',
+          },
+        },
+        {
+          id: 'q3',
+          type: 'question',
+          position: at(),
+          data: {
+            text: '¿Tu correo?',
+            variable: 'correo',
+            validation: 'email',
+            saveTo: 'email',
+          },
+        },
+        {
+          id: 'cond',
+          type: 'condition',
+          position: at(),
+          data: {
+            rules: [
+              {
+                id: 'vip',
+                source: 'variable',
+                variable: 'cuotas',
+                operator: 'greater_than',
+                value: '6',
+              },
+              {
+                id: 'old',
+                source: 'variable',
+                variable: 'cliente',
+                operator: 'is_true',
+                value: '',
+              },
+            ],
+          },
+        },
+        {
+          id: 'vip',
+          type: 'message',
+          position: at(),
+          data: { text: 'VIP {{apellido}}' },
+        },
+        {
+          id: 'old',
+          type: 'message',
+          position: at(),
+          data: { text: 'Hola de nuevo {{email}}' },
+        },
+      ],
+      edges: [
+        edge('start', 'q1'),
+        edge('q1', 'q2'),
+        edge('q2', 'q3'),
+        edge('q3', 'cond'),
+        edge('cond', 'vip', 'vip'),
+        edge('cond', 'old', 'old'),
+      ],
+    });
+    const ctx = {
+      ...context,
+      contact: {
+        name: 'Lucía Pérez Gómez',
+        phone: '+59170000001',
+        email: 'lu@example.com',
+      },
+      variables: variables.variables,
+    };
+    const first = advance(flow, null, { text: 'hola', replyId: null }, ctx);
+    expect(first.actions).toEqual([
+      {
+        kind: 'send',
+        message: { kind: 'text', text: '¿Cuántas cuotas? Llevas 0' },
+      },
+    ]);
+    expect(first.session?.vars).toEqual({ cuotas: '0', cliente: 'false' });
+
+    const notNumber = advance(
+      flow,
+      first.session,
+      { text: 'muchas', replyId: null },
+      ctx,
+    );
+    expect(notNumber.actions[0]).toEqual({
+      kind: 'send',
+      message: { kind: 'text', text: 'Solo números' },
+    });
+    const twelve = advance(
+      flow,
+      first.session,
+      { text: '12', replyId: null },
+      ctx,
+    );
+    const yes = advance(
+      flow,
+      twelve.session,
+      { text: 'Sí', replyId: null },
+      ctx,
+    );
+    expect(yes.session?.vars).toEqual({ cuotas: '12', cliente: 'true' });
+    const email = advance(
+      flow,
+      yes.session,
+      { text: 'nuevo@example.com', replyId: null },
+      ctx,
+    );
+    expect(email.actions).toEqual([
+      { kind: 'contact', field: 'email', value: 'nuevo@example.com' },
+      { kind: 'send', message: { kind: 'text', text: 'VIP Pérez Gómez' } },
+    ]);
+  });
+});
+
+describe('chatbot variables', () => {
+  it('reads the contact data', () => {
+    expect(
+      contactValues({ name: '  Ana  María Ruiz ', phone: '+591', email: null }),
+    ).toEqual({
+      nombre: 'Ana',
+      apellido: 'María Ruiz',
+      nombre_completo: 'Ana María Ruiz',
+      email: '',
+      telefono: '+591',
+    });
+  });
+
+  it('understands yes and no', () => {
+    expect(['Sí', 'si!', 'YES', '1'].map(booleanValue)).toEqual([
+      'true',
+      'true',
+      'true',
+      'true',
+    ]);
+    expect(['No', 'falso', '0'].map(booleanValue)).toEqual([
+      'false',
+      'false',
+      'false',
+    ]);
+    expect(booleanValue('tal vez')).toBeNull();
+  });
+
+  it('refuses names already taken, repeated or with spaces, and wrong defaults', () => {
+    const problem = (value: unknown) => {
+      const parsed = parseVariables(value);
+      return 'problem' in parsed ? parsed.problem : null;
+    };
+    expect(problem([{ name: 'email', type: 'text' }])).toMatch(
+      /dato del contacto/,
+    );
+    expect(
+      problem([
+        { name: 'a', type: 'text' },
+        { name: 'A', type: 'number' },
+      ]),
+    ).toMatch(/repetida/);
+    expect(problem([{ name: 'mi variable', type: 'text' }])).toMatch(
+      /sin espacios/,
+    );
+    expect(
+      problem([{ name: 'n', type: 'number', defaultValue: 'diez' }]),
+    ).toMatch(/número/);
+    expect(
+      problem([{ name: 'ok', type: 'boolean', defaultValue: 'quizá' }]),
+    ).toMatch(/sí o no/);
+    expect(problem([{ name: 'ok', type: 'boolean' }])).toBeNull();
+  });
+});
+
+describe('chatbot pause in a chat', () => {
+  const now = new Date('2026-10-23T15:00:00Z');
+
+  it('lasts 24 hours, or until someone turns it on', () => {
+    const day = pauseEnd('24h', now);
+    expect(day?.toISOString()).toBe('2026-10-24T15:00:00.000Z');
+    expect(pauseEnd('permanent', now)).toBeNull();
+    expect(isBotPaused({ paused: true, pausedUntil: day }, now)).toBe(true);
+    expect(
+      isBotPaused(
+        { paused: true, pausedUntil: day },
+        new Date('2026-10-24T15:00:00Z'),
+      ),
+    ).toBe(false);
+    expect(
+      isBotPaused({ paused: true, pausedUntil: null }, new Date('2030-01-01')),
+    ).toBe(true);
+    expect(isBotPaused(null, now)).toBe(false);
   });
 });
 
@@ -533,11 +925,12 @@ describe('chatbot flow format', () => {
   it('refuses shapes the editor never saves', () => {
     const broken = {
       nodes: [
-        { id: 'start', type: 'start', position: at(), data: {} },
-        { id: 'x', type: 'teleport', position: at(), data: {} },
+        { id: 'start', type: 'start', title: '', position: at(), data: {} },
+        { id: 'x', type: 'teleport', title: '', position: at(), data: {} },
         {
           id: 'menu',
           type: 'buttons',
+          title: '',
           position: at(),
           data: {
             body: 'Hola',
@@ -577,16 +970,18 @@ describe('chatbot flow format', () => {
   it('lists what is missing before the bot can answer', () => {
     const flow = parseFlow({
       nodes: [
-        { id: 'start', type: 'start', position: at(), data: {} },
+        { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
           id: 'menu',
           type: 'buttons',
+          title: '',
           position: at(),
           data: { body: '', buttons: [] },
         },
         {
           id: 'web',
           type: 'url',
+          title: '',
           position: at(),
           data: { body: 'Mira', text: 'Ver', url: 'http://x.com' },
         },
@@ -596,6 +991,11 @@ describe('chatbot flow format', () => {
     const issues = flowIssues(flow);
     expect(issues).toEqual(
       expect.arrayContaining([
+        {
+          nodeId: 'menu',
+          level: 'error',
+          message: 'Escribe la respuesta cuando el cliente no elige un botón',
+        },
         {
           nodeId: 'start',
           level: 'error',
