@@ -13,6 +13,8 @@ import HomeOutlined from '@mui/icons-material/HomeOutlined'
 import LockOutlined from '@mui/icons-material/LockOutlined'
 import PersonOutlined from '@mui/icons-material/PersonOutlined'
 import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined'
+import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
+import AccountTreeOutlined from '@mui/icons-material/AccountTreeOutlined'
 import type { PermissionRule } from '../auth/usePermissions'
 import { es } from '../i18n/es'
 
@@ -97,6 +99,20 @@ export const NAVIGATION: NavEntry[] = [
         label: es.app.nav.lines,
         icon: WhatsApp,
         anyOf: ['channels.read'],
+      }),
+    ],
+  },
+  {
+    kind: 'group',
+    id: 'automation',
+    label: es.app.nav.automation,
+    icon: AccountTreeOutlined,
+    children: [
+      link({
+        to: '/automation/chatbots',
+        label: es.app.nav.chatbots,
+        icon: SmartToyOutlined,
+        anyOf: ['chatbots.manage'],
       }),
     ],
   },

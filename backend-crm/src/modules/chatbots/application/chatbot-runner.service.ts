@@ -21,6 +21,7 @@ import { InboxStore } from '../../inbox/application/ports';
 import { FlowFormatError, parseFlow } from '../domain/flow';
 import {
   advance,
+  AGENT,
   type BotAction,
   type BotMessage,
 } from '../domain/flow-engine';
@@ -172,15 +173,30 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
           return sent.status !== 'failed';
         }
         case 'tags':
-          await this.inbox.botTags(workspaceId, conversationId, action);
+          await this.inbox.botTags(workspaceId, conversationId, bot, action);
           return true;
-        case 'transfer':
-          await this.inbox.botTransfer(workspaceId, conversationId, action);
+        case 'transfer': {
+          const assignee = await this.inbox.botTransfer(
+            workspaceId,
+            conversationId,
+            bot,
+            action,
+          );
+          if (action.message) {
+            await this.inbox.sendAsBot(workspaceId, conversationId, bot, {
+              kind: 'text',
+              text: action.message
+                .split(AGENT)
+                .join(assignee?.name ?? 'un agente'),
+            });
+          }
           return true;
+        }
         case 'status':
           await this.inbox.botSetStatus(
             workspaceId,
             conversationId,
+            bot,
             action.status,
           );
           return true;

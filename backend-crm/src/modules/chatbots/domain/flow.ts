@@ -23,6 +23,10 @@ export const NODE_KINDS = [
 export type NodeKind = (typeof NODE_KINDS)[number];
 
 export const MAX_NODES = 200;
+
+/** What the customer reads when the chatbot hands the chat over. */
+export const DEFAULT_TRANSFER_TEXT =
+  'Te comunicamos con {{agente}}. En breve te atenderá.';
 export const MAX_EDGES = 400;
 
 /** A file uploaded for the chatbot (GridFS), sent with a message node. */
@@ -107,6 +111,8 @@ export interface NodeData {
     /** auto: in turns among the line's agents; unassigned: the queue. */
     to: 'auto' | 'unassigned' | 'member';
     membershipId: string | null;
+    /** Told to the customer after the handover ({{agente}}: who got it). Empty: nothing. */
+    message: string;
   };
   status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED' };
   end: Record<string, never>;
@@ -439,6 +445,11 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           /^[0-9a-f-]{36}$/i.test(membershipId)
             ? membershipId
             : null,
+        // Flows saved before the message existed keep the default one.
+        message:
+          data.message === undefined
+            ? DEFAULT_TRANSFER_TEXT
+            : read.text(data, 'message', LIMITS.text, 'Mensaje al transferir'),
       };
     }
     case 'status':

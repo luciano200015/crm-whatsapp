@@ -124,7 +124,11 @@ export function MessageBubble({
           component="div"
           sx={{ fontWeight: 600, color: note ? 'warning.main' : colors.agent }}
         >
-          {note ? `Nota interna · ${message.sentBy?.name ?? ''}` : (message.sentBy?.name ?? '')}
+          {note
+            ? `Nota interna · ${message.sentBy?.name ?? ''}`
+            : message.sentBy?.kind === 'bot'
+              ? `🤖 ${message.sentBy.name}`
+              : (message.sentBy?.name ?? '')}
         </Typography>
       )}
       <MessageContent message={message} />

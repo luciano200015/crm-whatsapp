@@ -63,7 +63,11 @@ function menuFlow(extra: Partial<Flow> = {}): Flow {
       id: 'agent',
       type: 'transfer',
       position: at(),
-      data: { to: 'auto', membershipId: null },
+      data: {
+        to: 'auto',
+        membershipId: null,
+        message: 'Hola {{nombre}}, te atiende {{agente}}.',
+      },
     },
     {
       id: 'ask',
@@ -140,7 +144,12 @@ describe('chatbot flow engine', () => {
 
     expect(result.actions).toEqual([
       { kind: 'tags', add: ['6716f0c2a1b2c3d4e5f60718'], remove: [] },
-      { kind: 'transfer', to: 'auto', membershipId: null },
+      {
+        kind: 'transfer',
+        to: 'auto',
+        membershipId: null,
+        message: 'Hola Lucía, te atiende {{agente}}.',
+      },
     ]);
     expect(result.session).toBeNull();
   });
@@ -384,6 +393,124 @@ describe('chatbot flow engine', () => {
       context,
     );
     expect(result.session?.nodeId).toBe('menu');
+  });
+
+  it('shows a list, follows the row chosen, sends a link button and ends', () => {
+    const flow = parseFlow({
+      nodes: [
+        { id: 'start', type: 'start', position: at(), data: {} },
+        {
+          id: 'menu',
+          type: 'list',
+          position: at(),
+          data: {
+            header: '',
+            body: 'Elige, {{nombre}}',
+            footer: 'Atención 24/7',
+            button: 'Ver menú',
+            sections: [
+              {
+                id: 's1',
+                title: 'Opciones',
+                rows: [
+                  { id: 'buy', title: 'Comprar', description: 'Precios' },
+                  { id: 'pay', title: 'Pagar', description: '' },
+                ],
+              },
+            ],
+            invalidText: '',
+          },
+        },
+        {
+          id: 'link',
+          type: 'url',
+          position: at(),
+          data: {
+            header: '',
+            body: 'Paga aquí',
+            footer: '',
+            text: 'Pagar',
+            url: 'https://pagos.example.com',
+          },
+        },
+        { id: 'bye', type: 'end', position: at(), data: {} },
+      ],
+      edges: [
+        edge('start', 'menu'),
+        edge('menu', 'link', 'pay'),
+        edge('link', 'bye'),
+      ],
+    });
+
+    const first = advance(flow, null, { text: 'hola', replyId: null }, context);
+    expect(first.actions).toEqual([
+      {
+        kind: 'send',
+        message: {
+          kind: 'interactive',
+          content: {
+            kind: 'list',
+            header: null,
+            body: 'Elige, Lucía',
+            footer: 'Atención 24/7',
+            list: {
+              button: 'Ver menú',
+              sections: [
+                {
+                  title: 'Opciones',
+                  rows: [
+                    {
+                      id: optionReplyId('menu', 'buy'),
+                      title: 'Comprar',
+                      description: 'Precios',
+                    },
+                    {
+                      id: optionReplyId('menu', 'pay'),
+                      title: 'Pagar',
+                      description: null,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+    expect(first.session).toMatchObject({ nodeId: 'menu' });
+
+    const chosen = advance(
+      flow,
+      first.session,
+      { text: 'Pagar', replyId: optionReplyId('menu', 'pay') },
+      context,
+    );
+    expect(chosen.actions).toEqual([
+      {
+        kind: 'send',
+        message: {
+          kind: 'interactive',
+          content: {
+            kind: 'cta_url',
+            header: null,
+            body: 'Paga aquí',
+            footer: null,
+            url: { text: 'Pagar', url: 'https://pagos.example.com' },
+          },
+        },
+      },
+    ]);
+    // "Finalizar": nothing waits for the customer any more.
+    expect(chosen.session).toBeNull();
+
+    // A row without a connection ends the flow quietly.
+    const loose = advance(
+      flow,
+      first.session,
+      { text: 'Comprar', replyId: optionReplyId('menu', 'buy') },
+      context,
+    );
+    expect(loose).toEqual({ actions: [], session: null });
   });
 
   it('fills variables, the name and the phone', () => {

@@ -157,6 +157,13 @@ export interface InboxActor {
   access: WorkspaceAccess;
 }
 
+/** How a chatbot signs the events of the chat. */
+const botPerson = (bot: BotSender) => ({
+  userId: `bot:${bot.id}`,
+  name: bot.name,
+  kind: 'bot' as const,
+});
+
 /**
  * The inbox of a workspace: conversations visible to each member, replies
  * through the line's WhatsApp number, notes, assignment, close/reopen.
@@ -735,16 +742,17 @@ export class InboxService {
   async botTransfer(
     workspaceId: string,
     conversationId: string,
+    bot: BotSender,
     target: {
       to: 'auto' | 'unassigned' | 'member';
       membershipId: string | null;
     },
-  ): Promise<void> {
+  ): Promise<Assignee | null> {
     const conversation = await this.store.findConversation(
       workspaceId,
       conversationId,
     );
-    if (!conversation) return;
+    if (!conversation) return null;
     let assignee: Assignee | null = null;
     if (target.to === 'auto') {
       assignee = await this.assignments.nextAgent(conversation.lineId);
@@ -775,16 +783,18 @@ export class InboxService {
     this.emitConversation(updated, conversation);
     await this.timeline.record(updated, {
       kind: 'bot_transferred',
-      by: null,
+      by: botPerson(bot),
       from: party(conversation.assignee),
       to: party(assignee),
     });
+    return assignee;
   }
 
   /** "Cambiar estado" of a chatbot. */
   async botSetStatus(
     workspaceId: string,
     conversationId: string,
+    bot: BotSender,
     status: ConversationStatus,
   ): Promise<void> {
     const conversation = await this.store.findConversation(
@@ -807,7 +817,7 @@ export class InboxService {
           : status === 'ON_HOLD'
             ? 'on_hold'
             : 'reopened',
-      by: null,
+      by: botPerson(bot),
       from: null,
       to: null,
     });
@@ -817,6 +827,7 @@ export class InboxService {
   async botTags(
     workspaceId: string,
     conversationId: string,
+    bot: BotSender,
     change: { add: string[]; remove: string[] },
   ): Promise<void> {
     const conversation = await this.store.findConversation(
@@ -845,6 +856,24 @@ export class InboxService {
       workspaceId,
       type: 'conversation.updated',
       conversation,
+    });
+    const names = new Map(
+      (await this.contacts.listTags(workspaceId)).map((tag) => [
+        tag.id,
+        tag.name,
+      ]),
+    );
+    const named = (ids: string[]) =>
+      ids.map((id) => names.get(id)).filter((name) => name !== undefined);
+    await this.timeline.record(conversation, {
+      kind: 'bot_tagged',
+      by: botPerson(bot),
+      from: null,
+      to: null,
+      tags: {
+        added: named(next.filter((id) => !current.includes(id))),
+        removed: named(current.filter((id) => !next.includes(id))),
+      },
     });
   }
 

@@ -87,6 +87,19 @@ Cada cambio de una conversación se guarda en ella como mensaje `direction: EVEN
 | `on_hold` | Poner en espera |
 | `closed`, `reopened` | Cerrar y reabrir. `reopened` con `by: null`: el cliente volvió a escribir a un chat cerrado |
 | `contact_blocked`, `contact_unblocked` | Bloquear y desbloquear al contacto |
+| `bot_paused`, `bot_resumed` | Un agente desactivó o activó el chatbot de la línea en este chat |
+| `bot_transferred` | El chatbot pasó el chat a un agente (`to`) o a la cola sin asignar |
+| `bot_tagged` | El chatbot agregó o quitó etiquetas (`tags: { added, removed }`, con los nombres) |
+
+Lo que hace un chatbot va firmado con `by: { userId: 'bot:<id>', name, kind: 'bot' }`, también en `closed`, `on_hold` y `reopened` (ver [chatbots.md](chatbots.md#historial)).
+
+## Chatbot en el chat
+
+- **Mensajes del bot:** salen con `sentBy.kind: 'bot'` y el nombre del bot. Los menús se guardan como `type: 'interactive'` con `interactive: { kind: 'buttons' | 'list' | 'cta_url', header, body, footer, buttons | list | url }`.
+- **Respuesta del cliente:** cuando pulsa un botón o una fila llega como texto, con `reply: { id, title }`.
+- **Estado del bot:** cada chat trae `bot: { state, name, pausedBy }`.
+- **Pausar y reactivar:** `POST …/bot/pause` desactiva el bot para ese contacto y `POST …/bot/resume` lo vuelve a activar (`messages.send`). Al reactivarlo, empieza su flujo desde el inicio con el próximo mensaje.
+- **Autoasignación:** mientras el bot atiende un chat, no se reparte; la aplica el nodo **Transferir**.
 
 ## Archivos (imagen, audio, video, sticker, documento, ubicación)
 
@@ -187,7 +200,7 @@ Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/ap
 - `GET /conversations/options`: `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
 - `POST /conversations/:id/messages` y `/notes` (`{ "text": "...", "clientId": "uuid opcional" }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
-- `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen`.
+- `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen` · `POST /conversations/:id/bot/pause` y `/bot/resume`.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
 - `PUT /conversations/:id/tags`: `{ "tagIds": [...] }` (`contacts.write`). Reemplaza las etiquetas del contacto del chat, devuelve el chat con `contactTagIds` y emite `conversation.updated`. Una etiqueta desconocida da `404 TAG_NOT_FOUND`.
 - `POST /contacts/:id/block` y `/unblock`.

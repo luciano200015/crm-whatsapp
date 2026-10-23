@@ -980,4 +980,151 @@ describe('Inbox', () => {
     expect(await screen.findByText('Mensaje enviado.')).toBeInTheDocument()
     retry.mockRestore()
   })
+
+  it('shows what the bot sent and did, and lets the agent turn it off in this chat', async () => {
+    const bot = { userId: 'bot:b1', name: 'Bot de ventas', kind: 'bot' as const }
+    const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+    const message = (fields: Partial<ChatMessage> & { id: string }): ChatMessage => ({
+      conversationId: 'c1',
+      direction: 'OUT',
+      type: 'text',
+      text: null,
+      media: null,
+      status: 'sent',
+      error: null,
+      sentBy: bot,
+      createdAt: at(1),
+      ...fields,
+    })
+    chat = { ...chat, bot: { state: 'active', name: 'Bot de ventas', pausedBy: null } }
+    // Newest first, as the API returns them.
+    history = [
+      message({
+        id: 'm6',
+        text: 'Te comunicamos con Ana Agente. En breve te atenderá.',
+        createdAt: at(1),
+      }),
+      message({
+        id: 'm5',
+        direction: 'EVENT',
+        sentBy: null,
+        event: {
+          kind: 'bot_transferred',
+          by: bot,
+          from: null,
+          to: { membershipId: 'm2', name: 'Ana Agente' },
+        },
+        createdAt: at(2),
+      }),
+      message({
+        id: 'm4',
+        direction: 'EVENT',
+        sentBy: null,
+        event: {
+          kind: 'bot_tagged',
+          by: bot,
+          from: null,
+          to: null,
+          tags: { added: ['VENTAS'], removed: [] },
+        },
+        createdAt: at(3),
+      }),
+      message({
+        id: 'm3',
+        direction: 'IN',
+        status: 'received',
+        sentBy: null,
+        text: 'Quiero comprar',
+        reply: { id: 'menu:r1', title: 'Quiero comprar' },
+        createdAt: at(4),
+      }),
+      message({
+        id: 'm2',
+        type: 'interactive',
+        text: '¿En qué te ayudamos?',
+        interactive: {
+          kind: 'list',
+          header: null,
+          body: '¿En qué te ayudamos?',
+          footer: 'Elige una opción',
+          list: {
+            button: 'Ver menú',
+            sections: [
+              {
+                title: null,
+                rows: [
+                  { id: 'menu:r1', title: 'Quiero comprar', description: 'Precios y stock' },
+                  { id: 'menu:r2', title: 'Soporte', description: null },
+                ],
+              },
+            ],
+          },
+        },
+        createdAt: at(5),
+      }),
+      message({
+        id: 'm1',
+        type: 'interactive',
+        text: 'Paga aquí',
+        interactive: {
+          kind: 'cta_url',
+          header: null,
+          body: 'Paga aquí',
+          footer: null,
+          url: { text: 'Pagar', url: 'https://pagos.example.com' },
+        },
+        createdAt: at(6),
+      }),
+    ]
+    const botActions: string[] = []
+    server.use(
+      http.post(api(`${base}/c1/bot/:action`), ({ params }) => {
+        botActions.push(String(params.action))
+        chat = {
+          ...chat,
+          bot: {
+            state: params.action === 'pause' ? 'paused' : 'active',
+            name: 'Bot de ventas',
+            pausedBy: params.action === 'pause' ? { userId: 'u1', name: 'Uma' } : null,
+          },
+        }
+        return HttpResponse.json(chat)
+      }),
+    )
+    renderAt()
+    const user = userEvent.setup()
+    const log = await screen.findByLabelText('Historial de mensajes')
+
+    // Interactive messages show their options, never "Archivo no disponible".
+    expect(await within(log).findByText('¿En qué te ayudamos?')).toBeInTheDocument()
+    expect(within(log).queryByText(/no disponible/)).not.toBeInTheDocument()
+    expect(within(log).getByRole('link', { name: 'Pagar' })).toHaveAttribute(
+      'href',
+      'https://pagos.example.com',
+    )
+    await user.click(within(log).getByRole('button', { name: 'Ver menú' }))
+    expect(within(log).getByText('Precios y stock')).toBeInTheDocument()
+    expect(within(log).getAllByText('🤖 Bot de ventas').length).toBeGreaterThan(0)
+
+    // What the customer chose and what the bot did.
+    expect(within(log).getByText('Eligió una opción')).toBeInTheDocument()
+    expect(within(log).getByText(/🤖 Bot de ventas agregó la etiqueta VENTAS/)).toBeInTheDocument()
+    expect(
+      within(log).getByText(/🤖 Bot de ventas delegó el chat a Ana Agente/),
+    ).toBeInTheDocument()
+    expect(
+      within(log).getByText('Te comunicamos con Ana Agente. En breve te atenderá.'),
+    ).toBeInTheDocument()
+
+    expect(screen.getByText('🤖 Bot activo')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Desactivar bot en este chat' }))
+    await waitFor(() => expect(botActions).toEqual(['pause']))
+    expect(await screen.findByText('🤖 Bot pausado')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Activar bot en este chat' }))
+    await waitFor(() => expect(botActions).toEqual(['pause', 'resume']))
+    expect(await screen.findByText('🤖 Bot activo')).toBeInTheDocument()
+  })
 })

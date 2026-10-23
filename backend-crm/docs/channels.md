@@ -15,6 +15,8 @@ Una **línea** es un número de WhatsApp Business conectado con la **API oficial
 | `webhookVerifyToken` | Aleatorio, lo generamos nosotros. Se pega en Meta |
 | `status` | `PENDING` → `CONNECTED` (prueba correcta o primer webhook firmado), `ERROR` (Meta rechazó las credenciales, ver `lastError`), `DISABLED` (apagada por el workspace) |
 | `autoAssign`, agentes (`channel_line_agents`) | Quién atiende la línea y si los chats nuevos se reparten solos (ver [inbox.md](inbox.md)) |
+| `color` | `#rrggbb` o `null`. Enmarca y sombrea los chats de la línea en la bandeja y pinta el anillo del avatar |
+| `chatbotId` | El chatbot que responde en la línea (uno por línea; ver [chatbots.md](chatbots.md)). Se asigna desde el bot, no con `PATCH` |
 
 **Plan:**
 
@@ -126,7 +128,7 @@ Todas bajo `/api/v1/workspaces/:workspaceId/channels/lines`.
 | ------------- | ------- | -------- |
 | `GET` · `GET :lineId` | `channels.read` | Líneas. `webhook` (URL y token de verificación) solo se incluye con `channels.manage` |
 | `POST` | `channels.manage` | Conectar un número |
-| `PATCH :lineId` | `channels.manage` | Nombre o credenciales (las nuevas vuelven a `PENDING`), `enabled`, `autoAssign` |
+| `PATCH :lineId` | `channels.manage` | Nombre o credenciales (las nuevas vuelven a `PENDING`), `enabled`, `autoAssign`, `color` |
 | `POST :lineId/test` | `channels.manage` | Comprueba las credenciales contra Meta, suscribe la app a la WABA y revisa el permiso de envío y el vencimiento del token |
 | `PUT :lineId/agents` | `channels.manage` | Agentes que atienden la línea (solo miembros activos del workspace) |
 | `DELETE :lineId` | `channels.manage` | Elimina la línea; sus conversaciones quedan en el historial |

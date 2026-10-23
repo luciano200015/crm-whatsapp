@@ -210,11 +210,27 @@ src/
 - **Filtros:** el embudo junto al buscador abre «Filtros de conversaciones» (etiquetas, agentes, línea, rango de fechas y orden). Se aplican con «Aplicar filtros» y se quitan con «Limpiar filtros».
 - **Pestañas** Abierto (contador rojo) / En espera / Cerrado. Los chats sin asignar están dentro de Abierto, no en una pestaña aparte.
 - **Líneas por agente:** un agente sin «ver todo» solo recibe los chats de sus líneas; sin líneas, la lista muestra un aviso para que pida una. Transferir solo ofrece a quien atiende la línea del chat.
-- **Fila del chat:** distintivo de la línea en el avatar, hora «2:21 pm», ✓ / ✓✓ / leído del último mensaje, no leídos, etiquetas del contacto y quién atiende («Tú» o «C. Arze»).
+- **Fila del chat:** distintivo de la línea en el avatar, hora «2:21 pm», ✓ / ✓✓ / leído del último mensaje, no leídos, etiquetas del contacto y quién atiende («Tú» o «C. Arze»). Si la línea tiene color (Canales → Líneas), la fila lleva un borde y un sombreado de ese color y el avatar un anillo, como en wasapi.
 - **Chat:**
   - burbujas con fondo de chat, separadores por día y avisos centrados de cada movimiento (asignado, transferido, cerrado…);
   - visores de imagen, sticker, audio, video, documento y ubicación.
-- **Cabecera:** **etiquetar chat** (🏷, con buscador; son las etiquetas del contacto y se ven bajo el nombre), transferir, cerrar, reabrir, marcar como no leído y bloquear contacto.
+- **Cabecera:**
+  - **Acciones rápidas:** ✓ «Cerrar chat» (o «Reabrir chat») y «Tomar chat» si nadie lo atiende.
+  - **Menú ⋮:**
+    - etiquetar chat (con buscador; son las etiquetas del contacto y se ven bajo el nombre);
+    - transferir;
+    - poner en espera;
+    - marcar como no leído;
+    - ver u ocultar detalles;
+    - desactivar o activar el bot en este chat;
+    - bloquear contacto.
+  - **Panel del contacto:** empieza oculto y se cierra con su ✕.
+- **Chatbot en el chat:**
+  - el chip «🤖 Bot activo» o «🤖 Bot pausado» en la cabecera;
+  - las burbujas del bot firmadas «🤖 nombre del bot»;
+  - los menús con sus botones, lista (desplegable) o botón con enlace;
+  - la opción que eligió el cliente marcada «Eligió una opción»;
+  - lo que hizo el bot (etiquetas, delegar a un agente, cambiar estado) como aviso en el historial.
 - **Envío inmediato:** como en WhatsApp, el mensaje (texto, archivo, nota de voz, contacto o nota) aparece al instante con 🕒 y pasa a ✓, ✓✓ y ✓✓ azul; el editor nunca se bloquea y los envíos de un chat salen en orden. La cola vive en [`outbox.ts`](src/components/inbox/outbox.ts) y [`useSendQueue.ts`](src/components/inbox/useSendQueue.ts): cada envío lleva un `clientId` y el mensaje del servidor con ese id reemplaza la burbuja local. Si la petición falla queda «No enviado» con **Reintentar** y **Descartar**.
 - **No entregado:** explica el error de Meta en palabras simples y ofrece **Reintentar**.
 - **Editor:** emojis, adjuntos con vista previa, notas de voz y respuestas rápidas con «/».
@@ -236,3 +252,28 @@ src/
 **Autorización:** los controles verifican los permisos del workspace activo y el servidor valida cada operación. Cambiar de workspace o cerrar sesión desconecta el stream anterior.
 
 Para probar sin WhatsApp real, activa el modo simulado y carga el seed del backend. La guía completa está en [Bandeja de mensajes](../backend-crm/docs/inbox.md).
+
+**Colores:** las etiquetas y las líneas aceptan cualquier color con [`ColorPicker.tsx`](src/components/ColorPicker.tsx): paleta amplia, selector libre, código hex y cuentagotas si el navegador lo trae.
+
+## Chatbots
+
+**Automatización → Chatbots** (permiso `chatbots.manage`):
+
+- **Tarjetas de los bots:**
+  - interruptor Activo y líneas asignadas;
+  - Editar y Probar;
+  - ⋮ con Asignar líneas, Duplicar, Renombrar y Eliminar.
+  - **Una línea tiene un solo bot:** asignarla a otro pide confirmación.
+- **Editor de flujos** ([`ChatbotEditorPage.tsx`](src/pages/app/automation/ChatbotEditorPage.tsx), con [React Flow](https://reactflow.dev)):
+  - **Lienzo:**
+    - tarjetas con un punto de salida por botón u opción;
+    - cada conexión tiene una ✕ para quitarla sin borrar las tarjetas ([`DeletableEdge.tsx`](src/components/chatbots/DeletableEdge.tsx));
+    - Supr borra lo seleccionado; Ctrl+S guarda;
+    - avisa al salir sin guardar.
+  - **Panel derecho:**
+    - «Opciones de respuesta» para agregar nodos;
+    - el formulario de cada nodo, con los límites de WhatsApp ([`NodeEditor.tsx`](src/components/chatbots/NodeEditor.tsx)). El nodo Transferir incluye el mensaje al cliente con `{{agente}}`;
+    - «Probar chatbot» ([`TestChat.tsx`](src/components/chatbots/TestChat.tsx)): un chat simulado que no envía nada por WhatsApp.
+  - **Ajustes:** horario de atención por días y zona horaria, y reinicio tras inactividad.
+
+Reglas, nodos y API: [Chatbots](../backend-crm/docs/chatbots.md).

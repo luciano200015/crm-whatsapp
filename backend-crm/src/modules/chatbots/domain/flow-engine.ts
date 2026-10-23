@@ -34,6 +34,8 @@ export type BotAction =
       kind: 'transfer';
       to: 'auto' | 'unassigned' | 'member';
       membershipId: string | null;
+      /** Sent after the handover; {{agente}} is left for whoever got the chat. */
+      message: string | null;
     }
   | { kind: 'status'; status: 'OPEN' | 'ON_HOLD' | 'CLOSED' };
 
@@ -72,6 +74,9 @@ const normalize = (value: string) =>
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '');
+
+/** Kept in transfer messages until the agent is known. */
+export const AGENT = '{{agente}}';
 
 /** {{nombre}}, {{telefono}} and saved answers ({{variable}}) in texts. */
 export function interpolate(
@@ -281,6 +286,13 @@ export function advance(
             kind: 'transfer',
             to: node.data.to,
             membershipId: node.data.membershipId,
+            message: node.data.message.trim()
+              ? interpolate(
+                  node.data.message,
+                  { ...vars, agente: AGENT },
+                  context.contact,
+                )
+              : null,
           });
           return null;
         case 'end':

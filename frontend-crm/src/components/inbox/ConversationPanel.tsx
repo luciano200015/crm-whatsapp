@@ -19,6 +19,7 @@ import { useWhenVisible } from '../../hooks/useWhenVisible'
 import { usePermissions } from '../../auth/usePermissions'
 import { ApiError, errorMessage } from '../../lib/api/errors'
 import BlockRounded from '@mui/icons-material/BlockRounded'
+import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
 import { contactKeys, contactsApi } from '../../lib/api/contacts'
 import { inboxApi, inboxKeys } from '../../lib/api/inbox'
 import { BlockContactDialog, type BlockTarget } from '../contacts/BlockContactDialog'
@@ -102,6 +103,19 @@ export function ConversationPanel({
         enqueueSnackbar('Chat marcado como no leído', { variant: 'info' })
         onBack()
       }
+      void refresh()
+    },
+    onError: fail,
+  })
+  const bot = useMutation({
+    mutationFn: (chosen: 'pause' | 'resume') => inboxApi.bot(workspaceId, id, chosen),
+    onSuccess: (_, chosen) => {
+      enqueueSnackbar(
+        chosen === 'pause'
+          ? 'Bot desactivado en este chat'
+          : 'Bot activado: responderá al próximo mensaje del cliente',
+        { variant: 'success' },
+      )
       void refresh()
     },
     onError: fail,
@@ -242,29 +256,47 @@ export function ConversationPanel({
           detailsOpen={detailsOpen}
           onToggleDetails={() => onDetailsChange(!detailsOpen)}
           blocked={contact.data?.blocked ?? false}
-          extraMenuItems={
-            has('contacts.write') && contact.data
-              ? (close) => (
-                  <MenuItem
-                    onClick={() => {
-                      close()
-                      setBlockTarget({
-                        id: conversation.contactId,
-                        name: contactName(conversation.contact),
-                        blocked: contact.data?.blocked ?? false,
-                      })
-                    }}
-                  >
-                    <ListItemIcon>
-                      <BlockRounded color="error" />
-                    </ListItemIcon>
-                    <ListItemText>
-                      {contact.data?.blocked ? 'Desbloquear contacto' : 'Bloquear contacto'}
-                    </ListItemText>
-                  </MenuItem>
-                )
-              : undefined
-          }
+          extraMenuItems={(close) => [
+            has('messages.send') && conversation.bot && conversation.bot.state !== 'none' && (
+              <MenuItem
+                key="bot"
+                disabled={bot.isPending}
+                onClick={() => {
+                  close()
+                  bot.mutate(conversation.bot?.state === 'active' ? 'pause' : 'resume')
+                }}
+              >
+                <ListItemIcon>
+                  <SmartToyOutlined />
+                </ListItemIcon>
+                <ListItemText>
+                  {conversation.bot.state === 'active'
+                    ? 'Desactivar bot en este chat'
+                    : 'Activar bot en este chat'}
+                </ListItemText>
+              </MenuItem>
+            ),
+            has('contacts.write') && contact.data && (
+              <MenuItem
+                key="block"
+                onClick={() => {
+                  close()
+                  setBlockTarget({
+                    id: conversation.contactId,
+                    name: contactName(conversation.contact),
+                    blocked: contact.data?.blocked ?? false,
+                  })
+                }}
+              >
+                <ListItemIcon>
+                  <BlockRounded color="error" />
+                </ListItemIcon>
+                <ListItemText>
+                  {contact.data?.blocked ? 'Desbloquear contacto' : 'Bloquear contacto'}
+                </ListItemText>
+              </MenuItem>
+            ),
+          ]}
         />
         <BlockContactDialog
           workspaceId={workspaceId}

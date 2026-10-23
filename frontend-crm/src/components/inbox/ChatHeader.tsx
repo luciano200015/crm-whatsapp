@@ -157,6 +157,21 @@ export function ChatHeader({
               {contactName(conversation.contact)}
             </Typography>
             {blocked && <Chip size="small" color="error" label="Bloqueado" />}
+            {conversation.bot && conversation.bot.state !== 'none' && (
+              <Chip
+                size="small"
+                variant="outlined"
+                color={conversation.bot.state === 'active' ? 'primary' : 'default'}
+                label={conversation.bot.state === 'active' ? '🤖 Bot activo' : '🤖 Bot pausado'}
+                title={
+                  conversation.bot.state === 'active'
+                    ? `${conversation.bot.name ?? 'El bot'} responde en este chat`
+                    : conversation.bot.pausedBy
+                      ? `Desactivado por ${conversation.bot.pausedBy.name}`
+                      : 'El bot delegó el chat a un agente'
+                }
+              />
+            )}
           </Stack>
           <Typography variant="caption" noWrap component="div" color="text.secondary">
             {conversation.contact.phone} · {conversation.lineName ?? 'Línea eliminada'} ·{' '}

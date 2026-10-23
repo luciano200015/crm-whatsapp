@@ -35,14 +35,19 @@ export type ConversationEventKind =
   | 'bot_paused'
   | 'bot_resumed'
   /** The chatbot handed the chat to an agent (to) or to the unassigned queue. */
-  | 'bot_transferred';
+  | 'bot_transferred'
+  /** The chatbot added or removed tags of the contact (tags). */
+  | 'bot_tagged';
 
 /** Who did it (null: the system) and the assignees before and after. */
 export interface ConversationEvent {
   kind: ConversationEventKind;
-  by: { userId: string; name: string } | null;
+  /** kind 'bot': a chatbot did it (userId 'bot:<id>', name of the bot). */
+  by: { userId: string; name: string; kind?: 'user' | 'bot' } | null;
   from: { membershipId: string; name: string } | null;
   to: { membershipId: string; name: string } | null;
+  /** bot_tagged: names of the tags added and removed. */
+  tags?: { added: string[]; removed: string[] } | null;
 }
 
 /** Media of a message: Meta's id plus our stored copy (GridFS), once downloaded. */

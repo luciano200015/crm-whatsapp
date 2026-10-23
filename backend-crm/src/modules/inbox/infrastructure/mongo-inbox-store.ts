@@ -114,6 +114,8 @@ function toMessage(doc: MessageDocument): MessageRecord {
           by: doc.event.by,
           from: doc.event.from,
           to: doc.event.to,
+          // Only the events of a chatbot's tags carry them.
+          ...(doc.event.tags && { tags: doc.event.tags }),
         }
       : null,
     interactive: doc.interactive ?? null,
@@ -377,22 +379,29 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       contactId: input.contactId,
     };
     // A closed chat comes back to life, unassigned, for whoever takes it.
-    const reopened = await this.conversations
-      .findOneAndUpdate(
-        { ...filter, status: 'CLOSED' },
-        {
-          $set: {
-            status: 'OPEN',
-            closedAt: null,
-            assignee: null,
-            contact: input.contact,
-            // Back to life: its chatbot answers again from the start.
-            bot: null,
+    // Its chatbot answers again from the start, unless an agent turned it
+    // off for this contact: that lasts until someone turns it back on.
+    const reopen = (keepPause: boolean) =>
+      this.conversations
+        .findOneAndUpdate(
+          {
+            ...filter,
+            status: 'CLOSED',
+            ...(keepPause && { 'bot.pausedBy': { $ne: null } }),
           },
-        },
-        { returnDocument: 'after' },
-      )
-      .lean<ConversationDocument>();
+          {
+            $set: {
+              status: 'OPEN',
+              closedAt: null,
+              assignee: null,
+              contact: input.contact,
+              ...(keepPause ? { 'bot.session': null } : { bot: null }),
+            },
+          },
+          { returnDocument: 'after' },
+        )
+        .lean<ConversationDocument>();
+    const reopened = (await reopen(true)) ?? (await reopen(false));
     if (reopened) {
       return {
         conversation: toConversation(reopened),

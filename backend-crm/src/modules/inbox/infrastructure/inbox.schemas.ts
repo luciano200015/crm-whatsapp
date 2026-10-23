@@ -34,6 +34,7 @@ const EVENT_KINDS = [
   'bot_paused',
   'bot_resumed',
   'bot_transferred',
+  'bot_tagged',
 ];
 
 interface PartyDocument {
@@ -105,9 +106,10 @@ export interface MessageDocument {
   }[];
   event?: {
     kind: string;
-    by: { userId: string; name: string } | null;
+    by: { userId: string; name: string; kind?: 'user' | 'bot' } | null;
     from: PartyDocument | null;
     to: PartyDocument | null;
+    tags?: { added: string[]; removed: string[] } | null;
   } | null;
   interactive?: InteractiveContent | null;
   reply?: { id: string; title: string } | null;
@@ -124,6 +126,7 @@ const PersonSchema = () =>
     {
       userId: { type: String, required: true },
       name: { type: String, required: true },
+      kind: { type: String, enum: ['user', 'bot'], default: undefined },
     },
     { _id: false },
   );
@@ -298,6 +301,16 @@ export const MessageSchema = new Schema<MessageDocument>(
           by: { type: PersonSchema(), default: null },
           from: { type: PartySchema(), default: null },
           to: { type: PartySchema(), default: null },
+          tags: {
+            type: new Schema(
+              {
+                added: { type: [String], default: [] },
+                removed: { type: [String], default: [] },
+              },
+              { _id: false },
+            ),
+            default: undefined,
+          },
         },
         { _id: false },
       ),

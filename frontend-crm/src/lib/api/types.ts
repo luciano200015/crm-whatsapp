@@ -332,6 +332,8 @@ export interface Line {
   autoAssign: boolean
   /** #rrggbb that frames the chats of the line in the inbox; null = WhatsApp green. */
   color: string | null
+  /** The chatbot that answers on this line (one per line). */
+  chatbotId?: string | null
   agents: LineAgent[]
   /** Credentials are never returned: only the last 4 characters of the token. */
   accessTokenLast4: string

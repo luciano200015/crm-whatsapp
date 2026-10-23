@@ -57,6 +57,7 @@ const EVENT_KINDS = [
   'bot_paused',
   'bot_resumed',
   'bot_transferred',
+  'bot_tagged',
 ] as const;
 
 // ─────────────────────────── Requests ───────────────────────────
@@ -646,6 +647,21 @@ export class ConversationEventDto {
 
   @ApiProperty({ type: EventPartyDto, nullable: true })
   to: EventPartyDto | null;
+
+  @ApiPropertyOptional({
+    type: () => EventTagsDto,
+    nullable: true,
+    description: 'bot_tagged: names of the tags added and removed.',
+  })
+  tags?: EventTagsDto | null;
+}
+
+export class EventTagsDto {
+  @ApiProperty({ type: [String] })
+  added: string[];
+
+  @ApiProperty({ type: [String] })
+  removed: string[];
 }
 
 export class MessageDto {

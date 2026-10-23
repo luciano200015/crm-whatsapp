@@ -1,3 +1,4 @@
+import type { InteractiveContent } from './chatbots'
 import { ApiError } from './errors'
 import { apiRequest, apiResponse } from './client'
 import type { CursorPage, ErrorResponse } from './types'
@@ -35,6 +36,15 @@ export interface Conversation {
   unreadCount: number
   createdAt: string
   closedAt: string | null
+  /**
+   * The chatbot of the line in this chat. paused: an agent turned it off
+   * (pausedBy) or it handed the chat to an agent (pausedBy null).
+   */
+  bot?: {
+    state: 'none' | 'active' | 'paused'
+    name: string | null
+    pausedBy: { userId: string; name: string } | null
+  }
 }
 
 export type ConversationEventKind =
@@ -49,12 +59,19 @@ export type ConversationEventKind =
   | 'reopened'
   | 'contact_blocked'
   | 'contact_unblocked'
+  | 'bot_paused'
+  | 'bot_resumed'
+  | 'bot_transferred'
+  | 'bot_tagged'
 
 export interface ConversationEvent {
   kind: ConversationEventKind
-  by: { userId: string; name: string } | null
+  /** kind 'bot': a chatbot did it. */
+  by: { userId: string; name: string; kind?: 'user' | 'bot' } | null
   from: { membershipId: string; name: string } | null
   to: { membershipId: string; name: string } | null
+  /** bot_tagged: names of the tags added and removed. */
+  tags?: { added: string[]; removed: string[] } | null
 }
 
 export interface SharedContact {
@@ -88,9 +105,14 @@ export interface ChatMessage {
   /** Shared contact cards (type "contacts"). */
   contacts?: SharedContact[]
   event?: ConversationEvent | null
+  /** Buttons, list or link button sent by a chatbot (type "interactive"). */
+  interactive?: InteractiveContent | null
+  /** The option the customer tapped (its id and title). */
+  reply?: { id: string; title: string } | null
   status: 'received' | 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   error: string | null
-  sentBy: { userId: string; name: string } | null
+  /** kind 'bot': sent by the line's chatbot. */
+  sentBy: { userId: string; name: string; kind?: 'user' | 'bot' } | null
   /** Id this browser gave the message when sending it. */
   clientId?: string | null
   /** Only on a bubble still being sent: the file, shown from memory. */
@@ -277,6 +299,12 @@ export const inboxApi = {
     return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/${action}`, {
       method: 'POST',
       ...(action === 'assign' ? { body: { membershipId } } : {}),
+    })
+  },
+  /** Turns the line's chatbot off (or back on) in this chat. */
+  bot(workspaceId: string, id: string, action: 'pause' | 'resume') {
+    return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/bot/${action}`, {
+      method: 'POST',
     })
   },
 }

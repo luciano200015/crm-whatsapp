@@ -85,6 +85,7 @@ const MEDIA_LABELS: Record<string, string> = {
   document: '📄 Documento',
   location: '📍 Ubicación',
   contacts: '👤 Contacto',
+  interactive: '📋 Menú',
   unsupported: 'Mensaje no compatible',
 }
 
@@ -93,7 +94,11 @@ export function preview(last: Conversation['lastMessage']): string {
   if (!last) return 'Sin mensajes'
   const label = MEDIA_LABELS[last.type]
   const body =
-    last.type === 'text' ? (last.text ?? '') : last.text ? `${label} · ${last.text}` : label
+    last.type === 'text' || (last.type === 'interactive' && last.text)
+      ? (last.text ?? '')
+      : last.text
+        ? `${label} · ${last.text}`
+        : label
   // With its ✓✓ the list already shows the message is ours, as in WhatsApp.
   const prefix =
     last.direction === 'OUT' && !last.status ? 'Tú: ' : last.direction === 'NOTE' ? 'Nota: ' : ''
@@ -102,9 +107,30 @@ export function preview(last: Conversation['lastMessage']): string {
 
 export const mediaLabel = (type: string) => MEDIA_LABELS[type] ?? 'Archivo'
 
+const list = (names: string[]) =>
+  names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names.at(-1)}` : (names[0] ?? '')
+
+/** What the chatbot did to the tags: "agregó la etiqueta Ventas y quitó Nuevo". */
+function tagChanges(tags: ConversationEvent['tags']): string {
+  const added = tags?.added ?? []
+  const removed = tags?.removed ?? []
+  const parts = [
+    added.length > 0 &&
+      `agregó ${added.length > 1 ? 'las etiquetas' : 'la etiqueta'} ${list(added)}`,
+    removed.length > 0 &&
+      `quitó ${removed.length > 1 ? 'las etiquetas' : 'la etiqueta'} ${list(removed)}`,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' y ') : 'cambió las etiquetas'
+}
+
 /** Centered notice of a movement: "Ana transfirió el chat de Luis a Beto". */
 export function eventText(event: ConversationEvent): string {
-  const by = event.by?.name ?? 'El sistema'
+  // What a chatbot did is signed with its name and a robot.
+  const by = event.by
+    ? event.by.kind === 'bot'
+      ? `🤖 ${event.by.name}`
+      : event.by.name
+    : 'El sistema'
   const to = event.to?.name ?? ''
   const from = event.from?.name ?? ''
   switch (event.kind) {
@@ -132,6 +158,16 @@ export function eventText(event: ConversationEvent): string {
       return `${by} bloqueó el contacto`
     case 'contact_unblocked':
       return `${by} desbloqueó el contacto`
+    case 'bot_paused':
+      return `${by} desactivó el bot en este chat`
+    case 'bot_resumed':
+      return `${by} activó el bot en este chat`
+    case 'bot_transferred':
+      return to
+        ? `${event.by ? by : '🤖 El bot'} delegó el chat a ${to}`
+        : `${event.by ? by : '🤖 El bot'} dejó el chat en la cola sin asignar`
+    case 'bot_tagged':
+      return `${by} ${tagChanges(event.tags)}`
   }
 }
 

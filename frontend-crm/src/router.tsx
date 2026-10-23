@@ -86,6 +86,24 @@ export const routes = [
                   },
                 ],
               },
+              {
+                element: <RequirePermission anyOf={['chatbots.manage']} />,
+                children: [
+                  {
+                    path: '/automation/chatbots',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/automation/ChatbotsPage')).ChatbotsPage,
+                    }),
+                  },
+                  {
+                    path: '/automation/chatbots/:chatbotId',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/automation/ChatbotEditorPage'))
+                        .ChatbotEditorPage,
+                    }),
+                  },
+                ],
+              },
               { path: '/team/members', element: <Navigate to="/team/agents" replace /> },
               {
                 element: <RequirePermission anyOf={['members.read']} />,

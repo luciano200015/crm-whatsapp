@@ -317,19 +317,33 @@ describe('Chatbots (e2e)', () => {
     expect(chat.contactTagIds).toEqual([tag.id]);
     expect(chat.bot.state).toBe('paused');
     messages = await messagesOf(owner, chat.id);
-    expect(messages.at(-2)?.reply).toEqual({
+    expect(messages.at(-4)?.reply).toEqual({
       id: 'menu:sales',
       title: 'Ventas',
     });
-    expect(messages.at(-1)?.event).toMatchObject({
+    // The history says what the bot did, signed by the bot.
+    const bot = { name: 'Bot de ventas', kind: 'bot' };
+    expect(messages.at(-3)?.event).toMatchObject({
+      kind: 'bot_tagged',
+      by: bot,
+      tags: { added: ['Interesado'], removed: [] },
+    });
+    expect(messages.at(-2)?.event).toMatchObject({
       kind: 'bot_transferred',
+      by: bot,
       to: { name: 'Ana Agente' },
+    });
+    // And the customer is told who will answer.
+    expect(messages.at(-1)).toMatchObject({
+      direction: 'OUT',
+      text: 'Te comunicamos con Ana Agente. En breve te atenderá.',
+      sentBy: bot,
     });
 
     // With the chat in an agent's hands, the bot stays quiet.
     await incoming(line, '¿Cuánto cuesta?');
     const after = await messagesOf(owner, chat.id);
-    expect(after.filter((m) => m.direction === 'OUT')).toHaveLength(2);
+    expect(after.filter((m) => m.direction === 'OUT')).toHaveLength(3);
   });
 
   it('lets an agent turn the bot off in a chat and on again', async () => {
@@ -352,6 +366,15 @@ describe('Chatbots (e2e)', () => {
     );
     expect(outgoing).toHaveLength(2);
 
+    // Off for this contact: closing and writing again does not wake it up.
+    await api(owner).post(`/conversations/${chat.id}/close`).expect(200);
+    await incoming(line, 'hola otra vez');
+    expect((await chatOf(owner, line)).bot.state).toBe('paused');
+    outgoing = (await messagesOf(owner, chat.id)).filter(
+      (m) => m.direction === 'OUT',
+    );
+    expect(outgoing).toHaveLength(2);
+
     await api(owner).post(`/conversations/${chat.id}/bot/resume`).expect(200);
     await incoming(line, 'hola de nuevo');
     const messages = await messagesOf(owner, chat.id);
@@ -362,7 +385,7 @@ describe('Chatbots (e2e)', () => {
     ]);
     expect(
       messages.filter((m) => m.direction === 'EVENT').map((m) => m.event?.kind),
-    ).toEqual(['bot_paused', 'bot_resumed']);
+    ).toEqual(['bot_paused', 'closed', 'reopened', 'bot_resumed']);
   });
 
   it('turns on only a complete flow, with one chatbot per line', async () => {
@@ -464,7 +487,12 @@ describe('Chatbots (e2e)', () => {
       .expect(200);
     expect((next.body as { actions: { kind: string }[] }).actions).toEqual([
       { kind: 'tags', add: ['6716f0c2a1b2c3d4e5f60718'], remove: [] },
-      { kind: 'transfer', to: 'auto', membershipId: null },
+      {
+        kind: 'transfer',
+        to: 'auto',
+        membershipId: null,
+        message: 'Te comunicamos con {{agente}}. En breve te atenderá.',
+      },
     ]);
   });
 
