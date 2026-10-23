@@ -5,6 +5,7 @@ import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded'
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded'
 import WhatsApp from '@mui/icons-material/WhatsApp'
 import { Avatar, Badge, Box, Chip, ListItemButton, Stack, Tooltip, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import type { Conversation } from '../../lib/api/inbox'
 import type { TagSummary } from '../../lib/api/types'
 import { useChatColors, type ChatColors } from './chat-colors'
@@ -71,7 +72,7 @@ function LastDelivery({
 }
 
 /** The line of the chat, as a small WhatsApp badge on the avatar. */
-function LineBadge({ lineName }: { lineName: string | null }) {
+function LineBadge({ lineName, color }: { lineName: string | null; color?: string | null }) {
   return (
     <Box
       aria-label={`Línea ${lineName ?? 'eliminada'}`}
@@ -79,7 +80,7 @@ function LineBadge({ lineName }: { lineName: string | null }) {
         width: 20,
         height: 20,
         borderRadius: '50%',
-        bgcolor: '#25d366',
+        bgcolor: color ?? '#25d366',
         color: '#fff',
         display: 'grid',
         placeItems: 'center',
@@ -102,6 +103,7 @@ export function ConversationListItem({
   onSelect,
   meId,
   tags,
+  lineColor,
 }: {
   conversation: Conversation
   selected: boolean
@@ -110,6 +112,8 @@ export function ConversationListItem({
   meId?: string
   /** Tags of the workspace by id. */
   tags?: Map<string, TagSummary>
+  /** Color of the chat's line: frames the row and rings the avatar, as in wasapi. */
+  lineColor?: string | null
 }) {
   const colors = useChatColors()
   const unread = conversation.unreadCount > 0
@@ -133,15 +137,21 @@ export function ConversationListItem({
         borderColor: 'divider',
         opacity: conversation.status === 'CLOSED' ? 0.75 : 1,
         '&.Mui-selected': { bgcolor: colors.selected },
+        ...(lineColor && {
+          borderLeft: `3px solid ${lineColor}`,
+          bgcolor: alpha(lineColor, 0.06),
+          '&:hover': { bgcolor: alpha(lineColor, 0.12) },
+          '&.Mui-selected, &.Mui-selected:hover': { bgcolor: alpha(lineColor, 0.18) },
+        }),
       }}
     >
       <Tooltip title={conversation.lineName ?? 'Línea eliminada'} placement="right">
         <Badge
           overlap="circular"
           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          badgeContent={<LineBadge lineName={conversation.lineName} />}
+          badgeContent={<LineBadge lineName={conversation.lineName} color={lineColor} />}
         >
-          <ContactAvatar contact={conversation.contact} />
+          <ContactAvatar contact={conversation.contact} ring={lineColor} />
         </Badge>
       </Tooltip>
       <Box sx={{ minWidth: 0, flex: 1 }}>

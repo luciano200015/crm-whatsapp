@@ -30,6 +30,7 @@ function lineRecord(overrides: Partial<LineRecord> = {}): LineRecord {
     lastError: null,
     lastWebhookAt: null,
     autoAssign: false,
+    color: null,
     agents: [],
     createdAt: new Date('2026-10-20T00:00:00Z'),
     updatedAt: new Date('2026-10-20T00:00:00Z'),

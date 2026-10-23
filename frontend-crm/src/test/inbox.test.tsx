@@ -79,7 +79,13 @@ const server = setupServer(
       viewAll: permissions.includes('conversations.view_all'),
       myLineIds: myLines,
       lines: [
-        { id: 'l1', name: 'Ventas', displayPhone: '+591 70000001', status: 'CONNECTED' },
+        {
+          id: 'l1',
+          name: 'Ventas',
+          displayPhone: '+591 70000001',
+          status: 'CONNECTED',
+          color: '#303f9f',
+        },
       ].filter((line) => myLines.includes(line.id)),
       members: permissions.includes('conversations.assign')
         ? [
@@ -535,6 +541,15 @@ describe('Inbox', () => {
     expect(await screen.findByText(/No enviado/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Descartar' }))
     expect(screen.queryByText('Segundo')).not.toBeInTheDocument()
+  })
+
+  it('frames the chats with the color of their line', async () => {
+    renderAt()
+    const row = await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
+    await waitFor(() => expect(row).toHaveStyle({ borderLeft: '3px solid #303f9f' }))
+    expect(within(row).getByLabelText('Línea Ventas')).toHaveStyle({
+      backgroundColor: '#303f9f',
+    })
   })
 
   it('shows my WhatsApp lines in my profile', async () => {

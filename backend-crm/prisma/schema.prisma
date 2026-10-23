@@ -530,6 +530,8 @@ model ChannelLine {
   lastError                String?         @map("last_error") @db.VarChar(500)
   lastWebhookAt            DateTime?       @map("last_webhook_at") @db.Timestamptz(3)
   autoAssign               Boolean         @default(false) @map("auto_assign")
+  /// #rrggbb: frames the chats of the line in the inbox (null: default WhatsApp green).
+  color                    String?         @db.VarChar(7)
   /// Round-robin cursor: the agent who received the previous conversation.
   lastAssignedMembershipId String?         @map("last_assigned_membership_id") @db.Uuid
   createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -31,6 +31,7 @@ export interface LineView {
   lastError: string | null;
   lastWebhookAt: Date | null;
   autoAssign: boolean;
+  color: string | null;
   agents: LineAgent[];
   /** Credentials are never returned: only that they exist and the last 4 characters. */
   accessTokenLast4: string;
@@ -49,6 +50,8 @@ export interface LineInput {
   displayPhone?: string | null;
   accessToken: string;
   appSecret: string;
+  /** #rrggbb; null or absent = default. */
+  color?: string | null;
 }
 
 export interface LineChanges extends Partial<LineInput> {
@@ -108,6 +111,7 @@ export class ChannelsService {
         phoneNumberId: input.phoneNumberId,
         wabaId: input.wabaId ?? null,
         displayPhone: input.displayPhone?.trim() || null,
+        color: input.color?.toLowerCase() ?? null,
         ...this.sealCredentials(input.accessToken, input.appSecret),
         webhookVerifyToken: randomBytes(24).toString('base64url'),
       },
@@ -167,6 +171,9 @@ export class ChannelsService {
       }),
       ...(changes.autoAssign !== undefined && {
         autoAssign: changes.autoAssign,
+      }),
+      ...(changes.color !== undefined && {
+        color: changes.color?.toLowerCase() ?? null,
       }),
       // New credentials must be verified again; re-enabling also starts over.
       ...((credentialsChanged || changes.enabled === true) && {

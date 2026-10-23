@@ -286,6 +286,9 @@ export class InboxVisibleLineDto extends InboxLineOptionDto {
 
   @ApiProperty({ example: 'CONNECTED' })
   status: string;
+
+  @ApiProperty({ nullable: true, type: String, example: '#303f9f' })
+  color: string | null;
 }
 
 export class MemberReachDto extends AssigneeDto {

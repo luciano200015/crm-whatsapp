@@ -330,6 +330,8 @@ export interface Line {
   lastError: string | null
   lastWebhookAt: string | null
   autoAssign: boolean
+  /** #rrggbb that frames the chats of the line in the inbox; null = WhatsApp green. */
+  color: string | null
   agents: LineAgent[]
   /** Credentials are never returned: only the last 4 characters of the token. */
   accessTokenLast4: string
@@ -353,4 +355,5 @@ export interface LineRequest {
 export interface LineChanges extends Partial<LineRequest> {
   enabled?: boolean
   autoAssign?: boolean
+  color?: string | null
 }

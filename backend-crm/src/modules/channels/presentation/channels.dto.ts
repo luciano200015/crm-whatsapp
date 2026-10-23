@@ -17,6 +17,7 @@ const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
 const META_ID = /^[0-9]{5,32}$/;
+const LINE_COLOR = /^#[0-9a-f]{6}$/i;
 /** Meta's App Secret ("Clave secreta de la app"): 32 hexadecimal characters. */
 const APP_SECRET = /^[0-9a-f]{32}$/i;
 const APP_SECRET_MESSAGE =
@@ -72,6 +73,16 @@ export class CreateLineDto {
   @IsString()
   @Matches(APP_SECRET, { message: APP_SECRET_MESSAGE })
   appSecret: string;
+
+  @ApiPropertyOptional({
+    example: '#303f9f',
+    nullable: true,
+    description: 'Color of the line (#rrggbb): frames its chats in the inbox.',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(LINE_COLOR, { message: 'color must be #RRGGBB' })
+  color?: string | null;
 }
 
 export class UpdateLineDto {
@@ -135,6 +146,16 @@ export class UpdateLineDto {
   @IsOptional()
   @IsBoolean()
   autoAssign?: boolean;
+
+  @ApiPropertyOptional({
+    example: '#303f9f',
+    nullable: true,
+    description: 'Color of the line (#rrggbb): frames its chats in the inbox.',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(LINE_COLOR, { message: 'color must be #RRGGBB' })
+  color?: string | null;
 }
 
 export class SetLineAgentsDto {
@@ -212,6 +233,9 @@ export class LineDto {
 
   @ApiProperty()
   autoAssign: boolean;
+
+  @ApiProperty({ nullable: true, type: String, example: '#303f9f' })
+  color: string | null;
 
   @ApiProperty({ type: [LineAgentDto] })
   agents: LineAgentDto[];

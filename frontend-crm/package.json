@@ -25,6 +25,7 @@
     "emoji-picker-react": "^4.19.4",
     "notistack": "^3.0.2",
     "react": "^19.3.1",
+    "react-colorful": "^5.6.1",
     "react-dom": "^19.3.1",
     "react-hook-form": "^7.90.0",
     "react-router": "^8.5.0",

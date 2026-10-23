@@ -25,6 +25,7 @@ const LINE_SELECT = {
   lastError: true,
   lastWebhookAt: true,
   autoAssign: true,
+  color: true,
   createdAt: true,
   updatedAt: true,
   agents: {

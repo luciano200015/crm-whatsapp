@@ -22,6 +22,7 @@ import { useState } from 'react'
 import { Can } from '../../../auth/permissions'
 import { usePermissions } from '../../../auth/usePermissions'
 import { useCatalog } from '../../../components/billing/useCatalog'
+import { ColorPicker } from '../../../components/ColorPicker'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { LineAgentsDialog, LineDialog } from '../../../components/channels/LineDialogs'
 import { useWorkspaceId } from '../../../components/contacts/useContacts'
@@ -160,7 +161,7 @@ export function LinesPage() {
           <Card key={line.id} variant="outlined">
             <CardContent>
               <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1.5 }}>
-                <WhatsApp sx={{ color: '#25D366' }} />
+                <WhatsApp sx={{ color: line.color ?? '#25D366' }} />
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Typography variant="h6" noWrap sx={{ fontWeight: 700 }}>
                     {line.name}
@@ -215,6 +216,31 @@ export function LinesPage() {
                   color={line.autoAssign ? 'primary' : 'default'}
                   label={line.autoAssign ? es.lines.autoAssignOn : es.lines.autoAssignOff}
                 />
+              </Stack>
+
+              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  {es.lines.color}
+                </Typography>
+                {has('channels.manage') ? (
+                  <ColorPicker
+                    label={`${es.lines.color} de ${line.name}`}
+                    value={line.color}
+                    emptyLabel={es.lines.noColor}
+                    disabled={toggle.isPending}
+                    onChange={(color) => toggle.mutate({ line, changes: { color } })}
+                  />
+                ) : (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={line.color?.toUpperCase() ?? es.lines.noColor}
+                    sx={{ borderColor: line.color ?? undefined }}
+                  />
+                )}
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  {es.lines.colorHelp}
+                </Typography>
               </Stack>
 
               {line.webhook && <WebhookInfo webhook={line.webhook} />}

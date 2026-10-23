@@ -55,6 +55,7 @@ const line = (withWebhook: boolean): Line => ({
   lastError: null,
   lastWebhookAt: null,
   autoAssign: true,
+  color: null,
   agents: [
     {
       membershipId: 'm1',
@@ -133,6 +134,36 @@ describe('Channels → Lines', () => {
     expect(screen.getByText('Andrés Agente')).toBeInTheDocument()
     expect(screen.getByDisplayValue('verify-123')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: es.lines.test })).toBeInTheDocument()
+  })
+
+  it('colors a line from its card', async () => {
+    me = makeMe(['channels.read', 'channels.manage'])
+    lines = [line(true)]
+    const patched: unknown[] = []
+    server.use(
+      http.patch(api(`${LINES}/l1`), async ({ request }) => {
+        const body = (await request.json()) as { color: string }
+        patched.push(body)
+        lines = [{ ...line(true), color: body.color }]
+        return HttpResponse.json(lines[0])
+      }),
+    )
+    renderAt('/channels/lines')
+    const user = userEvent.setup()
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: `${es.lines.color} de Ventas: ${es.lines.noColor}`,
+      }),
+    )
+    const picker = await screen.findByRole('dialog', { name: `${es.lines.color} de Ventas` })
+    await user.click(within(picker).getByRole('button', { name: '#303f9f' }))
+    await user.click(within(picker).getByRole('button', { name: 'Aplicar' }))
+
+    await waitFor(() => expect(patched).toEqual([{ color: '#303f9f' }]))
+    expect(
+      await screen.findByRole('button', { name: `${es.lines.color} de Ventas: #303f9f` }),
+    ).toBeInTheDocument()
   })
 
   it('connects a number with its credentials', async () => {

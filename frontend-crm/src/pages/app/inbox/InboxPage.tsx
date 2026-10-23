@@ -144,6 +144,7 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
     enabled: !!workspaceId && has('contacts.read'),
   })
   const tagsById = new Map((tags.data ?? []).map((tag) => [tag.id, tag]))
+  const lineColors = new Map((options.data?.lines ?? []).map((line) => [line.id, line.color]))
   const conversations = useInfiniteQuery({
     queryKey: [...inboxKeys.all(workspaceId), 'list', filter],
     queryFn: ({ pageParam, signal }) => inboxApi.list(workspaceId, filter, pageParam, signal),
@@ -334,6 +335,7 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                   onSelect={() => select(conversation.id)}
                   meId={meId}
                   tags={tagsById}
+                  lineColor={lineColors.get(conversation.lineId)}
                 />
               ))}
               {noLines ? (

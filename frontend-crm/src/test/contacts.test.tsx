@@ -173,12 +173,32 @@ describe('Tags', () => {
     await user.click(await screen.findByRole('button', { name: es.tags.newTag }))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText(/^Nombre/), 'Cliente')
-    await user.click(within(dialog).getByRole('button', { name: '#22c55e' }))
+    await user.click(within(dialog).getByRole('button', { name: '#43a047' }))
     await user.click(within(dialog).getByRole('button', { name: es.tags.form.save }))
 
     await waitFor(() =>
       expect(posted).toEqual([
-        { path: 'tags', body: { name: 'Cliente', color: '#22c55e', description: null } },
+        { path: 'tags', body: { name: 'Cliente', color: '#43a047', description: null } },
+      ]),
+    )
+  })
+
+  it('creates a tag with any color typed as hex', async () => {
+    me = makeMe(['contacts.read', 'tags.manage'])
+    renderAt('/contacts/tags')
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: es.tags.newTag }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/^Nombre/), 'Outlet')
+    const hex = within(dialog).getByLabelText(`${es.tags.form.color} en hexadecimal`)
+    await user.clear(hex)
+    await user.type(hex, '#66D30F')
+    await user.click(within(dialog).getByRole('button', { name: es.tags.form.save }))
+
+    await waitFor(() =>
+      expect(posted).toEqual([
+        { path: 'tags', body: { name: 'Outlet', color: '#66d30f', description: null } },
       ]),
     )
   })

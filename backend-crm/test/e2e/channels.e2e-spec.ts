@@ -130,6 +130,36 @@ describe('Channels: WhatsApp lines (e2e)', () => {
     expect(duplicate.body).toMatchObject({ code: 'PHONE_NUMBER_ID_TAKEN' });
   });
 
+  it('colors a line without asking to verify it again, and shows it in the inbox', async () => {
+    const owner = await signUp();
+    const line = (await newLine(owner).expect(201)).body as LineBody;
+    expect(line).toMatchObject({ color: null });
+    await api(owner).post(`/channels/lines/${line.id}/test`).expect(200);
+
+    const colored = await api(owner)
+      .patch(`/channels/lines/${line.id}`, { color: '#303F9F' })
+      .expect(200);
+    expect(colored.body).toMatchObject({
+      color: '#303f9f',
+      status: 'CONNECTED',
+    });
+    await api(owner)
+      .patch(`/channels/lines/${line.id}`, { color: 'blue' })
+      .expect(400);
+
+    const options = await api(owner).get('/conversations/options').expect(200);
+    expect(
+      (options.body as { lines: { id: string; color: string | null }[] }).lines,
+    ).toContainEqual(
+      expect.objectContaining({ id: line.id, color: '#303f9f' }),
+    );
+
+    await api(owner)
+      .patch(`/channels/lines/${line.id}`, { color: null })
+      .expect(200)
+      .expect(({ body }) => expect(body).toMatchObject({ color: null }));
+  });
+
   it('respects limits.whatsapp_lines of the plan', async () => {
     const owner = await signUp('team');
     await newLine(owner).expect(201);

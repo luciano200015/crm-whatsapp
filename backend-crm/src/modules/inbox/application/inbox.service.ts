@@ -152,6 +152,7 @@ export class InboxService {
           name: line.name,
           displayPhone: line.displayPhone,
           status: line.status,
+          color: line.color,
         })),
       members,
     };

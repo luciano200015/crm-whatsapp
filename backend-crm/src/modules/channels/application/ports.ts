@@ -32,6 +32,8 @@ export interface LineRecord {
   lastError: string | null;
   lastWebhookAt: Date | null;
   autoAssign: boolean;
+  /** #rrggbb shown around its chats in the inbox; null = default. */
+  color: string | null;
   agents: LineAgent[];
   createdAt: Date;
   updatedAt: Date;
@@ -52,6 +54,7 @@ export interface NewLine {
   accessTokenLast4: string;
   appSecretEnc: string;
   webhookVerifyToken: string;
+  color?: string | null;
 }
 
 export type LineUpdate = Partial<
