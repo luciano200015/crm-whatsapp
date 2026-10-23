@@ -1,5 +1,9 @@
 import type { CursorPage } from '../../../database/mongodb/pagination';
 import type {
+  InteractiveContent,
+  InteractiveReply,
+} from '../../channels/domain/interactive';
+import type {
   LocationInfo,
   MediaInfo,
   MessageType,
@@ -26,7 +30,12 @@ export type ConversationEventKind =
   /** By an agent, or by the customer writing again to a closed chat (by: null). */
   | 'reopened'
   | 'contact_blocked'
-  | 'contact_unblocked';
+  | 'contact_unblocked'
+  /** An agent turned the line's chatbot off (or back on) for this chat. */
+  | 'bot_paused'
+  | 'bot_resumed'
+  /** The chatbot handed the chat to an agent (to) or to the unassigned queue. */
+  | 'bot_transferred';
 
 /** Who did it (null: the system) and the assignees before and after. */
 export interface ConversationEvent {
@@ -59,6 +68,32 @@ export interface LastMessage {
   status?: MessageStatus | null;
 }
 
+/** Where a chatbot is in its flow for one conversation. */
+export interface BotSession {
+  chatbotId: string;
+  /** The node waiting for the customer's answer (buttons, list, question). */
+  nodeId: string;
+  /** Answers saved by "Guardar respuesta" nodes. */
+  vars: Record<string, string>;
+  /** Answers that matched no option in a row. */
+  attempts: number;
+  updatedAt: Date;
+}
+
+/** The chatbot in one conversation: paused by an agent, or its progress. */
+export interface ConversationBot {
+  paused: boolean;
+  pausedBy: { userId: string; name: string } | null;
+  session: BotSession | null;
+}
+
+/** Who sent an outgoing message: an agent, or a chatbot (userId "bot:<id>"). */
+export interface MessageSender {
+  userId: string;
+  name: string;
+  kind?: 'user' | 'bot';
+}
+
 export interface ConversationRecord {
   id: string;
   workspaceId: string;
@@ -73,6 +108,8 @@ export interface ConversationRecord {
   lastInboundAt: Date | null;
   unreadCount: number;
   closedAt: Date | null;
+  /** Null: the chatbot (if the line has one) answers from the start. */
+  bot: ConversationBot | null;
   createdAt: Date;
 }
 
@@ -87,10 +124,14 @@ export interface MessageRecord {
   /** Shared contact cards (type "contacts"). */
   contacts: SharedContact[];
   event: ConversationEvent | null;
+  /** Buttons, list or link button sent by a chatbot (type "interactive"). */
+  interactive: InteractiveContent | null;
+  /** The option the customer tapped (incoming answers to buttons or lists). */
+  reply: InteractiveReply | null;
   waMessageId: string | null;
   status: MessageStatus;
   error: string | null;
-  sentBy: { userId: string; name: string } | null;
+  sentBy: MessageSender | null;
   /** Id the sending browser gave the message, to match its own bubble. */
   clientId: string | null;
   createdAt: Date;
@@ -147,9 +188,11 @@ export interface NewMessage {
   location?: LocationInfo | null;
   contacts?: SharedContact[];
   event?: ConversationEvent | null;
+  interactive?: InteractiveContent | null;
+  reply?: InteractiveReply | null;
   waMessageId: string | null;
   status: MessageStatus;
-  sentBy: { userId: string; name: string } | null;
+  sentBy: MessageSender | null;
   clientId?: string | null;
   createdAt: Date;
 }
@@ -267,6 +310,18 @@ export abstract class InboxStore {
     workspaceId: string,
     conversationId: string,
   ): Promise<ConversationRecord | null>;
+  /** The chatbot state of the conversation (null: fresh). */
+  abstract setBot(
+    workspaceId: string,
+    conversationId: string,
+    bot: ConversationBot | null,
+  ): Promise<ConversationRecord | null>;
+  /** Where the chatbot is in its flow, unless an agent paused it meanwhile. */
+  abstract setBotSession(
+    workspaceId: string,
+    conversationId: string,
+    session: BotSession | null,
+  ): Promise<void>;
 }
 
 /** Assignment data that lives in PostgreSQL (lines, agents, memberships). */
@@ -292,5 +347,21 @@ export abstract class AssignmentStore {
     workspaceId: string,
     membershipId: string,
   ): Promise<Assignee | null>;
-  abstract lineNames(workspaceId: string): Promise<Map<string, string>>;
+  /** Name of each line and the name of its enabled chatbot (null: none). */
+  abstract lineInfo(workspaceId: string): Promise<Map<string, LineInfo>>;
+  /** The chatbot of a line, or null when it has none. */
+  abstract lineBot(lineId: string): Promise<LineBot | null>;
+}
+
+export interface LineInfo {
+  name: string;
+  /** Its enabled chatbot (it may still be outside its hours). */
+  chatbot: string | null;
+}
+
+export interface LineBot {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule: unknown;
 }

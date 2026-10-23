@@ -491,6 +491,39 @@ export class ConversationsController {
   ): Promise<ConversationDto> {
     return this.inbox.markRead(actor(auth, workspace), conversationId);
   }
+
+  @Post(':conversationId/bot/pause')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: "Turn the line's chatbot off in this chat",
+    description:
+      'The chatbot stops answering this customer until an agent turns it on again or the chat is closed and the customer writes again.',
+  })
+  @ApiOkResponse({ type: ConversationDto })
+  pauseBot(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ConversationDto> {
+    return this.inbox.pauseBot(actor(auth, workspace), conversationId);
+  }
+
+  @Post(':conversationId/bot/resume')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: "Turn the line's chatbot back on in this chat",
+    description: 'It answers the next message from the start of its flow.',
+  })
+  @ApiOkResponse({ type: ConversationDto })
+  resumeBot(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ConversationDto> {
+    return this.inbox.resumeBot(actor(auth, workspace), conversationId);
+  }
 }
 
 @ApiTags('inbox')

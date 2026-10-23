@@ -26,6 +26,7 @@ const LINE_SELECT = {
   lastWebhookAt: true,
   autoAssign: true,
   color: true,
+  chatbotId: true,
   createdAt: true,
   updatedAt: true,
   agents: {

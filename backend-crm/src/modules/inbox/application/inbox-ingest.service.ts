@@ -10,11 +10,12 @@ import type {
 } from '../../channels/domain/whatsapp-payload';
 import { ContactsStore } from '../../contacts/application/ports';
 import { normalizePhone } from '../../contacts/domain/phone';
+import { withinSchedule, type Schedule } from '../../chatbots/domain/schedule';
 import { nextStatus } from '../domain/inbox-rules';
 import { ConversationTimeline } from './conversation-timeline';
 import { InboxMediaService } from './inbox-media.service';
 import { InboxEvents } from './inbox-events';
-import { AssignmentStore, InboxStore } from './ports';
+import { AssignmentStore, InboxStore, type ConversationRecord } from './ports';
 
 /**
  * Turns verified WhatsApp webhook events into contacts, conversations and
@@ -87,6 +88,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
       media: inbound.media,
       location: inbound.location,
       contacts: inbound.contacts ?? undefined,
+      reply: inbound.reply ?? null,
       waMessageId: inbound.waMessageId,
       status: 'received',
       sentBy: null,
@@ -113,8 +115,11 @@ export class InboxIngestService extends WhatsAppEventsSink {
       inbound.timestamp,
     );
 
+    // The line's chatbot answers first; its "Transferir" applies the
+    // auto-assignment when it hands the chat over.
+    const botAttends = await this.botAttends(line, updated, inbound.timestamp);
     let autoAssigned = false;
-    if (created && line.autoAssign && !updated.assignee) {
+    if (created && line.autoAssign && !updated.assignee && !botAttends) {
       const agent = await this.assignments.nextAgent(line.id);
       const assigned = agent
         ? await this.store.setAssignee(workspaceId, conversation.id, agent, {
@@ -138,6 +143,19 @@ export class InboxIngestService extends WhatsAppEventsSink {
     }
     // Copy the file from Meta in the background: Meta deletes it after ~30 days.
     this.media.prefetch(updated, message);
+  }
+
+  /** The line's chatbot is on, within its hours and not paused in this chat. */
+  private async botAttends(
+    line: LineRecord,
+    conversation: ConversationRecord,
+    at: Date,
+  ): Promise<boolean> {
+    if (!line.chatbotId || conversation.bot?.paused) return false;
+    const bot = await this.assignments.lineBot(line.id);
+    return (
+      !!bot?.enabled && withinSchedule(bot.schedule as Schedule | null, at)
+    );
   }
 
   private async updateStatus(line: LineRecord, update: StatusUpdate) {

@@ -1,3 +1,5 @@
+import type { InteractiveReply } from './interactive';
+
 /**
  * Normalizes WhatsApp Cloud API webhook payloads
  * (`object: whatsapp_business_account`) into plain events. The payload comes
@@ -13,6 +15,8 @@ export type MessageType =
   | 'sticker'
   | 'location'
   | 'contacts'
+  /** Buttons, list or link button sent by a chatbot (never received). */
+  | 'interactive'
   | 'unsupported';
 
 export type DeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
@@ -53,6 +57,8 @@ export interface InboundMessage {
   media: MediaInfo | null;
   location: LocationInfo | null;
   contacts?: SharedContact[] | null;
+  /** The option the customer tapped in a buttons or list message. */
+  reply?: InteractiveReply | null;
 }
 
 export interface StatusUpdate {
@@ -183,25 +189,33 @@ function parseMessage(
       contacts,
     };
   }
-  // Quick-reply buttons and list replies arrive as their visible title.
+  // Quick-reply buttons and list replies arrive as their visible title; the
+  // id of the option is kept so a chatbot can follow it.
   if (type === 'button') {
+    const button = obj(raw.button);
+    const text = str(button.text);
+    const id = str(button.payload);
     return {
       ...base,
       type: 'text',
-      text: str(obj(raw.button).text),
+      text,
       media: null,
       location: null,
+      reply: id ? { id: id.slice(0, 256), title: text ?? '' } : null,
     };
   }
   if (type === 'interactive') {
     const interactive = obj(raw.interactive);
     const reply = obj(interactive.button_reply ?? interactive.list_reply);
+    const text = str(reply.title);
+    const id = str(reply.id);
     return {
       ...base,
       type: 'text',
-      text: str(reply.title),
+      text,
       media: null,
       location: null,
+      reply: id ? { id: id.slice(0, 256), title: text ?? '' } : null,
     };
   }
   return {
@@ -299,6 +313,8 @@ export function textMessagePayload(input: {
   profileName?: string;
   waMessageId?: string;
   timestamp?: Date;
+  /** The customer tapped this reply button instead of typing. */
+  reply?: InteractiveReply;
 }): Json {
   const seconds = Math.floor((input.timestamp ?? new Date()).getTime() / 1000);
   return {
@@ -325,8 +341,15 @@ export function textMessagePayload(input: {
                     input.waMessageId ??
                     `wamid.SIM.${seconds}.${Math.random().toString(36).slice(2)}`,
                   timestamp: String(seconds),
-                  type: 'text',
-                  text: { body: input.text },
+                  ...(input.reply
+                    ? {
+                        type: 'interactive',
+                        interactive: {
+                          type: 'button_reply',
+                          button_reply: input.reply,
+                        },
+                      }
+                    : { type: 'text', text: { body: input.text } }),
                 },
               ],
             },

@@ -5,6 +5,8 @@ import { pickNextAgent } from '../domain/inbox-rules';
 import {
   AssignmentStore,
   type Assignee,
+  type LineBot,
+  type LineInfo,
   type MemberReach,
 } from '../application/ports';
 
@@ -153,11 +155,35 @@ export class PrismaAssignmentStore extends AssignmentStore {
       : null;
   }
 
-  async lineNames(workspaceId: string): Promise<Map<string, string>> {
+  async lineInfo(workspaceId: string): Promise<Map<string, LineInfo>> {
     const lines = await this.prisma.channelLine.findMany({
       where: { workspaceId },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        chatbot: { select: { name: true, enabled: true } },
+      },
     });
-    return new Map(lines.map((line) => [line.id, line.name]));
+    return new Map(
+      lines.map((line) => [
+        line.id,
+        {
+          name: line.name,
+          chatbot: line.chatbot?.enabled ? line.chatbot.name : null,
+        },
+      ]),
+    );
+  }
+
+  async lineBot(lineId: string): Promise<LineBot | null> {
+    const line = await this.prisma.channelLine.findUnique({
+      where: { id: lineId },
+      select: {
+        chatbot: {
+          select: { id: true, name: true, enabled: true, schedule: true },
+        },
+      },
+    });
+    return line?.chatbot ?? null;
   }
 }

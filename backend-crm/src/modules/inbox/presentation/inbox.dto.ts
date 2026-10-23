@@ -54,6 +54,9 @@ const EVENT_KINDS = [
   'reopened',
   'contact_blocked',
   'contact_unblocked',
+  'bot_paused',
+  'bot_resumed',
+  'bot_transferred',
 ] as const;
 
 // ─────────────────────────── Requests ───────────────────────────
@@ -374,6 +377,21 @@ export class ConversationContactDto {
   phone: string;
 }
 
+export class ConversationBotDto {
+  @ApiProperty({
+    enum: ['none', 'active', 'paused'],
+    description:
+      'none: the line has no enabled chatbot. paused: an agent turned it off in this chat.',
+  })
+  state: string;
+
+  @ApiProperty({ nullable: true, type: String, example: 'Bot de ventas' })
+  name: string | null;
+
+  @ApiProperty({ type: () => SentByDto, nullable: true })
+  pausedBy: SentByDto | null;
+}
+
 export class ConversationDto {
   @ApiProperty({ example: '6716f0c2a1b2c3d4e5f60718' })
   id: string;
@@ -424,6 +442,9 @@ export class ConversationDto {
 
   @ApiProperty({ nullable: true, type: Date })
   closedAt: Date | null;
+
+  @ApiProperty({ type: ConversationBotDto })
+  bot: ConversationBotDto;
 
   @ApiProperty()
   createdAt: Date;
@@ -512,11 +533,76 @@ export class EventPartyDto {
 }
 
 export class SentByDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({
+    description: 'The user; "bot:<chatbot id>" for a chatbot.',
+  })
   userId: string;
 
   @ApiProperty()
   name: string;
+
+  @ApiPropertyOptional({ enum: ['user', 'bot'] })
+  kind?: string;
+}
+
+export class InteractiveOptionDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  title: string;
+}
+
+export class InteractiveRowDto extends InteractiveOptionDto {
+  @ApiProperty({ nullable: true, type: String })
+  description: string | null;
+}
+
+export class InteractiveSectionDto {
+  @ApiProperty({ nullable: true, type: String })
+  title: string | null;
+
+  @ApiProperty({ type: [InteractiveRowDto] })
+  rows: InteractiveRowDto[];
+}
+
+export class InteractiveListDto {
+  @ApiProperty()
+  button: string;
+
+  @ApiProperty({ type: [InteractiveSectionDto] })
+  sections: InteractiveSectionDto[];
+}
+
+export class InteractiveUrlDto {
+  @ApiProperty()
+  text: string;
+
+  @ApiProperty()
+  url: string;
+}
+
+export class InteractiveDto {
+  @ApiProperty({ enum: ['buttons', 'list', 'cta_url'] })
+  kind: string;
+
+  @ApiProperty({ nullable: true, type: String })
+  header: string | null;
+
+  @ApiProperty()
+  body: string;
+
+  @ApiProperty({ nullable: true, type: String })
+  footer: string | null;
+
+  @ApiPropertyOptional({ type: [InteractiveOptionDto] })
+  buttons?: InteractiveOptionDto[];
+
+  @ApiPropertyOptional({ type: InteractiveListDto })
+  list?: InteractiveListDto;
+
+  @ApiPropertyOptional({ type: InteractiveUrlDto })
+  url?: InteractiveUrlDto;
 }
 
 export class SharedContactPhoneDto {
@@ -586,6 +672,7 @@ export class MessageDto {
       'sticker',
       'location',
       'contacts',
+      'interactive',
       'unsupported',
     ],
   })
@@ -608,6 +695,21 @@ export class MessageDto {
 
   @ApiProperty({ type: ConversationEventDto, nullable: true })
   event: ConversationEventDto | null;
+
+  @ApiProperty({
+    type: InteractiveDto,
+    nullable: true,
+    description:
+      'Buttons, list or link button of a chatbot (type "interactive").',
+  })
+  interactive: InteractiveDto | null;
+
+  @ApiProperty({
+    type: InteractiveOptionDto,
+    nullable: true,
+    description: 'The option the customer tapped in buttons or a list.',
+  })
+  reply: InteractiveOptionDto | null;
 
   @ApiProperty({
     enum: ['received', 'pending', 'sent', 'delivered', 'read', 'failed'],

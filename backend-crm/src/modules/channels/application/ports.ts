@@ -3,6 +3,7 @@ import type {
   LineStatus,
   MembershipStatus,
 } from '../../../generated/prisma/client';
+import type { InteractiveContent } from '../domain/interactive';
 import type { SharedContact, WebhookEvents } from '../domain/whatsapp-payload';
 
 export type { LineStatus };
@@ -34,6 +35,8 @@ export interface LineRecord {
   autoAssign: boolean;
   /** #rrggbb shown around its chats in the inbox; null = default. */
   color: string | null;
+  /** The chatbot that answers on this line (one per line), or null. */
+  chatbotId: string | null;
   agents: LineAgent[];
   createdAt: Date;
   updatedAt: Date;
@@ -173,6 +176,12 @@ export abstract class WhatsAppGateway {
     credentials: LineCredentials,
     to: string,
     media: OutgoingMedia,
+  ): Promise<{ waMessageId: string }>;
+  /** Reply buttons, a list or a link button (free inside the 24 h window). */
+  abstract sendInteractive(
+    credentials: LineCredentials,
+    to: string,
+    content: InteractiveContent,
   ): Promise<{ waMessageId: string }>;
   /** Contact cards the customer can save or message. */
   abstract sendContacts(

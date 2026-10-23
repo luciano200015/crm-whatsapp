@@ -183,6 +183,7 @@ model Workspace {
   auditLogs    AuditLog[]
   subscription Subscription?
   channelLines ChannelLine[]
+  chatbots     Chatbot[]
   contactUsage WorkspaceContactUsage[]
 
   @@map("workspaces")
@@ -532,6 +533,8 @@ model ChannelLine {
   autoAssign               Boolean         @default(false) @map("auto_assign")
   /// #rrggbb: frames the chats of the line in the inbox (null: default WhatsApp green).
   color                    String?         @db.VarChar(7)
+  /// The chatbot answering on this line: one per line, so two bots never answer at once.
+  chatbotId                String?         @map("chatbot_id") @db.Uuid
   /// Round-robin cursor: the agent who received the previous conversation.
   lastAssignedMembershipId String?         @map("last_assigned_membership_id") @db.Uuid
   createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -539,9 +542,36 @@ model ChannelLine {
 
   workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   agents    ChannelLineAgent[]
+  chatbot   Chatbot?           @relation(fields: [chatbotId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId])
+  @@index([chatbotId])
   @@map("channel_lines")
+}
+
+/// A chatbot of a workspace: its flow (nodes and edges of the editor) answers
+/// the customers of the lines that point to it.
+model Chatbot {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  workspaceId         String    @map("workspace_id") @db.Uuid
+  name                String    @db.VarChar(80)
+  /// Only enabled bots answer; enabling requires a complete flow.
+  enabled             Boolean   @default(false)
+  /// { nodes, edges } as the flow editor saves them (see chatbots/domain/flow.ts).
+  graph               Json
+  /// null: always available. Otherwise { timezone, days: [{ day, ranges: [{ from, to }] }] }.
+  schedule            Json?
+  /// A conversation idle this long starts the flow again.
+  restartAfterMinutes Int       @default(60) @map("restart_after_minutes")
+  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lines     ChannelLine[]
+
+  @@index([workspaceId])
+  @@map("chatbots")
 }
 
 /// Distinct contacts replied to per workspace and UTC month (limits.active_contacts).

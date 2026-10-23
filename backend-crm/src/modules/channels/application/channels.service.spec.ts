@@ -31,6 +31,7 @@ function lineRecord(overrides: Partial<LineRecord> = {}): LineRecord {
     lastWebhookAt: null,
     autoAssign: false,
     color: null,
+    chatbotId: null,
     agents: [],
     createdAt: new Date('2026-10-20T00:00:00Z'),
     updatedAt: new Date('2026-10-20T00:00:00Z'),

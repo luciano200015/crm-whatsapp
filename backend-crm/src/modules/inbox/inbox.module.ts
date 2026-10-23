@@ -83,6 +83,13 @@ import {
     { provide: WorkspaceEntitlements, useExisting: BillingService },
     { provide: Clock, useClass: SystemClock },
   ],
-  exports: [InboxIngestService],
+  // The chatbots module answers through the inbox and listens to its events.
+  exports: [
+    InboxIngestService,
+    InboxService,
+    InboxEvents,
+    InboxStore,
+    MediaStore,
+  ],
 })
 export class InboxModule {}

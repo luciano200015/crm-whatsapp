@@ -32,6 +32,7 @@ export interface LineView {
   lastWebhookAt: Date | null;
   autoAssign: boolean;
   color: string | null;
+  chatbotId: string | null;
   agents: LineAgent[];
   /** Credentials are never returned: only that they exist and the last 4 characters. */
   accessTokenLast4: string;

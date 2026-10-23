@@ -1,5 +1,6 @@
 import { Schema, type Types } from 'mongoose';
 import { workspaceScoped } from '../../../database/mongodb/workspace-scoped.plugin';
+import type { InteractiveContent } from '../../channels/domain/interactive';
 
 export const CONVERSATION_MODEL = 'Conversation';
 export const MESSAGE_MODEL = 'Message';
@@ -13,6 +14,7 @@ const MESSAGE_TYPES = [
   'sticker',
   'location',
   'contacts',
+  'interactive',
   'unsupported',
 ];
 
@@ -29,6 +31,9 @@ const EVENT_KINDS = [
   'reopened',
   'contact_blocked',
   'contact_unblocked',
+  'bot_paused',
+  'bot_resumed',
+  'bot_transferred',
 ];
 
 interface PartyDocument {
@@ -56,6 +61,17 @@ export interface ConversationDocument {
   lastInboundAt: Date | null;
   unreadCount: number;
   closedAt: Date | null;
+  bot?: {
+    paused: boolean;
+    pausedBy: { userId: string; name: string } | null;
+    session: {
+      chatbotId: string;
+      nodeId: string;
+      vars: Record<string, string>;
+      attempts: number;
+      updatedAt: Date;
+    } | null;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -93,10 +109,12 @@ export interface MessageDocument {
     from: PartyDocument | null;
     to: PartyDocument | null;
   } | null;
+  interactive?: InteractiveContent | null;
+  reply?: { id: string; title: string } | null;
   waMessageId: string | null;
   status: string;
   error: string | null;
-  sentBy: { userId: string; name: string } | null;
+  sentBy: { userId: string; name: string; kind?: 'user' | 'bot' } | null;
   clientId?: string | null;
   createdAt: Date;
 }
@@ -161,6 +179,30 @@ export const ConversationSchema = new Schema<ConversationDocument>(
     lastInboundAt: { type: Date, default: null },
     unreadCount: { type: Number, default: 0, min: 0 },
     closedAt: { type: Date, default: null },
+    // Chatbot of the line in this chat: paused by an agent, or where it is in its flow.
+    bot: {
+      type: new Schema(
+        {
+          paused: { type: Boolean, default: false },
+          pausedBy: { type: PersonSchema(), default: null },
+          session: {
+            type: new Schema(
+              {
+                chatbotId: { type: String, required: true },
+                nodeId: { type: String, required: true },
+                vars: { type: Schema.Types.Mixed, default: {} },
+                attempts: { type: Number, default: 0 },
+                updatedAt: { type: Date, required: true },
+              },
+              { _id: false, minimize: false },
+            ),
+            default: null,
+          },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
   },
   { collection: 'conversations', timestamps: true, versionKey: false },
 );
@@ -261,6 +303,19 @@ export const MessageSchema = new Schema<MessageDocument>(
       ),
       default: null,
     },
+    // Buttons, list or link button of a chatbot, as sent to WhatsApp.
+    interactive: { type: Schema.Types.Mixed, default: null },
+    // The option a customer tapped (its id and title).
+    reply: {
+      type: new Schema(
+        {
+          id: { type: String, required: true },
+          title: { type: String, default: '' },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     waMessageId: { type: String, default: null },
     status: { type: String, required: true },
     error: { type: String, default: null },
@@ -268,8 +323,10 @@ export const MessageSchema = new Schema<MessageDocument>(
     sentBy: {
       type: new Schema(
         {
+          // "bot:<chatbot id>" for messages of a chatbot.
           userId: { type: String, required: true },
           name: { type: String, required: true },
+          kind: { type: String, enum: ['user', 'bot'], default: undefined },
         },
         { _id: false },
       ),

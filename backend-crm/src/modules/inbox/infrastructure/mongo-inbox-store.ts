@@ -18,6 +18,8 @@ import type { InboxScope } from '../domain/inbox-rules';
 import {
   InboxStore,
   type Assignee,
+  type BotSession,
+  type ConversationBot,
   type ConversationEventKind,
   type ConversationQuery,
   type ConversationRecord,
@@ -77,6 +79,21 @@ function toConversation(doc: ConversationDocument): ConversationRecord {
     lastInboundAt: doc.lastInboundAt,
     unreadCount: doc.unreadCount,
     closedAt: doc.closedAt,
+    bot: doc.bot
+      ? {
+          paused: doc.bot.paused,
+          pausedBy: doc.bot.pausedBy ?? null,
+          session: doc.bot.session
+            ? {
+                chatbotId: doc.bot.session.chatbotId,
+                nodeId: doc.bot.session.nodeId,
+                vars: { ...(doc.bot.session.vars ?? {}) },
+                attempts: doc.bot.session.attempts ?? 0,
+                updatedAt: doc.bot.session.updatedAt,
+              }
+            : null,
+        }
+      : null,
     createdAt: doc.createdAt,
   };
 }
@@ -99,10 +116,18 @@ function toMessage(doc: MessageDocument): MessageRecord {
           to: doc.event.to,
         }
       : null,
+    interactive: doc.interactive ?? null,
+    reply: doc.reply ?? null,
     waMessageId: doc.waMessageId,
     status: doc.status as MessageStatus,
     error: doc.error,
-    sentBy: doc.sentBy,
+    sentBy: doc.sentBy
+      ? {
+          userId: doc.sentBy.userId,
+          name: doc.sentBy.name,
+          ...(doc.sentBy.kind && { kind: doc.sentBy.kind }),
+        }
+      : null,
     clientId: doc.clientId ?? null,
     createdAt: doc.createdAt,
   };
@@ -361,6 +386,8 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
             closedAt: null,
             assignee: null,
             contact: input.contact,
+            // Back to life: its chatbot answers again from the start.
+            bot: null,
           },
         },
         { returnDocument: 'after' },
@@ -500,6 +527,36 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       if (isDuplicateKey(error)) return 'already_open';
       throw error;
     }
+  }
+
+  async setBot(
+    workspaceId: string,
+    conversationId: string,
+    bot: ConversationBot | null,
+  ): Promise<ConversationRecord | null> {
+    const _id = objectId(conversationId);
+    if (!_id) return null;
+    const doc = await this.conversations
+      .findOneAndUpdate(
+        { workspaceId, _id },
+        { $set: { bot } },
+        { returnDocument: 'after' },
+      )
+      .lean<ConversationDocument>();
+    return doc ? toConversation(doc) : null;
+  }
+
+  async setBotSession(
+    workspaceId: string,
+    conversationId: string,
+    session: BotSession | null,
+  ): Promise<void> {
+    const _id = objectId(conversationId);
+    if (!_id) return;
+    await this.conversations.updateOne(
+      { workspaceId, _id, 'bot.paused': { $ne: true } },
+      { $set: { bot: { paused: false, pausedBy: null, session } } },
+    );
   }
 
   async markRead(

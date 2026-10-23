@@ -26,6 +26,8 @@ export const PERMISSIONS = {
     'See every conversation, not only your own and the unassigned ones of your lines',
   'quick_replies.manage':
     'Create, edit and delete the quick replies of the team',
+  'chatbots.manage':
+    'Build chatbots, turn them on and choose the lines they answer',
   'billing.read': 'View subscription and invoices',
   'billing.manage': 'Change subscription and payment details',
 } as const satisfies Record<string, string>;
@@ -45,6 +47,7 @@ export const PERMISSION_GROUPS = [
   'messages',
   'conversations',
   'quick_replies',
+  'chatbots',
   'billing',
 ] as const;
 export type PermissionGroup = (typeof PERMISSION_GROUPS)[number];

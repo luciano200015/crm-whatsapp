@@ -9,6 +9,10 @@ import {
   type LineCredentials,
   type OutgoingMedia,
 } from '../application/ports';
+import {
+  interactivePayload,
+  type InteractiveContent,
+} from '../domain/interactive';
 import type { SharedContact } from '../domain/whatsapp-payload';
 
 const TIMEOUT_MS = 10_000;
@@ -153,6 +157,18 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
       to,
       type: media.type,
       [media.type]: object,
+    });
+  }
+
+  async sendInteractive(
+    credentials: LineCredentials,
+    to: string,
+    content: InteractiveContent,
+  ) {
+    return this.sendMessage(credentials, {
+      to,
+      type: 'interactive',
+      interactive: interactivePayload(content),
     });
   }
 
@@ -381,6 +397,10 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
   }
 
   sendContacts() {
+    return this.sendText();
+  }
+
+  sendInteractive() {
     return this.sendText();
   }
 
