@@ -21,9 +21,12 @@ import {
 export function ContactAvatar({
   contact,
   size = 48,
+  ring,
 }: {
   contact: Conversation['contact']
   size?: number
+  /** Color of the chat's line, as a ring around the avatar (as in wasapi). */
+  ring?: string | null
 }) {
   const name = contactName(contact)
   return (
@@ -34,6 +37,7 @@ export function ContactAvatar({
         bgcolor: avatarColor(contact.phone),
         fontSize: size * 0.38,
         fontWeight: 600,
+        ...(ring && { outline: `2px solid ${ring}`, outlineOffset: 2 }),
       }}
     >
       {initials(name)}

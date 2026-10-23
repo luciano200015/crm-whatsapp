@@ -442,7 +442,9 @@ describe('Inbox', () => {
     renderAt()
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: /Transferir/ }))
+    // Transfer lives in the ⋮ menu; only closing stays in the header.
+    await user.click(await screen.findByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Transferir' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Ana Agente' }))
     expect(screen.queryByRole('menuitem', { name: 'Beto Otro' })).not.toBeInTheDocument()
     await waitFor(() =>
@@ -676,7 +678,8 @@ describe('Inbox', () => {
     renderAt()
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: 'Etiquetar chat' }))
+    await user.click(await screen.findByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Etiquetar chat' }))
     const picker = await screen.findByRole('dialog', { name: 'Etiquetar chat' })
     await user.click(await within(picker).findByRole('checkbox', { name: 'VIP' }))
 
@@ -689,7 +692,7 @@ describe('Inbox', () => {
     )
     // The header shows the tag of the chat.
     await user.keyboard('{Escape}')
-    const header = screen.getByRole('button', { name: 'Ver contacto' })
+    const header = screen.getByRole('button', { name: 'Ver detalles' })
     expect(await within(header).findByText('VIP')).toBeInTheDocument()
   })
 
@@ -839,10 +842,35 @@ describe('Inbox', () => {
     const row = await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
     // The signed-in user's own chats say «Tú».
     expect(within(row).getByText('Tú')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Poner en espera' }))
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Poner en espera' }))
     await waitFor(() => expect(actions.map((action) => action.name)).toContain('hold'))
-    expect(await screen.findByRole('button', { name: 'Reabrir chat' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cerrar chat' })).toBeInTheDocument()
+    // On hold: closing stays at hand and reopening is in the menu.
+    expect(await screen.findByRole('button', { name: 'Cerrar chat' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    expect(await screen.findByRole('menuitem', { name: 'Reabrir chat' })).toBeInTheDocument()
+  })
+
+  it('keeps the header to closing the chat, with the details hidden until asked for', async () => {
+    permissions = ['messages.read', 'messages.send', 'conversations.assign', 'contacts.read']
+    chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
+    renderAt()
+    const user = userEvent.setup()
+
+    expect(await screen.findByRole('button', { name: 'Cerrar chat' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Transferir' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Poner en espera' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Detalles del contacto' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Ver detalles' }))
+    const details = await screen.findByRole('complementary', { name: 'Detalles del contacto' })
+    expect(within(details).getByText('Agente asignado')).toBeInTheDocument()
+
+    await user.click(within(details).getByRole('button', { name: 'Cerrar detalles' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('complementary', { name: 'Detalles del contacto' })).toBeNull(),
+    )
   })
 
   it('shows contact cards and the customer reopening the chat', async () => {

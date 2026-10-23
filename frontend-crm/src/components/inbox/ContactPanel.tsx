@@ -1,9 +1,11 @@
+import CloseRounded from '@mui/icons-material/CloseRounded'
 import {
   Alert,
   Autocomplete,
   Box,
   Chip,
   Divider,
+  IconButton,
   Stack,
   TextField,
   Typography,
@@ -34,10 +36,13 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export function ContactPanel({
   workspaceId,
   conversation,
+  onClose,
   children,
 }: {
   workspaceId: string
   conversation: Conversation
+  /** Hides the panel (its ✕). */
+  onClose?: () => void
   /** Extra actions (e.g. block contact). */
   children?: ReactNode
 }) {
@@ -65,7 +70,28 @@ export function ContactPanel({
     onError: (error) => enqueueSnackbar(errorMessage(error), { variant: 'error' }),
   })
   return (
-    <Box component="aside" aria-label="Contacto">
+    <Box component="aside" aria-label="Detalles del contacto">
+      {onClose && (
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: 'center',
+            px: 2,
+            minHeight: 64,
+            borderBottom: 1,
+            borderColor: 'divider',
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+            bgcolor: 'background.paper',
+          }}
+        >
+          <Typography sx={{ flex: 1, fontWeight: 600 }}>Detalles</Typography>
+          <IconButton aria-label="Cerrar detalles" onClick={onClose} edge="end">
+            <CloseRounded />
+          </IconButton>
+        </Stack>
+      )}
       <Stack spacing={1} sx={{ alignItems: 'center', textAlign: 'center', px: 2, py: 3 }}>
         <ContactAvatar contact={conversation.contact} size={88} />
         <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>

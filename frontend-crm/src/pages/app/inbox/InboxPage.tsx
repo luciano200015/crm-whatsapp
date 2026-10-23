@@ -111,6 +111,8 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<ListFilters>(NO_FILTERS)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // Contact details beside the chat: hidden until asked for, kept across chats.
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const fullscreen = useSyncExternalStore(subscribeFullscreen, isFullscreen, () => false)
   const canFilterAgents = has('conversations.view_all')
@@ -370,6 +372,8 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
             workspaceId={workspaceId}
             id={selected}
             onBack={() => select('')}
+            detailsOpen={detailsOpen}
+            onDetailsChange={setDetailsOpen}
           />
         ) : (
           <Stack

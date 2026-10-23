@@ -120,7 +120,14 @@ export interface InboxOptions {
   /** Lines the user attends; without viewAll, the only chats they see. */
   myLineIds?: string[]
   /** Lines the user sees (every line with viewAll). */
-  lines: { id: string; name: string; displayPhone?: string | null; status?: string }[]
+  lines: {
+    id: string
+    name: string
+    displayPhone?: string | null
+    status?: string
+    /** Color of the line (#rrggbb): frames its chats in the list. */
+    color?: string | null
+  }[]
   /** Who a chat can be transferred to (with conversations.assign). */
   members: (Assignee & { lineIds?: string[]; viewAll?: boolean })[]
 }

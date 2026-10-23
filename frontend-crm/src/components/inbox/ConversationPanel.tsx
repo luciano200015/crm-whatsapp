@@ -23,7 +23,8 @@ import { contactKeys, contactsApi } from '../../lib/api/contacts'
 import { inboxApi, inboxKeys } from '../../lib/api/inbox'
 import { BlockContactDialog, type BlockTarget } from '../contacts/BlockContactDialog'
 import { ChatHeader, type ChatAction } from './ChatHeader'
-import { ChatTagButton, ChatTagChips } from './ChatTags'
+import { ChatTagChips, ChatTagPopover } from './ChatTags'
+import { useCanTagChat } from './useCanTagChat'
 import { useChatColors } from './chat-colors'
 import { Composer, type ComposerMode } from './Composer'
 import { ContactPanel } from './ContactPanel'
@@ -35,19 +36,23 @@ export function ConversationPanel({
   workspaceId,
   id,
   onBack,
+  detailsOpen,
+  onDetailsChange,
 }: {
   workspaceId: string
   id: string
   onBack: () => void
+  /** The details panel (contact) is showing; hidden until asked for. */
+  detailsOpen: boolean
+  onDetailsChange: (open: boolean) => void
 }) {
   const client = useQueryClient()
   const { enqueueSnackbar } = useSnackbar()
   const { has } = usePermissions()
   const colors = useChatColors()
+  const canTag = useCanTagChat()
+  // Details panel: beside the chat on wide screens, as a drawer otherwise.
   const wide = useMediaQuery(useTheme().breakpoints.up('lg'))
-  // Contact panel: open beside the chat on wide screens, as a drawer otherwise.
-  const [infoChoice, setInfoChoice] = useState<boolean | null>(null)
-  const showInfo = infoChoice ?? wide
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
@@ -198,7 +203,14 @@ export function ConversationPanel({
       : windowClosed
         ? 'La ventana de 24 horas terminó. Espera un nuevo mensaje del cliente para responder.'
         : null
-  const info = <ContactPanel workspaceId={workspaceId} conversation={conversation} />
+  const info = (
+    <ContactPanel
+      workspaceId={workspaceId}
+      conversation={conversation}
+      onClose={() => onDetailsChange(false)}
+    />
+  )
+  const lineColor = options.data?.lines.find((line) => line.id === conversation.lineId)?.color
 
   return (
     <Box sx={{ display: 'flex', height: '100%', minWidth: 0 }}>
@@ -211,11 +223,24 @@ export function ConversationPanel({
               member.viewAll !== false || (member.lineIds ?? []).includes(conversation.lineId),
           )}
           tagChips={<ChatTagChips workspaceId={workspaceId} conversation={conversation} />}
-          tagButton={<ChatTagButton workspaceId={workspaceId} conversation={conversation} />}
+          renderTagPopover={
+            canTag
+              ? (anchorEl, onClose) => (
+                  <ChatTagPopover
+                    workspaceId={workspaceId}
+                    conversation={conversation}
+                    anchorEl={anchorEl}
+                    onClose={onClose}
+                  />
+                )
+              : undefined
+          }
+          lineColor={lineColor}
           busy={action.isPending}
           onAction={(chosen) => action.mutate(chosen)}
           onBack={onBack}
-          onToggleInfo={() => setInfoChoice(!showInfo)}
+          detailsOpen={detailsOpen}
+          onToggleDetails={() => onDetailsChange(!detailsOpen)}
           blocked={contact.data?.blocked ?? false}
           extraMenuItems={
             has('contacts.write') && contact.data
@@ -327,7 +352,7 @@ export function ConversationPanel({
         )}
       </Box>
       {wide ? (
-        showInfo && (
+        detailsOpen && (
           <Box
             sx={{
               width: 320,
@@ -342,7 +367,7 @@ export function ConversationPanel({
           </Box>
         )
       ) : (
-        <Drawer anchor="right" open={showInfo} onClose={() => setInfoChoice(false)}>
+        <Drawer anchor="right" open={detailsOpen} onClose={() => onDetailsChange(false)}>
           <Box sx={{ width: 320 }}>{info}</Box>
         </Drawer>
       )}

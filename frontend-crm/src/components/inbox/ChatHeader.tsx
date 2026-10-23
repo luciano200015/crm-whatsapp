@@ -1,5 +1,7 @@
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded'
 import CheckRounded from '@mui/icons-material/CheckRounded'
+import InfoOutlined from '@mui/icons-material/InfoOutlined'
+import LocalOfferOutlined from '@mui/icons-material/LocalOfferOutlined'
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined'
 import MarkChatUnreadOutlined from '@mui/icons-material/MarkChatUnreadOutlined'
 import MoreVertRounded from '@mui/icons-material/MoreVertRounded'
@@ -55,16 +57,22 @@ function HeaderAction({
   )
 }
 
+/**
+ * Chat header, as in wasapi: only closing the chat (and taking it while
+ * nobody has it) stays at hand; everything else lives in the ⋮ menu.
+ */
 export function ChatHeader({
   conversation,
   members,
   busy,
   onAction,
   onBack,
-  onToggleInfo,
+  detailsOpen,
+  onToggleDetails,
   blocked = false,
+  lineColor,
   tagChips,
-  tagButton,
+  renderTagPopover,
   extraMenuItems,
 }: {
   conversation: Conversation
@@ -72,23 +80,31 @@ export function ChatHeader({
   busy: boolean
   onAction: (action: ChatAction) => void
   onBack: () => void
-  onToggleInfo: () => void
+  /** The details panel (contact) is showing. */
+  detailsOpen: boolean
+  onToggleDetails: () => void
   /** The contact is blocked: shown next to the name. */
   blocked?: boolean
+  /** Color of the chat's line, around the avatar. */
+  lineColor?: string | null
   /** Tags of the chat, under the name. */
   tagChips?: ReactNode
-  /** "Etiquetar chat" button. */
-  tagButton?: ReactNode
+  /** "Etiquetar chat", opened from the menu next to the ⋮ button. */
+  renderTagPopover?: (anchorEl: HTMLElement | null, onClose: () => void) => ReactNode
   /** More entries for the ⋮ menu (e.g. block contact); they close the menu themselves. */
   extraMenuItems?: (close: () => void) => ReactNode
 }) {
   const { has } = usePermissions()
-  const [transferAnchor, setTransferAnchor] = useState<HTMLElement | null>(null)
-  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null)
+  // The ⋮ button: the menu, the transfer list and the tags open next to it.
+  const [more, setMore] = useState<HTMLElement | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
   const assigneeId = conversation.assignee?.membershipId ?? null
+  const canSend = has('messages.send')
   const run = (action: ChatAction) => {
-    setTransferAnchor(null)
-    setMoreAnchor(null)
+    setTransferOpen(false)
+    setMenuOpen(false)
     onAction(action)
   }
   return (
@@ -116,8 +132,9 @@ export function ChatHeader({
       <Box
         component="button"
         type="button"
-        onClick={onToggleInfo}
-        aria-label="Ver contacto"
+        onClick={onToggleDetails}
+        aria-label={detailsOpen ? 'Ocultar detalles' : 'Ver detalles'}
+        aria-expanded={detailsOpen}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -133,7 +150,7 @@ export function ChatHeader({
           font: 'inherit',
         }}
       >
-        <ContactAvatar contact={conversation.contact} size={40} />
+        <ContactAvatar contact={conversation.contact} size={40} ring={lineColor} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
             <Typography noWrap sx={{ fontWeight: 600 }}>
@@ -149,8 +166,7 @@ export function ChatHeader({
         </Box>
       </Box>
 
-      {tagButton}
-      {has('messages.send') && !conversation.assignee && (
+      {canSend && !conversation.assignee && (
         <Button
           size="small"
           variant="outlined"
@@ -160,87 +176,79 @@ export function ChatHeader({
           Tomar chat
         </Button>
       )}
-      {has('conversations.assign') && (
-        <>
-          <Tooltip title="Transferir">
-            <span>
-              <IconButton
-                aria-label="Transferir"
-                disabled={busy}
-                onClick={(event) => setTransferAnchor(event.currentTarget)}
-                aria-haspopup="menu"
-              >
-                <SwapHorizRounded />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Menu
-            anchorEl={transferAnchor}
-            open={!!transferAnchor}
-            onClose={() => setTransferAnchor(null)}
-            slotProps={{ list: { 'aria-label': 'Transferir chat a' } }}
-          >
-            {members.map((member) => (
-              <MenuItem
-                key={member.membershipId}
-                selected={member.membershipId === assigneeId}
-                onClick={() => run({ name: 'assign', membershipId: member.membershipId })}
-              >
-                <ListItemIcon>
-                  {member.membershipId === assigneeId ? <CheckRounded /> : <PersonOutlineRounded />}
-                </ListItemIcon>
-                <ListItemText>{member.name}</ListItemText>
-              </MenuItem>
-            ))}
-            <Divider />
-            <MenuItem
-              disabled={!assigneeId}
-              onClick={() => run({ name: 'assign', membershipId: null })}
-            >
-              <ListItemText inset>Dejar sin asignar</ListItemText>
-            </MenuItem>
-          </Menu>
-        </>
-      )}
-      {has('messages.send') && (
-        <>
-          {conversation.status === 'OPEN' && (
-            <HeaderAction
-              label="Poner en espera"
-              icon={<PauseCircleOutlineRounded />}
-              color="warning"
-              disabled={busy}
-              onClick={() => run({ name: 'hold' })}
-            />
-          )}
-          {conversation.status !== 'OPEN' && (
-            <HeaderAction
-              label="Reabrir chat"
-              icon={<LockOpenOutlined />}
-              color="primary"
-              disabled={busy}
-              onClick={() => run({ name: 'reopen' })}
-            />
-          )}
-          {conversation.status !== 'CLOSED' && (
-            <HeaderAction
-              label="Cerrar chat"
-              icon={<TaskAltRounded />}
-              color="success"
-              disabled={busy}
-              onClick={() => run({ name: 'close' })}
-            />
-          )}
-        </>
-      )}
+      {canSend &&
+        (conversation.status === 'CLOSED' ? (
+          <HeaderAction
+            label="Reabrir chat"
+            icon={<LockOpenOutlined />}
+            color="primary"
+            disabled={busy}
+            onClick={() => run({ name: 'reopen' })}
+          />
+        ) : (
+          <HeaderAction
+            label="Cerrar chat"
+            icon={<TaskAltRounded />}
+            color="success"
+            disabled={busy}
+            onClick={() => run({ name: 'close' })}
+          />
+        ))}
       <IconButton
         aria-label="Más opciones"
         aria-haspopup="menu"
-        onClick={(event) => setMoreAnchor(event.currentTarget)}
+        onClick={(event) => {
+          setMore(event.currentTarget)
+          setMenuOpen(true)
+        }}
       >
         <MoreVertRounded />
       </IconButton>
-      <Menu anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}>
+      <Menu anchorEl={more} open={menuOpen} onClose={() => setMenuOpen(false)}>
+        {renderTagPopover && (
+          <MenuItem
+            onClick={() => {
+              setMenuOpen(false)
+              setTagsOpen(true)
+            }}
+          >
+            <ListItemIcon>
+              <LocalOfferOutlined />
+            </ListItemIcon>
+            <ListItemText>Etiquetar chat</ListItemText>
+          </MenuItem>
+        )}
+        {has('conversations.assign') && (
+          <MenuItem
+            disabled={busy}
+            aria-haspopup="menu"
+            onClick={() => {
+              setMenuOpen(false)
+              setTransferOpen(true)
+            }}
+          >
+            <ListItemIcon>
+              <SwapHorizRounded />
+            </ListItemIcon>
+            <ListItemText>Transferir</ListItemText>
+          </MenuItem>
+        )}
+        {canSend && conversation.status === 'OPEN' && (
+          <MenuItem disabled={busy} onClick={() => run({ name: 'hold' })}>
+            <ListItemIcon>
+              <PauseCircleOutlineRounded color="warning" />
+            </ListItemIcon>
+            <ListItemText>Poner en espera</ListItemText>
+          </MenuItem>
+        )}
+        {canSend && conversation.status === 'ON_HOLD' && (
+          <MenuItem disabled={busy} onClick={() => run({ name: 'reopen' })}>
+            <ListItemIcon>
+              <LockOpenOutlined color="primary" />
+            </ListItemIcon>
+            <ListItemText>Reabrir chat</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem onClick={() => run({ name: 'unread' })} disabled={busy}>
           <ListItemIcon>
             <MarkChatUnreadOutlined />
@@ -249,17 +257,46 @@ export function ChatHeader({
         </MenuItem>
         <MenuItem
           onClick={() => {
-            setMoreAnchor(null)
-            onToggleInfo()
+            setMenuOpen(false)
+            onToggleDetails()
           }}
         >
           <ListItemIcon>
-            <PersonOutlineRounded />
+            <InfoOutlined />
           </ListItemIcon>
-          <ListItemText>Ver contacto</ListItemText>
+          <ListItemText>{detailsOpen ? 'Ocultar detalles' : 'Ver detalles'}</ListItemText>
         </MenuItem>
-        {extraMenuItems?.(() => setMoreAnchor(null))}
+        {extraMenuItems?.(() => setMenuOpen(false))}
       </Menu>
+      {has('conversations.assign') && (
+        <Menu
+          anchorEl={more}
+          open={transferOpen}
+          onClose={() => setTransferOpen(false)}
+          slotProps={{ list: { 'aria-label': 'Transferir chat a' } }}
+        >
+          {members.map((member) => (
+            <MenuItem
+              key={member.membershipId}
+              selected={member.membershipId === assigneeId}
+              onClick={() => run({ name: 'assign', membershipId: member.membershipId })}
+            >
+              <ListItemIcon>
+                {member.membershipId === assigneeId ? <CheckRounded /> : <PersonOutlineRounded />}
+              </ListItemIcon>
+              <ListItemText>{member.name}</ListItemText>
+            </MenuItem>
+          ))}
+          <Divider />
+          <MenuItem
+            disabled={!assigneeId}
+            onClick={() => run({ name: 'assign', membershipId: null })}
+          >
+            <ListItemText inset>Dejar sin asignar</ListItemText>
+          </MenuItem>
+        </Menu>
+      )}
+      {renderTagPopover?.(tagsOpen ? more : null, () => setTagsOpen(false))}
     </Stack>
   )
 }
