@@ -51,7 +51,30 @@ export interface Schedule {
 }
 
 export type Validation = 'any' | 'number' | 'email' | 'phone'
-export type Operator = 'equals' | 'contains' | 'starts_with' | 'is_number' | 'is_empty'
+export type Operator =
+  | 'equals'
+  | 'contains'
+  | 'starts_with'
+  | 'is_number'
+  | 'is_empty'
+  | 'greater_than'
+  | 'less_than'
+  | 'is_true'
+  | 'is_false'
+
+/** How long the bot stays off in a chat: a day (it comes back alone) or until turned on. */
+export type BotPause = '24h' | 'permanent'
+
+export type VariableType = 'text' | 'number' | 'boolean'
+
+/** A variable created for the chatbot ({{name}} in texts). */
+export interface BotVariable {
+  name: string
+  type: VariableType
+  /** '' none; 'true' / 'false' for yes/no. */
+  defaultValue: string
+  description: string
+}
 
 export interface ConditionRule {
   id: string
@@ -63,13 +86,16 @@ export interface ConditionRule {
 
 export interface NodeData {
   start: Record<string, never>
-  message: { text: string; media: BotMedia | null }
+  /** One file takes the text as caption; several go after it. */
+  message: { text: string; attachments: BotMedia[] }
   buttons: {
     header: string
     body: string
     footer: string
     buttons: FlowOption[]
     invalidText: string
+    /** Sent before the buttons. */
+    attachments: BotMedia[]
   }
   list: {
     header: string
@@ -78,9 +104,17 @@ export interface NodeData {
     button: string
     sections: FlowListSection[]
     invalidText: string
+    attachments: BotMedia[]
   }
   url: { header: string; body: string; footer: string; text: string; url: string }
-  question: { text: string; variable: string; validation: Validation; invalidText: string }
+  question: {
+    text: string
+    variable: string
+    validation: Validation
+    invalidText: string
+    /** Also saves the answer in the contact. */
+    saveTo: 'none' | 'name' | 'email'
+  }
   condition: { rules: ConditionRule[] }
   hours: { schedule: Schedule }
   tags: { add: string[]; remove: string[] }
@@ -89,13 +123,22 @@ export interface NodeData {
     membershipId: string | null
     /** Told to the customer after the handover; {{agente}}: who got the chat. Empty: nothing. */
     message?: string
+    /** How long the bot stays off in the chat afterwards. */
+    pause?: BotPause
   }
   status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED' }
   end: Record<string, never>
 }
 
 export type FlowNode = {
-  [K in NodeKind]: { id: string; type: K; position: { x: number; y: number }; data: NodeData[K] }
+  [K in NodeKind]: {
+    id: string
+    type: K
+    /** Name of the card in the diagram, only for whoever builds the flow. */
+    title: string
+    position: { x: number; y: number }
+    data: NodeData[K]
+  }
 }[NodeKind]
 
 export interface FlowEdge {
@@ -119,6 +162,7 @@ export interface FlowIssue {
 export interface ChatbotSummary {
   id: string
   name: string
+  description: string
   enabled: boolean
   lines: { id: string; name: string }[]
   /** Errors to fix before it can be turned on. */
@@ -127,19 +171,34 @@ export interface ChatbotSummary {
   updatedAt: string
 }
 
-export interface Chatbot extends ChatbotSummary {
-  graph: FlowGraph
+/** General settings ("Configuración del Chatbot"). */
+export interface ChatbotSettings {
+  description: string
   schedule: Schedule | null
+  /** Idle minutes before the conversation starts again with the greeting. */
   restartAfterMinutes: number
+  /** Sent when the customer writes something the flow does not expect. */
+  fallbackText: string
+  /** Words that send the customer back to the greeting. */
+  restartKeywords: string[]
+  /** Minutes without an answer before the inactivity message; null: never. */
+  inactivityMinutes: number | null
+  inactivityText: string
+}
+
+export interface Chatbot extends ChatbotSummary, ChatbotSettings {
+  graph: FlowGraph
+  variables: BotVariable[]
+  /** Contact data every bot can use: {{nombre}}, {{email}}… */
+  contactVariables: string[]
   issues: FlowIssue[]
 }
 
-export interface ChatbotChanges {
+export interface ChatbotChanges extends Partial<ChatbotSettings> {
   name?: string
   enabled?: boolean
   graph?: FlowGraph
-  schedule?: Schedule | null
-  restartAfterMinutes?: number
+  variables?: BotVariable[]
 }
 
 export interface InteractiveContent {
@@ -171,11 +230,14 @@ export type BotAction =
       to: 'auto' | 'unassigned' | 'member'
       membershipId: string | null
       message?: string | null
+      pause?: BotPause
     }
   | { kind: 'status'; status: 'OPEN' | 'ON_HOLD' | 'CLOSED' }
+  | { kind: 'contact'; field: 'name' | 'email'; value: string }
 
 export interface SimulationSession {
-  nodeId: string
+  /** null: the flow ended; what the customer writes gets the fallback text. */
+  nodeId: string | null
   vars: Record<string, string>
   attempts: number
 }
@@ -244,6 +306,9 @@ export const chatbotsApi = {
       text: string | null
       replyId: string | null
       contactName: string | null
+      fallbackText?: string
+      restartKeywords?: string[]
+      variables?: BotVariable[]
     },
   ) {
     return apiRequest<Simulation>(`${base(workspaceId)}/simulate`, {

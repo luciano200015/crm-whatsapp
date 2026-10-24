@@ -4,6 +4,7 @@ import type { FlowGraph, FlowNode, NodeData, NodeKind } from '../../lib/api/chat
 
 /** WhatsApp's limits for interactive messages (same as the API checks). */
 export const LIMITS = {
+  title: 60,
   text: 4096,
   body: 1024,
   header: 60,
@@ -69,7 +70,7 @@ export function defaultData(kind: NodeKind): NodeData[NodeKind] {
     case 'end':
       return {}
     case 'message':
-      return { text: '', media: null }
+      return { text: '', attachments: [] }
     case 'buttons':
       return {
         header: '',
@@ -79,7 +80,8 @@ export function defaultData(kind: NodeKind): NodeData[NodeKind] {
           { id: newId('b'), title: 'Opción 1' },
           { id: newId('b'), title: 'Opción 2' },
         ],
-        invalidText: '',
+        invalidText: es.chatbots.node.invalidDefault,
+        attachments: [],
       }
     case 'list':
       return {
@@ -94,12 +96,13 @@ export function defaultData(kind: NodeKind): NodeData[NodeKind] {
             rows: [{ id: newId('r'), title: 'Opción 1', description: '' }],
           },
         ],
-        invalidText: '',
+        invalidText: es.chatbots.node.invalidDefault,
+        attachments: [],
       }
     case 'url':
       return { header: '', body: '', footer: '', text: 'Abrir', url: 'https://' }
     case 'question':
-      return { text: '', variable: 'respuesta', validation: 'any', invalidText: '' }
+      return { text: '', variable: '', validation: 'any', invalidText: '', saveTo: 'none' }
     case 'condition':
       return {
         rules: [
@@ -116,7 +119,12 @@ export function defaultData(kind: NodeKind): NodeData[NodeKind] {
     case 'tags':
       return { add: [], remove: [] }
     case 'transfer':
-      return { to: 'auto', membershipId: null, message: es.chatbots.node.transferMessageDefault }
+      return {
+        to: 'auto',
+        membershipId: null,
+        message: es.chatbots.node.transferMessageDefault,
+        pause: '24h',
+      }
     case 'status':
       return { status: 'CLOSED' }
   }
@@ -180,13 +188,17 @@ export const EDGE_DEFAULTS = {
   markerEnd: { type: MarkerType.ArrowClosed },
 } as const
 
+/** The title of a card travels inside its canvas data, next to its settings. */
+export const titleOf = (data: Record<string, unknown>) =>
+  typeof data.title === 'string' ? data.title : ''
+
 export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: EditorEdge[] } {
   return {
     nodes: graph.nodes.map((node) => ({
       id: node.id,
       type: node.type,
       position: node.position,
-      data: node.data as Record<string, unknown>,
+      data: { ...(node.data as Record<string, unknown>), title: node.title ?? '' },
       deletable: node.type !== 'start',
     })),
     edges: graph.edges.map((edge) => ({
@@ -201,15 +213,16 @@ export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: Edito
 
 export function toGraph(nodes: EditorNode[], edges: EditorEdge[]): FlowGraph {
   return {
-    nodes: nodes.map(
-      (node) =>
-        ({
-          id: node.id,
-          type: node.type,
-          position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
-          data: node.data,
-        }) as FlowNode,
-    ),
+    nodes: nodes.map((node) => {
+      const { title, ...data } = node.data
+      return {
+        id: node.id,
+        type: node.type,
+        title: typeof title === 'string' ? title.trim() : '',
+        position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+        data,
+      } as FlowNode
+    }),
     edges: edges.map((edge) => ({
       id: edge.id,
       source: edge.source,
@@ -224,7 +237,10 @@ export function preview(kind: NodeKind, data: Record<string, unknown>): string {
   switch (kind) {
     case 'message': {
       const message = data as NodeData['message']
-      return message.text || (message.media ? es.chatbots.tester.file(message.media.filename) : '')
+      return (
+        message.text ||
+        (message.attachments[0] ? es.chatbots.tester.file(message.attachments[0].filename) : '')
+      )
     }
     case 'buttons':
     case 'list':

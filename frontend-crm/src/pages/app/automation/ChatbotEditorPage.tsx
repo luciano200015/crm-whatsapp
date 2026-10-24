@@ -1,6 +1,7 @@
 import '@xyflow/react/dist/style.css'
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded'
 import ChatOutlined from '@mui/icons-material/ChatOutlined'
+import DataObjectRounded from '@mui/icons-material/DataObjectRounded'
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded'
 import SaveOutlined from '@mui/icons-material/SaveOutlined'
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
@@ -53,6 +54,7 @@ import {
 import { Link, useBlocker, useParams, useSearchParams } from 'react-router'
 import { usePermissions } from '../../../auth/usePermissions'
 import { BotSettingsDialog } from '../../../components/chatbots/BotSettingsDialog'
+import { ChatbotLinesDialog } from '../../../components/chatbots/ChatbotDialogs'
 import { DeletableEdge } from '../../../components/chatbots/DeletableEdge'
 import { FlowEditorContext } from '../../../components/chatbots/flow-editor-context'
 import {
@@ -71,12 +73,14 @@ import { FlowNodeCard } from '../../../components/chatbots/FlowNodeCard'
 import { NodeEditor, type Member } from '../../../components/chatbots/NodeEditor'
 import { NodeIcon } from '../../../components/chatbots/node-icons'
 import { TestChat } from '../../../components/chatbots/TestChat'
+import { VariablesDialog } from '../../../components/chatbots/VariablesDialog'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { useTags, useWorkspaceId } from '../../../components/contacts/useContacts'
 import { useChatColors } from '../../../components/inbox/chat-colors'
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { useFillHeight } from '../../../hooks/useFillHeight'
 import { es } from '../../../i18n/es'
+import { channelKeys } from '../../../lib/api/channels'
 import {
   chatbotKeys,
   chatbotsApi,
@@ -154,6 +158,8 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
   const [editing, setEditing] = useState<string | null>(null)
   const [testing, setTesting] = useState(params.get('probar') === '1')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [linesOpen, setLinesOpen] = useState(false)
+  const [variablesOpen, setVariablesOpen] = useState(false)
   const [issuesAnchor, setIssuesAnchor] = useState<HTMLElement | null>(null)
 
   const tags = useTags()
@@ -327,9 +333,20 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
       issues: byNode,
       tags: new Map((tags.data ?? []).map((tag) => [tag.id, tag])),
       onEdit: setEditing,
+      variables: current.variables,
+      contactVariables: current.contactVariables,
+      onOpenVariables: () => setVariablesOpen(true),
     }),
-    [byNode, tags.data],
+    [byNode, tags.data, current.variables, current.contactVariables],
   )
+  // Settings, lines and variables are saved apart from the flow on the canvas.
+  const keepGraph = (saved: Chatbot) => {
+    setCurrent((before) => ({ ...saved, graph: before.graph }))
+    client.setQueryData<Chatbot>(chatbotKeys.one(workspaceId, chatbot.id), (before) =>
+      before ? { ...saved, graph: before.graph } : saved,
+    )
+    void client.invalidateQueries({ queryKey: chatbotKeys.all(workspaceId), exact: true })
+  }
   const editingNode = nodes.find((node) => node.id === editing) ?? null
 
   const focusNode = (id: string) => {
@@ -415,6 +432,13 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
             }}
           >
             {t.test}
+          </Button>
+          <Button
+            size="small"
+            startIcon={<DataObjectRounded />}
+            onClick={() => setVariablesOpen(true)}
+          >
+            {t.variables}
           </Button>
           <Button
             size="small"
@@ -504,6 +528,8 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
                 <TestChat
                   workspaceId={workspaceId}
                   graph={graph}
+                  settings={current}
+                  variables={current.variables}
                   tags={tags.data ?? []}
                   members={memberList}
                   onClose={() => setTesting(false)}
@@ -551,11 +577,33 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
         <BotSettingsDialog
           chatbot={current}
           onClose={() => setSettingsOpen(false)}
+          onChangeLines={() => setLinesOpen(true)}
           onSubmit={async (changes) => {
-            const saved = await chatbotsApi.update(workspaceId, chatbot.id, changes)
-            setCurrent((before) => ({ ...saved, graph: before.graph }))
-            void client.invalidateQueries({ queryKey: chatbotKeys.all(workspaceId), exact: true })
+            keepGraph(await chatbotsApi.update(workspaceId, chatbot.id, changes))
             enqueueSnackbar(es.chatbots.saved, { variant: 'success' })
+          }}
+        />
+      )}
+      {linesOpen && (
+        <LinesDialog
+          workspaceId={workspaceId}
+          chatbot={current}
+          onClose={() => setLinesOpen(false)}
+          onSubmit={async (lineIds, takeOver) => {
+            keepGraph(await chatbotsApi.setLines(workspaceId, chatbot.id, lineIds, takeOver))
+            void client.invalidateQueries({ queryKey: channelKeys.lines(workspaceId) })
+            enqueueSnackbar(es.chatbots.linesSaved, { variant: 'success' })
+          }}
+        />
+      )}
+      {variablesOpen && (
+        <VariablesDialog
+          variables={current.variables}
+          contactVariables={current.contactVariables}
+          onClose={() => setVariablesOpen(false)}
+          onSave={async (variables) => {
+            keepGraph(await chatbotsApi.update(workspaceId, chatbot.id, { variables }))
+            enqueueSnackbar(es.chatbots.variables.saved, { variant: 'success' })
           }}
         />
       )}
@@ -570,6 +618,34 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
         {t.leaveBody}
       </ConfirmDialog>
     </FlowEditorContext.Provider>
+  )
+}
+
+/** "Asignar líneas" from the editor: it needs the other bots to warn about their lines. */
+function LinesDialog({
+  workspaceId,
+  chatbot,
+  onClose,
+  onSubmit,
+}: {
+  workspaceId: string
+  chatbot: Chatbot
+  onClose: () => void
+  onSubmit: (lineIds: string[], takeOver: boolean) => Promise<void>
+}) {
+  const bots = useQuery({
+    queryKey: chatbotKeys.all(workspaceId),
+    queryFn: ({ signal }) => chatbotsApi.list(workspaceId, signal),
+  })
+  if (!bots.data) return null
+  return (
+    <ChatbotLinesDialog
+      workspaceId={workspaceId}
+      chatbot={chatbot}
+      chatbots={bots.data}
+      onClose={onClose}
+      onSubmit={onSubmit}
+    />
   )
 }
 

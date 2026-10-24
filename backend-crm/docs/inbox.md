@@ -7,7 +7,7 @@ En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones
   - encendido (`view=all`, por defecto): mis chats, los de mis agentes y **los sin asignar**;
   - apagado (`view=mine`): solo los míos;
   - sin `conversations.view_all`, «mis agentes» no aplica: se ven los propios y los sin asignar, **solo de las líneas que atiende el agente**.
-- **Pestañas** **Abierto** (contador rojo) / **En espera** / **Cerrado**, con los números de la vista actual. Los chats sin asignar son abiertos: no hay pestaña aparte.
+- **Pestañas** **Abierto** (contador rojo) / **En espera** / **Cerrado**, con los números de la vista actual. **Cerrado** no cuenta todos los chats cerrados, solo los que tienen mensajes sin leer (por ejemplo, los que cerró el chatbot). Los chats sin asignar son abiertos: no hay pestaña aparte.
 - **Filtros** (embudo junto al buscador, se aplican al pulsar «Aplicar filtros»): etiquetas del contacto, agentes (incluye «Sin asignar», solo con `conversations.view_all`), línea, rango de fechas de la última actividad y orden (recientes o antiguas primero). Búsqueda por nombre o teléfono.
 - **Lista de chats:**
   - avatar con el distintivo de la línea, hora («2:21 pm»), vista previa («📷 Foto», «🎤 Audio», «👤 Contacto»…) con ✓ / ✓✓ / leído si el último mensaje es nuestro, y contador verde de no leídos;
@@ -87,8 +87,8 @@ Cada cambio de una conversación se guarda en ella como mensaje `direction: EVEN
 | `on_hold` | Poner en espera |
 | `closed`, `reopened` | Cerrar y reabrir. `reopened` con `by: null`: el cliente volvió a escribir a un chat cerrado |
 | `contact_blocked`, `contact_unblocked` | Bloquear y desbloquear al contacto |
-| `bot_paused`, `bot_resumed` | Un agente desactivó o activó el chatbot de la línea en este chat |
-| `bot_transferred` | El chatbot pasó el chat a un agente (`to`) o a la cola sin asignar |
+| `bot_paused`, `bot_resumed` | Un agente desactivó o activó el chatbot de la línea en este chat. `pause: { until }`: hasta cuándo (`null`: permanente) |
+| `bot_transferred` | El chatbot pasó el chat a un agente (`to`) o a la cola sin asignar, y se apagó en el chat (`pause`) |
 | `bot_tagged` | El chatbot agregó o quitó etiquetas (`tags: { added, removed }`, con los nombres) |
 
 Lo que hace un chatbot va firmado con `by: { userId: 'bot:<id>', name, kind: 'bot' }`, también en `closed`, `on_hold` y `reopened` (ver [chatbots.md](chatbots.md#historial)).
@@ -97,8 +97,9 @@ Lo que hace un chatbot va firmado con `by: { userId: 'bot:<id>', name, kind: 'bo
 
 - **Mensajes del bot:** salen con `sentBy.kind: 'bot'` y el nombre del bot. Los menús se guardan como `type: 'interactive'` con `interactive: { kind: 'buttons' | 'list' | 'cta_url', header, body, footer, buttons | list | url }`.
 - **Respuesta del cliente:** cuando pulsa un botón o una fila llega como texto, con `reply: { id, title }`.
-- **Estado del bot:** cada chat trae `bot: { state, name, pausedBy }`.
-- **Pausar y reactivar:** `POST …/bot/pause` desactiva el bot para ese contacto y `POST …/bot/resume` lo vuelve a activar (`messages.send`). Al reactivarlo, empieza su flujo desde el inicio con el próximo mensaje.
+- **Estado del bot:** cada chat trae `bot: { state, name, pausedBy, pausedUntil }`. En la lista, un robot naranja sobre el avatar indica que está apagado y por cuánto («Bot desactivado por 24 horas · vuelve en 5 h 12 min» o «permanentemente»); la cabecera muestra «🤖 Bot off · 5 h 12 min».
+- **Pausar y reactivar:** `POST …/bot/pause` con `{ duration: '24h' | 'permanent' }` desactiva el bot para ese contacto (menú ⋮: «Desactivar bot por 24 horas» / «permanentemente») y `POST …/bot/resume` lo vuelve a activar (`messages.send`). La pausa de 24 h termina sola; ambas siguen aunque el chat se cierre. Al reactivarlo, empieza su flujo desde el inicio con el próximo mensaje.
+- **No leídos:** lo que envía o hace el bot no marca el chat como leído; si lo cierra, los no leídos siguen (`closedUnread`).
 - **Autoasignación:** mientras el bot atiende un chat, no se reparte; la aplica el nodo **Transferir**.
 
 ## Archivos (imagen, audio, video, sticker, documento, ubicación)
@@ -197,10 +198,10 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/api/v1/workspaces/:workspaceId`.
 
 - `GET /conversations`: `view` (`mine|all`; `unassigned` se mantiene para clientes anteriores), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `tagIds`, `assigneeIds` (ids de membresía o `none`; solo con `conversations.view_all`, si no `403 AGENT_FILTER_FORBIDDEN`), `from`, `to`, `sort` (`recent|oldest`), `cursor` y `limit`. Cada chat trae `contactTagIds` y `lastMessage.status`.
-- `GET /conversations/options`: `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `unassigned`, `all`, `onHold`, `closed`, `unread`) · `GET /conversations/events`.
+- `GET /conversations/options`: `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `mineClosedUnread`, `unassigned`, `all`, `onHold`, `closed`, `closedUnread`, `unread`) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
 - `POST /conversations/:id/messages` y `/notes` (`{ "text": "...", "clientId": "uuid opcional" }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
-- `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen` · `POST /conversations/:id/bot/pause` y `/bot/resume`.
+- `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen` · `POST /conversations/:id/bot/pause` (`{ duration }`) y `/bot/resume`.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
 - `PUT /conversations/:id/tags`: `{ "tagIds": [...] }` (`contacts.write`). Reemplaza las etiquetas del contacto del chat, devuelve el chat con `contactTagIds` y emite `conversation.updated`. Una etiqueta desconocida da `404 TAG_NOT_FOUND`.
 - `POST /contacts/:id/block` y `/unblock`.

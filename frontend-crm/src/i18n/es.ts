@@ -690,7 +690,9 @@ export const es = {
       saving: 'Guardando…',
       unsaved: 'Cambios sin guardar',
       saved: 'Guardado',
-      settings: 'Ajustes',
+      settings: 'Configuración',
+      variables: 'Variables',
+      guide: 'Cómo funciona',
       test: 'Probar chatbot',
       enabled: 'Activo',
       issues: (errors: number, warnings: number) =>
@@ -715,16 +717,68 @@ export const es = {
         'Shift + arrastrar para seleccionar varios nodos · Supr borra lo seleccionado · la ✕ de una conexión la quita',
     },
     settings: {
-      title: 'Ajustes del chatbot',
-      availability: 'Disponibilidad',
-      always: 'Siempre disponible',
-      custom: 'Solo en un horario',
-      availabilityHelp:
-        'Fuera de su horario el chatbot no responde y los chats van directo a los agentes.',
-      restart: 'Reiniciar tras inactividad (minutos)',
+      title: 'Configuración del chatbot',
+      general: 'Datos del chatbot',
+      name: 'Nombre del chatbot',
+      description: 'Descripción',
+      descriptionHelp: 'Solo para tu equipo: para qué sirve este bot.',
+      lines: 'Líneas de WhatsApp',
+      noLines: 'Sin líneas: el bot no responde a nadie todavía.',
+      changeLines: 'Cambiar líneas',
+      answers: 'Respuestas',
+      fallback: 'Mensaje cuando no se encuentra respuesta',
+      fallbackDefault: 'Mensaje inválido. Por favor escoge una de las opciones.',
+      fallbackHelp:
+        'Se envía cuando el cliente escribe algo que el flujo no espera: cuando el flujo ya terminó, o en una tarjeta de botones o lista sin «Respuesta si elige otra cosa». Vacío: no se envía nada.',
+      keywords: 'Palabras para volver al saludo inicial',
+      keywordsHelp:
+        'Si el cliente escribe exactamente una de estas palabras (sin importar mayúsculas ni tildes), el bot vuelve al Inicio y envía el saludo. Escribe y pulsa Enter.',
+      restart: 'Duración de conversación activa (minutos)',
       restartHelp:
-        'Si el cliente no responde en este tiempo, su próximo mensaje empieza el flujo desde el inicio.',
-      save: 'Guardar ajustes',
+        'Si no se envía ningún mensaje durante este período, la conversación se reinicia y se envía el mensaje de bienvenida cuando el cliente vuelva a escribir. Por defecto son 30 minutos (mínimo 2).',
+      inactivity: 'Enviar un mensaje automático cuando el cliente no responde por un tiempo',
+      inactivityHelp:
+        'Solo mientras el bot espera una respuesta (botones, lista o una pregunta). Se envía una sola vez.',
+      inactivityMinutes: 'Tiempo de espera (minutos)',
+      inactivityMinutesHelp: 'Minutos antes de enviar el mensaje de inactividad (máximo 29).',
+      inactivityText: 'Mensaje de inactividad',
+      inactivityTextDefault: 'Parece que te detuviste un momento. ¿Quieres que avancemos?',
+      availability: 'Días y horarios en los que el bot está activo',
+      custom: 'Habilitar en un rango de tiempo específico',
+      customHelp:
+        'Fuera de este horario el bot no responde y los chats quedan para los agentes. Si lo desactivas, el bot está disponible 24/7.',
+      noRanges:
+        'En este momento no has seleccionado ningún día ni hora, así que el bot estará completamente desactivado. Si deseas que esté disponible 24/7, desactiva «Habilitar en un rango de tiempo específico».',
+      save: 'Guardar configuración',
+    },
+    variables: {
+      title: 'Variables',
+      help: 'Datos que el bot guarda y usa en sus mensajes ({{nombre_de_la_variable}}) y en las condiciones. Una tarjeta «Guardar respuesta» las llena con lo que responde el cliente; cada conversación empieza con el valor por defecto.',
+      contact: 'Datos del contacto (siempre disponibles)',
+      contactLabels: {
+        nombre: 'Nombre',
+        apellido: 'Apellido',
+        nombre_completo: 'Nombre completo',
+        email: 'Email',
+        telefono: 'Teléfono',
+      } as Record<string, string>,
+      mine: 'Variables de este bot',
+      empty: 'No hay variables asociadas con este bot.',
+      add: 'Nueva variable',
+      name: 'Nombre de la variable',
+      nameHelp: 'Letras, números y _ (sin espacios). Ej.: cuotas, ciudad, es_cliente',
+      type: 'Tipo',
+      types: { text: 'Texto', number: 'Numérico', boolean: 'Booleano (sí / no)' },
+      defaultValue: 'Valor por defecto',
+      booleanDefault: 'Valor por defecto: sí',
+      description: 'Descripción',
+      edit: (name: string) => `Editar ${name}`,
+      remove: (name: string) => `Eliminar ${name}`,
+      inUse: 'Hay tarjetas que la usan: revísalas después de eliminarla.',
+      saved: 'Variables guardadas',
+      save: 'Guardar',
+      insert: 'Agregar variable',
+      insertHelp: 'Se inserta como {{variable}} y se reemplaza al enviar.',
     },
     schedule: {
       timezone: 'Zona horaria',
@@ -743,12 +797,16 @@ export const es = {
       restart: 'Reiniciar prueba',
       start: 'Escribe un mensaje para empezar, como lo haría un cliente.',
       ended: 'El flujo terminó. El próximo mensaje empieza de nuevo.',
+      finished:
+        'El flujo llegó a su fin. Lo que escribas ahora recibe el mensaje cuando no se encuentra respuesta; escribe una palabra para volver al saludo (por ejemplo «menu»).',
+      contact: (field: string, value: string) => `Guardaría ${field} del contacto: ${value}`,
       openList: 'Ver opciones',
       tags: (added: string, removed: string) =>
         [added && `Agregaría las etiquetas: ${added}`, removed && `Quitaría: ${removed}`]
           .filter(Boolean)
           .join(' · '),
-      transfer: (to: string) => `Transferiría el chat ${to} y se pausaría en ese chat`,
+      transfer: (to: string, pause: string) =>
+        `Transferiría el chat ${to} y el bot quedaría desactivado en ese chat ${pause}`,
       status: (status: string) => `Cambiaría el estado del chat a «${status}»`,
       file: (name: string) => `📎 ${name}`,
     },
@@ -756,29 +814,81 @@ export const es = {
       start: {
         label: 'Inicio',
         help: 'Cuando un cliente escribe a la línea, el flujo empieza aquí.',
+        guide:
+          'Es el punto de partida. Cada vez que un cliente escribe por primera vez, o después de que la conversación se reinicia (por inactividad o porque escribió «menu»), el bot empieza aquí y sigue la conexión hacia la primera tarjeta. Conéctalo con tu saludo.',
       },
-      message: { label: 'Respuesta básica', help: 'Texto, imagen, video, audio o documento.' },
-      buttons: { label: 'Botones', help: 'Hasta 3 botones de respuesta rápida.' },
-      list: { label: 'Lista de opciones', help: 'Un menú desplegable de hasta 10 opciones.' },
-      url: { label: 'Botón de URL', help: 'Un botón que abre un enlace.' },
+      message: {
+        label: 'Respuesta básica',
+        help: 'Texto y archivos: imagen, video, audio o documento.',
+        guide:
+          'Envía un texto y, si quieres, hasta 5 archivos (imagen, video, audio o documento). No espera respuesta: después de enviarlo sigue enseguida por «Siguiente». Si no conectas nada, la conversación queda abierta y lo que escriba el cliente recibe el «Mensaje cuando no se encuentra respuesta» de la configuración (o vuelve al inicio si escribe «menu»).',
+      },
+      buttons: {
+        label: 'Botones',
+        help: 'Hasta 3 botones de respuesta rápida.',
+        guide:
+          'Envía un mensaje con hasta 3 botones y espera a que el cliente pulse uno. Cada botón tiene su propia salida: conéctala con la tarjeta que debe responder. Si el cliente escribe otra cosa, recibe la «Respuesta si elige otra cosa» y se le muestran los botones otra vez (hasta 3 intentos). Si conectas «Otra respuesta», el flujo sigue por ahí. Escribir el texto del botón o su número (1, 2, 3) también vale.',
+      },
+      list: {
+        label: 'Lista de opciones',
+        help: 'Un menú desplegable de hasta 10 opciones.',
+        guide:
+          'Envía un mensaje con un botón que abre un menú de hasta 10 opciones (en secciones). Cada opción tiene su propia salida. Igual que en Botones: si el cliente escribe otra cosa, recibe la «Respuesta si elige otra cosa» y la lista otra vez; «Otra respuesta» sirve para atender lo que no está en la lista.',
+      },
+      url: {
+        label: 'Botón de URL',
+        help: 'Un botón que abre un enlace.',
+        guide:
+          'Envía un mensaje con un botón que abre una página web (https://), por ejemplo para pagar o ver el catálogo. WhatsApp no avisa si el cliente lo pulsó, así que el flujo sigue enseguida por «Siguiente».',
+      },
       question: {
         label: 'Guardar respuesta',
         help: 'Pregunta y guarda lo que responde en una variable.',
+        guide:
+          'Hace una pregunta y espera la respuesta. Si es válida (según «Respuesta esperada» o el tipo de la variable: número, sí/no…), la guarda en la variable y sigue por «Siguiente»; si no, envía «Si responde otra cosa» y pregunta de nuevo. Usa la variable después en los textos como {{variable}} o en Condiciones. También puede guardar el nombre o el correo en la ficha del contacto.',
       },
       condition: {
         label: 'Condiciones',
-        help: 'Sigue un camino según lo que escribió el cliente.',
+        help: 'Sigue un camino según lo que escribió el cliente o una variable.',
+        guide:
+          'No envía nada: revisa las condiciones en orden (el último mensaje del cliente o el valor de una variable) y sigue por la salida de la primera que se cumple. Si ninguna se cumple, sigue por «Si no». Ej.: si el mensaje contiene «precio», ir a la lista de precios.',
       },
-      hours: { label: 'Horario de atención', help: 'Un camino dentro del horario y otro fuera.' },
-      tags: { label: 'Gestionar etiquetas', help: 'Agrega o quita etiquetas al contacto.' },
+      hours: {
+        label: 'Horario de atención',
+        help: 'Elige un camino dentro del horario y otro fuera. No envía mensajes.',
+        guide:
+          'No envía ningún mensaje por sí solo: mira la hora actual en su zona horaria y manda la conversación por «Dentro del horario» o «Fuera del horario». Conecta en cada salida la tarjeta que debe responder, por ejemplo «Fuera del horario» → un mensaje «Ahora estamos cerrados. Te atendemos de lunes a viernes de 8:00 a 18:00». Si una salida no tiene nada conectado, el bot no responde nada en ese caso.',
+      },
+      tags: {
+        label: 'Gestionar etiquetas',
+        help: 'Agrega o quita etiquetas al contacto.',
+        guide:
+          'Agrega o quita etiquetas en la ficha del contacto, sin enviarle nada al cliente. Sirve para segmentar (por ejemplo «Interesado en ventas») y filtrar después en la bandeja o en Contactos. Sigue por «Siguiente».',
+      },
       transfer: {
         label: 'Transferir conversación',
-        help: 'Pasa el chat a un agente y pausa el bot.',
+        help: 'Pasa el chat a un agente y desactiva el bot en ese chat.',
+        guide:
+          'Pasa el chat a un agente (por turnos entre los agentes de la línea, a uno en particular o a la cola sin asignar) y le envía al cliente el mensaje que escribas. Después el bot queda desactivado en ese chat por 24 horas o de forma permanente, según elijas, para no hablar encima del agente. Aquí termina el flujo.',
       },
-      status: { label: 'Cambiar estado', help: 'Abre, pone en espera o cierra el chat.' },
-      end: { label: 'Finalizar', help: 'Termina el flujo sin hacer nada más.' },
+      status: {
+        label: 'Cambiar estado',
+        help: 'Abre, pone en espera o cierra el chat.',
+        guide:
+          'Cambia el estado del chat a Abierto, En espera o Cerrado. Al cerrar, el flujo termina. Los mensajes que nadie del equipo leyó siguen sin leer: el chat aparece en la pestaña Cerrado con su contador.',
+      },
+      end: {
+        label: 'Finalizar',
+        help: 'Termina el flujo; el próximo mensaje empieza de nuevo.',
+        guide:
+          'Termina el flujo sin enviar nada. El próximo mensaje del cliente vuelve a empezar desde el Inicio (con el saludo), a diferencia de una tarjeta sin conexión, que deja la conversación abierta.',
+      },
     },
     node: {
+      title: 'Título',
+      titleHelp: 'Solo tú verás este título; sirve para identificar la tarjeta en el diagrama.',
+      howItWorks: 'Cómo funciona',
+      hoursNotice: 'No envía mensajes: conecta una respuesta en cada salida.',
       next: 'Siguiente',
       other: 'Otra respuesta',
       else: 'Si no',
@@ -789,10 +899,16 @@ export const es = {
       body: 'Mensaje',
       footer: 'Pie (opcional)',
       text: 'Texto',
-      variables: 'Variables: {{nombre}}, {{telefono}} y las respuestas guardadas, como {{correo}}.',
-      attach: 'Adjuntar archivo',
-      removeFile: 'Quitar archivo',
+      botReply: 'Respuesta del bot',
+      variables: 'Puedes incluir emojis y variables, como {{nombre}}.',
+      attach: 'Adjuntar archivos',
+      attachHelp:
+        '(Opcional) Imagen, video, audio o documento, hasta 5. Un solo archivo lleva el texto como pie; varios se envían después del texto.',
+      attachBefore:
+        '(Opcional) Archivos que se envían antes del mensaje con las opciones (hasta 5).',
+      removeFile: (name: string) => `Quitar ${name}`,
       uploading: 'Subiendo…',
+      files: (n: number) => (n === 1 ? '1 archivo' : `${n} archivos`),
       buttons: 'Botones',
       button: (n: number) => `Botón ${n}`,
       addButton: 'Agregar botón',
@@ -804,14 +920,25 @@ export const es = {
       option: 'Opción',
       description: 'Descripción (opcional)',
       addRow: 'Agregar opción',
-      invalidText: 'Si responde otra cosa',
+      invalidText: 'Respuesta si elige otra cosa',
       invalidHelp:
-        'Se envía antes de repetir la pregunta. Si conectas «Otra respuesta», el flujo sigue por ahí.',
+        'Obligatoria. Se envía cuando el cliente escribe algo que no es una opción, y luego se repiten las opciones. Si conectas «Otra respuesta», el flujo sigue por ahí.',
+      invalidRequired: 'Escribe qué responder cuando el cliente no elige una opción.',
+      invalidDefault: 'Opción inválida. Por favor elige una de las opciones 👇',
+      questionInvalid: 'Si responde otra cosa',
+      questionInvalidHelp:
+        'Se envía cuando la respuesta no es válida, antes de preguntar de nuevo. Vacío: el mensaje cuando no se encuentra respuesta.',
       urlText: 'Texto del botón',
       url: 'Enlace (https://)',
       question: 'Pregunta',
       variable: 'Guardar en la variable',
-      variableHelp: 'Úsala después como {{variable}}.',
+      variableHelp: 'Úsala después como {{variable}}. Créalas en «Variables».',
+      variableMissing: (name: string) => `${name} (no está en Variables)`,
+      noVariables: 'Este bot aún no tiene variables. Crea una para guardar la respuesta.',
+      createVariable: 'Crear variable',
+      variablePick: 'Variable',
+      saveTo: 'Guardar también en el contacto',
+      saveToOptions: { none: 'No', name: 'Como su nombre', email: 'Como su email' },
       validation: 'Respuesta esperada',
       validations: {
         any: 'Cualquier texto',
@@ -831,6 +958,10 @@ export const es = {
         starts_with: 'empiece con',
         is_number: 'sea un número',
         is_empty: 'esté vacío',
+        greater_than: 'sea mayor que',
+        less_than: 'sea menor que',
+        is_true: 'sea sí (verdadero)',
+        is_false: 'sea no (falso)',
       },
       value: 'Valor',
       addTags: 'Agregar etiquetas',
@@ -842,6 +973,12 @@ export const es = {
         member: 'Un agente',
       },
       agent: 'Agente',
+      pause: 'Después de transferir, el bot en ese chat',
+      pauseOptions: {
+        '24h': 'Se desactiva por 24 horas (vuelve solo)',
+        permanent: 'Se desactiva permanentemente (hasta que un agente lo active)',
+      },
+      pauseShort: { '24h': 'Bot off 24 h', permanent: 'Bot off permanente' },
       transferMessage: 'Mensaje al cliente',
       transferMessageDefault: 'Te comunicamos con {{agente}}. En breve te atenderá.',
       transferMessageHelp:

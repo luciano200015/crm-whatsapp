@@ -1,9 +1,9 @@
 import AddRounded from '@mui/icons-material/AddRounded'
-import AttachFileRounded from '@mui/icons-material/AttachFileRounded'
 import CloseRounded from '@mui/icons-material/CloseRounded'
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded'
 import {
   Alert,
+  AlertTitle,
   Autocomplete,
   Box,
   Button,
@@ -13,6 +13,7 @@ import {
   FormControlLabel,
   FormLabel,
   IconButton,
+  ListSubheader,
   MenuItem,
   Radio,
   RadioGroup,
@@ -21,33 +22,42 @@ import {
   Typography,
   type TextFieldProps,
 } from '@mui/material'
-import { useState, type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { es } from '../../i18n/es'
-import { chatbotsApi, type NodeData, type NodeKind } from '../../lib/api/chatbots'
-import { errorMessage } from '../../lib/api/errors'
+import type { BotPause, NodeData, NodeKind, Operator, Validation } from '../../lib/api/chatbots'
 import type { TagSummary } from '../../lib/api/types'
-import { LIMITS, newId, type EditorNode } from './flow-model'
+import { AttachmentsField } from './AttachmentsField'
+import { useFlowEditor } from './flow-editor-context'
+import { LIMITS, newId, titleOf, type EditorNode } from './flow-model'
 import { NodeIcon } from './node-icons'
 import { ScheduleEditor } from './ScheduleEditor'
+import { VariableButton } from './VariableButton'
 
 const t = es.chatbots.node
 
-/** A text field that shows how much of WhatsApp's limit is used. */
+/**
+ * A text field that shows how much of WhatsApp's limit is used. With
+ * `variables`, "Agregar variable" puts {{name}} where the cursor is.
+ */
 function LimitedField({
   value,
   max,
   onValue,
+  variables = false,
   ...props
 }: Omit<TextFieldProps, 'value' | 'onChange'> & {
   value: string
   max: number
   onValue: (value: string) => void
+  variables?: boolean
 }) {
-  return (
+  const input = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const field = (
     <TextField
       size="small"
       fullWidth
       {...props}
+      inputRef={input}
       value={value}
       onChange={(event) => onValue(event.target.value.slice(0, max))}
       helperText={
@@ -60,6 +70,18 @@ function LimitedField({
       }
       slotProps={{ ...props.slotProps, htmlInput: { maxLength: max } }}
     />
+  )
+  if (!variables) return field
+  const insert = (token: string) => {
+    const at = input.current?.selectionStart ?? value.length
+    const end = input.current?.selectionEnd ?? at
+    onValue((value.slice(0, at) + token + value.slice(end)).slice(0, max))
+  }
+  return (
+    <Stack spacing={0.5}>
+      {field}
+      <VariableButton onInsert={insert} />
+    </Stack>
   )
 }
 
@@ -99,13 +121,15 @@ function InteractiveTexts({
         onValue={(header) => onChange({ header })}
       />
       <LimitedField
-        label={t.body}
+        label={t.botReply}
         value={data.body}
         max={LIMITS.body}
         multiline
         minRows={3}
         required
+        error={!data.body.trim()}
         helperText={t.variables}
+        variables
         onValue={(body) => onChange({ body })}
       />
       <LimitedField
@@ -118,16 +142,23 @@ function InteractiveTexts({
   )
 }
 
+/** "Respuesta si elige otra cosa": required on buttons and lists. */
 function InvalidText({ value, onValue }: { value: string; onValue: (value: string) => void }) {
+  const missing = !value.trim()
   return (
-    <LimitedField
-      label={t.invalidText}
-      placeholder="No entendí tu respuesta. Elige una de las opciones, por favor."
-      value={value}
-      max={LIMITS.invalidText}
-      helperText={t.invalidHelp}
-      onValue={onValue}
-    />
+    <Section title={t.invalidText}>
+      <LimitedField
+        label={t.invalidText}
+        placeholder={t.invalidDefault}
+        value={value}
+        max={LIMITS.invalidText}
+        required
+        error={missing}
+        helperText={missing ? t.invalidRequired : t.invalidHelp}
+        variables
+        onValue={onValue}
+      />
+    </Section>
   )
 }
 
@@ -170,10 +201,10 @@ export function NodeEditor({
         <NodeIcon kind={kind} color="primary" />
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontWeight: 700 }} noWrap>
-            {es.chatbots.nodes[kind].label}
+            {titleOf(node.data) || es.chatbots.nodes[kind].label}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {es.chatbots.nodes[kind].help}
+            {es.chatbots.nodes[kind].label}
           </Typography>
         </Box>
         <IconButton aria-label={es.chatbots.editor.close} onClick={onClose}>
@@ -181,6 +212,18 @@ export function NodeEditor({
         </IconButton>
       </Stack>
       <Stack spacing={2} sx={{ p: 2, overflowY: 'auto', flex: 1 }}>
+        <LimitedField
+          label={t.title}
+          value={titleOf(node.data)}
+          max={LIMITS.title}
+          placeholder={es.chatbots.nodes[kind].label}
+          helperText={t.titleHelp}
+          onValue={(title) => onChange({ ...node.data, title })}
+        />
+        <Alert severity="info" icon={false} sx={{ '& .MuiAlert-message': { width: '100%' } }}>
+          <AlertTitle sx={{ fontSize: 14 }}>{t.howItWorks}</AlertTitle>
+          <Typography variant="body2">{es.chatbots.nodes[kind].guide}</Typography>
+        </Alert>
         <NodeForm
           workspaceId={workspaceId}
           chatbotId={chatbotId}
@@ -222,7 +265,7 @@ function NodeForm({
   switch (kind) {
     case 'start':
     case 'end':
-      return <Alert severity="info">{es.chatbots.nodes[kind].help}</Alert>
+      return null
     case 'message':
       return (
         <MessageForm
@@ -237,6 +280,15 @@ function NodeForm({
       return (
         <>
           <InteractiveTexts data={value} onChange={onChange} />
+          <Section title={t.attach}>
+            <AttachmentsField
+              workspaceId={workspaceId}
+              chatbotId={chatbotId}
+              value={value.attachments ?? []}
+              help={t.attachBefore}
+              onChange={(attachments) => onChange({ attachments })}
+            />
+          </Section>
           <Section title={t.buttons}>
             {value.buttons.map((button, index) => (
               <Stack key={button.id} direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
@@ -287,7 +339,14 @@ function NodeForm({
       )
     }
     case 'list':
-      return <ListForm data={data as NodeData['list']} onChange={onChange} />
+      return (
+        <ListForm
+          workspaceId={workspaceId}
+          chatbotId={chatbotId}
+          data={data as NodeData['list']}
+          onChange={onChange}
+        />
+      )
     case 'url': {
       const value = data as NodeData['url']
       return (
@@ -311,51 +370,8 @@ function NodeForm({
         </>
       )
     }
-    case 'question': {
-      const value = data as NodeData['question']
-      return (
-        <>
-          <LimitedField
-            label={t.question}
-            value={value.text}
-            max={LIMITS.text}
-            multiline
-            minRows={2}
-            required
-            helperText={t.variables}
-            onValue={(text) => onChange({ text })}
-          />
-          <TextField
-            size="small"
-            label={t.variable}
-            value={value.variable}
-            required
-            error={!/^[A-Za-z_][A-Za-z0-9_]{0,30}$/.test(value.variable)}
-            helperText={t.variableHelp}
-            onChange={(event) =>
-              onChange({ variable: event.target.value.replace(/[^A-Za-z0-9_]/g, '').slice(0, 31) })
-            }
-          />
-          <TextField
-            select
-            size="small"
-            label={t.validation}
-            value={value.validation}
-            onChange={(event) => onChange({ validation: event.target.value })}
-          >
-            {(Object.keys(t.validations) as (keyof typeof t.validations)[]).map((key) => (
-              <MenuItem key={key} value={key}>
-                {t.validations[key]}
-              </MenuItem>
-            ))}
-          </TextField>
-          <InvalidText
-            value={value.invalidText}
-            onValue={(invalidText) => onChange({ invalidText })}
-          />
-        </>
-      )
-    }
+    case 'question':
+      return <QuestionForm data={data as NodeData['question']} onChange={onChange} />
     case 'condition':
       return <ConditionForm data={data as NodeData['condition']} onChange={onChange} />
     case 'hours':
@@ -401,58 +417,10 @@ function NodeForm({
         </>
       )
     }
-    case 'transfer': {
-      const value = data as NodeData['transfer']
+    case 'transfer':
       return (
-        <>
-          <FormControl>
-            <FormLabel>{t.transferTo}</FormLabel>
-            <RadioGroup
-              value={value.to}
-              onChange={(event) =>
-                onChange({
-                  to: event.target.value,
-                  membershipId: event.target.value === 'member' ? value.membershipId : null,
-                })
-              }
-            >
-              {(Object.keys(t.transferOptions) as (keyof typeof t.transferOptions)[]).map((key) => (
-                <FormControlLabel
-                  key={key}
-                  value={key}
-                  control={<Radio size="small" />}
-                  label={t.transferOptions[key]}
-                />
-              ))}
-            </RadioGroup>
-          </FormControl>
-          {value.to === 'member' && (
-            <TextField
-              select
-              size="small"
-              label={t.agent}
-              value={value.membershipId ?? ''}
-              onChange={(event) => onChange({ membershipId: event.target.value || null })}
-            >
-              {members.map((member) => (
-                <MenuItem key={member.membershipId} value={member.membershipId}>
-                  {member.name}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-          <LimitedField
-            label={t.transferMessage}
-            value={value.message ?? t.transferMessageDefault}
-            max={LIMITS.text}
-            multiline
-            minRows={2}
-            helperText={t.transferMessageHelp}
-            onValue={(message) => onChange({ message })}
-          />
-        </>
+        <TransferForm data={data as NodeData['transfer']} members={members} onChange={onChange} />
       )
-    }
     case 'status': {
       const value = data as NodeData['status']
       return (
@@ -474,6 +442,192 @@ function NodeForm({
   }
 }
 
+/** "Guardar respuesta": the question, where the answer goes and how it is checked. */
+function QuestionForm({
+  data: value,
+  onChange,
+}: {
+  data: NodeData['question']
+  onChange: (changes: Partial<NodeData['question']>) => void
+}) {
+  const { variables, onOpenVariables } = useFlowEditor()
+  const known = variables.some(
+    (variable) => variable.name.toLowerCase() === value.variable.toLowerCase(),
+  )
+  return (
+    <>
+      <LimitedField
+        label={t.question}
+        value={value.text}
+        max={LIMITS.text}
+        multiline
+        minRows={2}
+        required
+        error={!value.text.trim()}
+        helperText={t.variables}
+        variables
+        onValue={(text) => onChange({ text })}
+      />
+      {variables.length === 0 && !value.variable ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" onClick={onOpenVariables}>
+              {t.createVariable}
+            </Button>
+          }
+        >
+          {t.noVariables}
+        </Alert>
+      ) : (
+        <Stack spacing={0.5}>
+          <TextField
+            select
+            size="small"
+            label={t.variable}
+            value={value.variable}
+            required
+            error={!value.variable || !known}
+            helperText={t.variableHelp}
+            onChange={(event) => onChange({ variable: event.target.value })}
+          >
+            {variables.map((variable) => (
+              <MenuItem key={variable.name} value={variable.name}>
+                {variable.name}
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {es.chatbots.variables.types[variable.type]}
+                </Typography>
+              </MenuItem>
+            ))}
+            {value.variable && !known && (
+              <MenuItem value={value.variable}>{t.variableMissing(value.variable)}</MenuItem>
+            )}
+          </TextField>
+          <Box>
+            <Button size="small" startIcon={<AddRounded />} onClick={onOpenVariables}>
+              {t.createVariable}
+            </Button>
+          </Box>
+        </Stack>
+      )}
+      <TextField
+        select
+        size="small"
+        label={t.validation}
+        value={value.validation}
+        onChange={(event) => onChange({ validation: event.target.value as Validation })}
+      >
+        {(Object.keys(t.validations) as (keyof typeof t.validations)[]).map((key) => (
+          <MenuItem key={key} value={key}>
+            {t.validations[key]}
+          </MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        select
+        size="small"
+        label={t.saveTo}
+        value={value.saveTo ?? 'none'}
+        onChange={(event) =>
+          onChange({ saveTo: event.target.value as NodeData['question']['saveTo'] })
+        }
+      >
+        {(Object.keys(t.saveToOptions) as (keyof typeof t.saveToOptions)[]).map((key) => (
+          <MenuItem key={key} value={key}>
+            {t.saveToOptions[key]}
+          </MenuItem>
+        ))}
+      </TextField>
+      <LimitedField
+        label={t.questionInvalid}
+        value={value.invalidText}
+        max={LIMITS.invalidText}
+        helperText={t.questionInvalidHelp}
+        variables
+        onValue={(invalidText) => onChange({ invalidText })}
+      />
+    </>
+  )
+}
+
+/** "Transferir conversación": to whom, what the customer is told and how long the bot stays off. */
+function TransferForm({
+  data: value,
+  members,
+  onChange,
+}: {
+  data: NodeData['transfer']
+  members: Member[]
+  onChange: (changes: Partial<NodeData['transfer']>) => void
+}) {
+  return (
+    <>
+      <FormControl>
+        <FormLabel>{t.transferTo}</FormLabel>
+        <RadioGroup
+          value={value.to}
+          onChange={(event) =>
+            onChange({
+              to: event.target.value as NodeData['transfer']['to'],
+              membershipId: event.target.value === 'member' ? value.membershipId : null,
+            })
+          }
+        >
+          {(Object.keys(t.transferOptions) as (keyof typeof t.transferOptions)[]).map((key) => (
+            <FormControlLabel
+              key={key}
+              value={key}
+              control={<Radio size="small" />}
+              label={t.transferOptions[key]}
+            />
+          ))}
+        </RadioGroup>
+      </FormControl>
+      {value.to === 'member' && (
+        <TextField
+          select
+          size="small"
+          label={t.agent}
+          value={value.membershipId ?? ''}
+          onChange={(event) => onChange({ membershipId: event.target.value || null })}
+        >
+          {members.map((member) => (
+            <MenuItem key={member.membershipId} value={member.membershipId}>
+              {member.name}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+      <LimitedField
+        label={t.transferMessage}
+        value={value.message ?? t.transferMessageDefault}
+        max={LIMITS.text}
+        multiline
+        minRows={2}
+        helperText={t.transferMessageHelp}
+        variables
+        onValue={(message) => onChange({ message })}
+      />
+      <FormControl>
+        <FormLabel>{t.pause}</FormLabel>
+        <RadioGroup
+          value={value.pause ?? '24h'}
+          onChange={(event) => onChange({ pause: event.target.value as BotPause })}
+        >
+          {(Object.keys(t.pauseOptions) as BotPause[]).map((key) => (
+            <FormControlLabel
+              key={key}
+              value={key}
+              control={<Radio size="small" />}
+              label={t.pauseOptions[key]}
+            />
+          ))}
+        </RadioGroup>
+      </FormControl>
+    </>
+  )
+}
+
 function MessageForm({
   workspaceId,
   chatbotId,
@@ -485,67 +639,41 @@ function MessageForm({
   data: NodeData['message']
   onChange: (changes: Partial<NodeData['message']>) => void
 }) {
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const attachments = data.attachments ?? []
   return (
     <>
       <LimitedField
-        label={t.text}
+        label={t.botReply}
         value={data.text}
         max={LIMITS.text}
         multiline
         minRows={4}
+        error={!data.text.trim() && attachments.length === 0}
         helperText={t.variables}
+        variables
         onValue={(text) => onChange({ text })}
       />
-      {error && <Alert severity="error">{error}</Alert>}
-      {data.media ? (
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Chip
-            icon={<AttachFileRounded />}
-            label={data.media.filename}
-            onDelete={() => onChange({ media: null })}
-            deleteIcon={<CloseRounded aria-label={t.removeFile} />}
-          />
-        </Stack>
-      ) : (
-        <Box>
-          <Button
-            component="label"
-            size="small"
-            variant="outlined"
-            startIcon={<AttachFileRounded />}
-            disabled={uploading}
-          >
-            {uploading ? t.uploading : t.attach}
-            <input
-              hidden
-              type="file"
-              accept="image/jpeg,image/png,video/mp4,video/3gpp,audio/aac,audio/mpeg,audio/mp4,audio/ogg,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ''
-                if (!file) return
-                setUploading(true)
-                setError(null)
-                chatbotsApi
-                  .uploadMedia(workspaceId, chatbotId, file)
-                  .then((media) => onChange({ media }))
-                  .catch((caught: unknown) => setError(errorMessage(caught)))
-                  .finally(() => setUploading(false))
-              }}
-            />
-          </Button>
-        </Box>
-      )}
+      <Section title={t.attach}>
+        <AttachmentsField
+          workspaceId={workspaceId}
+          chatbotId={chatbotId}
+          value={attachments}
+          help={t.attachHelp}
+          onChange={(next) => onChange({ attachments: next })}
+        />
+      </Section>
     </>
   )
 }
 
 function ListForm({
+  workspaceId,
+  chatbotId,
   data,
   onChange,
 }: {
+  workspaceId: string
+  chatbotId: string
   data: NodeData['list']
   onChange: (changes: Partial<NodeData['list']>) => void
 }) {
@@ -559,6 +687,15 @@ function ListForm({
   return (
     <>
       <InteractiveTexts data={data} onChange={onChange} />
+      <Section title={t.attach}>
+        <AttachmentsField
+          workspaceId={workspaceId}
+          chatbotId={chatbotId}
+          value={data.attachments ?? []}
+          help={t.attachBefore}
+          onChange={(attachments) => onChange({ attachments })}
+        />
+      </Section>
       <LimitedField
         label={t.listButton}
         value={data.button}
@@ -671,6 +808,9 @@ function ListForm({
   )
 }
 
+/** Operators that compare with a value. */
+const WITH_VALUE: Operator[] = ['equals', 'contains', 'starts_with', 'greater_than', 'less_than']
+
 function ConditionForm({
   data,
   onChange,
@@ -678,6 +818,7 @@ function ConditionForm({
   data: NodeData['condition']
   onChange: (changes: Partial<NodeData['condition']>) => void
 }) {
+  const { variables, contactVariables } = useFlowEditor()
   const setRule = (id: string, changes: Partial<NodeData['condition']['rules'][number]>) =>
     onChange({
       rules: data.rules.map((rule) => (rule.id === id ? { ...rule, ...changes } : rule)),
@@ -716,34 +857,49 @@ function ConditionForm({
           </TextField>
           {rule.source === 'variable' && (
             <TextField
+              select
               size="small"
-              label={t.variable}
+              label={t.variablePick}
               value={rule.variable}
-              onChange={(event) =>
-                setRule(rule.id, {
-                  variable: event.target.value.replace(/[^A-Za-z0-9_]/g, '').slice(0, 31),
-                })
-              }
-            />
+              error={!rule.variable}
+              onChange={(event) => setRule(rule.id, { variable: event.target.value })}
+            >
+              <ListSubheader>{es.chatbots.variables.mine}</ListSubheader>
+              {variables.map((variable) => (
+                <MenuItem key={variable.name} value={variable.name}>
+                  {variable.name}
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    {es.chatbots.variables.types[variable.type]}
+                  </Typography>
+                </MenuItem>
+              ))}
+              <ListSubheader>{es.chatbots.variables.contact}</ListSubheader>
+              {contactVariables.map((name) => (
+                <MenuItem key={name} value={name}>
+                  {es.chatbots.variables.contactLabels[name] ?? name}
+                </MenuItem>
+              ))}
+              {rule.variable &&
+                !variables.some((variable) => variable.name === rule.variable) &&
+                !contactVariables.includes(rule.variable) && (
+                  <MenuItem value={rule.variable}>{t.variableMissing(rule.variable)}</MenuItem>
+                )}
+            </TextField>
           )}
           <TextField
             select
             size="small"
             label={t.operator}
             value={rule.operator}
-            onChange={(event) =>
-              setRule(rule.id, {
-                operator: event.target.value as NodeData['condition']['rules'][number]['operator'],
-              })
-            }
+            onChange={(event) => setRule(rule.id, { operator: event.target.value as Operator })}
           >
-            {(Object.keys(t.operators) as (keyof typeof t.operators)[]).map((key) => (
+            {(Object.keys(t.operators) as Operator[]).map((key) => (
               <MenuItem key={key} value={key}>
                 {t.operators[key]}
               </MenuItem>
             ))}
           </TextField>
-          {['equals', 'contains', 'starts_with'].includes(rule.operator) && (
+          {WITH_VALUE.includes(rule.operator) && (
             <TextField
               size="small"
               label={t.value}

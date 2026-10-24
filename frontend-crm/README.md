@@ -222,11 +222,13 @@ src/
     - poner en espera;
     - marcar como no leído;
     - ver u ocultar detalles;
-    - desactivar o activar el bot en este chat;
+    - desactivar el bot en este chat por 24 horas o permanentemente, o activarlo;
     - bloquear contacto.
   - **Panel del contacto:** empieza oculto y se cierra con su ✕.
 - **Chatbot en el chat:**
-  - el chip «🤖 Bot activo» o «🤖 Bot pausado» en la cabecera;
+  - el chip «🤖 Bot activo» o «🤖 Bot off · 5 h 12 min» / «permanente» en la cabecera;
+  - en la lista, un robot naranja sobre el avatar cuando el bot está apagado, con cuánto falta en el tooltip ([`bot-pause.ts`](src/components/inbox/bot-pause.ts));
+  - la pestaña **Cerrado** cuenta solo los chats cerrados con mensajes sin leer (lo que envía el bot no marca como leído);
   - las burbujas del bot firmadas «🤖 nombre del bot»;
   - los menús con sus botones, lista (desplegable) o botón con enlace;
   - la opción que eligió el cliente marcada «Eligió una opción»;
@@ -266,14 +268,21 @@ Para probar sin WhatsApp real, activa el modo simulado y carga el seed del backe
   - **Una línea tiene un solo bot:** asignarla a otro pide confirmación.
 - **Editor de flujos** ([`ChatbotEditorPage.tsx`](src/pages/app/automation/ChatbotEditorPage.tsx), con [React Flow](https://reactflow.dev)):
   - **Lienzo:**
-    - tarjetas con un punto de salida por botón u opción;
+    - tarjetas con título, caja «Respuesta del bot», archivos adjuntos y un punto de salida por botón u opción (los botones y opciones como píldoras verdes) ([`FlowNodeCard.tsx`](src/components/chatbots/FlowNodeCard.tsx));
     - cada conexión tiene una ✕ para quitarla sin borrar las tarjetas ([`DeletableEdge.tsx`](src/components/chatbots/DeletableEdge.tsx));
     - Supr borra lo seleccionado; Ctrl+S guarda;
     - avisa al salir sin guardar.
   - **Panel derecho:**
     - «Opciones de respuesta» para agregar nodos;
-    - el formulario de cada nodo, con los límites de WhatsApp ([`NodeEditor.tsx`](src/components/chatbots/NodeEditor.tsx)). El nodo Transferir incluye el mensaje al cliente con `{{agente}}`;
+    - el formulario de cada nodo, con los límites de WhatsApp ([`NodeEditor.tsx`](src/components/chatbots/NodeEditor.tsx)):
+      - «Título» (solo lo ve quien arma el flujo) y la guía «Cómo funciona» del nodo;
+      - «Agregar variable» en los textos ([`VariableButton.tsx`](src/components/chatbots/VariableButton.tsx));
+      - «Adjuntar archivos», hasta 5 ([`AttachmentsField.tsx`](src/components/chatbots/AttachmentsField.tsx));
+      - «Respuesta si elige otra cosa» obligatoria en botones y listas;
+      - Guardar respuesta elige una variable del bot y puede guardar nombre o email en el contacto;
+      - Transferir: mensaje al cliente con `{{agente}}` y bot apagado 24 horas o permanentemente;
     - «Probar chatbot» ([`TestChat.tsx`](src/components/chatbots/TestChat.tsx)): un chat simulado que no envía nada por WhatsApp.
-  - **Ajustes:** horario de atención por días y zona horaria, y reinicio tras inactividad.
+  - **Variables** ([`VariablesDialog.tsx`](src/components/chatbots/VariablesDialog.tsx)): las del contacto (nombre, apellido, email, teléfono) y las del bot, de tipo texto, numérico o booleano, con valor por defecto y descripción.
+  - **Configuración** ([`BotSettingsDialog.tsx`](src/components/chatbots/BotSettingsDialog.tsx)): nombre, descripción, líneas, mensaje cuando no se encuentra respuesta, palabras para volver al saludo, duración de conversación activa (30 min, mínimo 2), mensaje de inactividad (hasta 29 min) y días y horas con zona horaria (America/La_Paz por defecto). Sin días elegidos, el bot queda apagado.
 
 Reglas, nodos y API: [Chatbots](../backend-crm/docs/chatbots.md).

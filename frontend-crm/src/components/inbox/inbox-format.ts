@@ -123,6 +123,13 @@ function tagChanges(tags: ConversationEvent['tags']): string {
   return parts.length > 0 ? parts.join(' y ') : 'cambió las etiquetas'
 }
 
+/** " por 24 horas" / " permanentemente", for the events that turn the bot off. */
+function pauseText(event: ConversationEvent, after = false): string {
+  if (!event.pause) return ''
+  const how = event.pause.until ? 'por 24 horas' : 'permanentemente'
+  return after ? ` (bot desactivado ${how})` : ` ${how}`
+}
+
 /** Centered notice of a movement: "Ana transfirió el chat de Luis a Beto". */
 export function eventText(event: ConversationEvent): string {
   // What a chatbot did is signed with its name and a robot.
@@ -159,13 +166,13 @@ export function eventText(event: ConversationEvent): string {
     case 'contact_unblocked':
       return `${by} desbloqueó el contacto`
     case 'bot_paused':
-      return `${by} desactivó el bot en este chat`
+      return `${by} desactivó el bot en este chat${pauseText(event)}`
     case 'bot_resumed':
       return `${by} activó el bot en este chat`
     case 'bot_transferred':
       return to
-        ? `${event.by ? by : '🤖 El bot'} delegó el chat a ${to}`
-        : `${event.by ? by : '🤖 El bot'} dejó el chat en la cola sin asignar`
+        ? `${event.by ? by : '🤖 El bot'} delegó el chat a ${to}${pauseText(event, true)}`
+        : `${event.by ? by : '🤖 El bot'} dejó el chat en la cola sin asignar${pauseText(event, true)}`
     case 'bot_tagged':
       return `${by} ${tagChanges(event.tags)}`
   }

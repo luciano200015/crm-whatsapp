@@ -6,7 +6,13 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AppProviders } from '../AppProviders'
 import { es } from '../i18n/es'
-import type { Chatbot, ChatbotSummary, FlowGraph } from '../lib/api/chatbots'
+import type {
+  BotVariable,
+  Chatbot,
+  ChatbotChanges,
+  ChatbotSummary,
+  FlowGraph,
+} from '../lib/api/chatbots'
 import { API_BASE_URL } from '../lib/api/client'
 import { tokenStore } from '../lib/api/token-store'
 import type { Me } from '../lib/api/types'
@@ -73,10 +79,11 @@ const me: Me = {
 /** Inicio → menu (Ventas / Soporte); Ventas → transfer. */
 const menuGraph = (): FlowGraph => ({
   nodes: [
-    { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
+    { id: 'start', type: 'start', title: '', position: { x: 0, y: 0 }, data: {} },
     {
       id: 'menu',
       type: 'buttons',
+      title: '',
       position: { x: 0, y: 150 },
       data: {
         header: '',
@@ -86,12 +93,14 @@ const menuGraph = (): FlowGraph => ({
           { id: 'sales', title: 'Ventas' },
           { id: 'help', title: 'Soporte' },
         ],
-        invalidText: '',
+        invalidText: 'Elige una opción',
+        attachments: [],
       },
     },
     {
       id: 'agent',
       type: 'transfer',
+      title: 'Pasar a Ana',
       position: { x: 0, y: 350 },
       data: { to: 'member', membershipId: 'm2' },
     },
@@ -105,6 +114,7 @@ const menuGraph = (): FlowGraph => ({
 const summary = (changes: Partial<ChatbotSummary> = {}): ChatbotSummary => ({
   id: 'b1',
   name: 'Bot de ventas',
+  description: '',
   enabled: false,
   lines: [{ id: 'l1', name: 'Ventas' }],
   errors: 0,
@@ -113,16 +123,22 @@ const summary = (changes: Partial<ChatbotSummary> = {}): ChatbotSummary => ({
   ...changes,
 })
 
-const chatbot = (graph = menuGraph()): Chatbot => ({
+const chatbot = (graph = menuGraph(), variables: BotVariable[] = []): Chatbot => ({
   ...summary(),
   graph,
   schedule: null,
-  restartAfterMinutes: 60,
+  restartAfterMinutes: 30,
+  fallbackText: 'Mensaje inválido. Por favor escoge una de las opciones.',
+  restartKeywords: ['menu'],
+  inactivityMinutes: null,
+  inactivityText: '',
+  variables,
+  contactVariables: ['nombre', 'apellido', 'nombre_completo', 'email', 'telefono'],
   issues: [],
 })
 
 let bots: ChatbotSummary[]
-let patched: { graph?: FlowGraph; enabled?: boolean; name?: string }[]
+let patched: ChatbotChanges[]
 let created: string[]
 let simulated: { text: string | null; replyId: string | null }[]
 
@@ -174,7 +190,8 @@ const server = setupServer(
     patched.push(body)
     const current = bots[0] ?? summary()
     return HttpResponse.json({
-      ...chatbot(body.graph),
+      ...chatbot(body.graph, body.variables),
+      ...body,
       enabled: body.enabled ?? current.enabled,
     })
   }),
@@ -189,6 +206,7 @@ const server = setupServer(
             to: 'member',
             membershipId: 'm2',
             message: 'Te comunicamos con {{agente}}. En breve te atenderá.',
+            pause: 'permanent',
           },
         ],
         session: null,
@@ -318,8 +336,126 @@ describe('Chatbots', () => {
     expect(
       await within(tester).findByText('Te comunicamos con Ana Agente. En breve te atenderá.'),
     ).toBeInTheDocument()
-    expect(within(tester).getByText(/Transferiría el chat a Ana Agente/)).toBeInTheDocument()
+    expect(
+      within(tester).getByText(
+        /Transferiría el chat a Ana Agente y el bot quedaría desactivado en ese chat de forma permanente/,
+      ),
+    ).toBeInTheDocument()
     expect(within(tester).getByText(es.chatbots.tester.ended)).toBeInTheDocument()
     expect(simulated.map((input) => input.replyId)).toEqual([null, 'menu:sales'])
+    // The test uses the bot's settings too.
+    expect(simulated[0]).toMatchObject({ restartKeywords: ['menu'], variables: [] })
+  })
+
+  it('names a card, explains it and asks for the answer when no option fits', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    // A titled card shows its title; the rest their kind.
+    expect(await screen.findByText('Pasar a Ana')).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', {
+        name: `${es.chatbots.editor.editNode}: ${es.chatbots.nodes.buttons.label}`,
+        hidden: true,
+      }),
+    )
+    const editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    expect(within(editor).getByText(es.chatbots.nodes.buttons.guide)).toBeInTheDocument()
+    await user.type(within(editor).getByLabelText(es.chatbots.node.title), 'Menú principal')
+
+    // "Respuesta si elige otra cosa" is required on buttons.
+    const invalid = within(editor).getByRole('textbox', { name: es.chatbots.node.invalidText })
+    await user.clear(invalid)
+    expect(within(editor).getByText(es.chatbots.node.invalidRequired)).toBeInTheDocument()
+    await user.type(invalid, 'Elige Ventas o Soporte')
+
+    // "Agregar variable" puts {{nombre}} in the bot's reply.
+    const reply = within(editor).getByRole('textbox', { name: es.chatbots.node.botReply })
+    await user.clear(reply)
+    await user.type(reply, 'Hola ')
+    const insert = within(editor).getAllByRole('button', { name: es.chatbots.variables.insert })
+    await user.click(insert[0]!)
+    await user.click(await screen.findByRole('menuitem', { name: /^Nombre\s*\{\{nombre\}\}/ }))
+    expect(reply).toHaveValue('Hola {{nombre}}')
+
+    await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
+    await waitFor(() => expect(patched).toHaveLength(1))
+    const menu = patched[0]!.graph!.nodes.find((node) => node.id === 'menu')!
+    expect(menu).toMatchObject({
+      title: 'Menú principal',
+      data: { body: 'Hola {{nombre}}', invalidText: 'Elige Ventas o Soporte' },
+    })
+    expect(menu.data).not.toHaveProperty('title')
+  })
+
+  it('creates a numeric variable in «Variables»', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: es.chatbots.editor.variables }))
+    const dialog = await screen.findByRole('dialog', { name: es.chatbots.variables.title })
+    expect(within(dialog).getByText(es.chatbots.variables.empty)).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: es.chatbots.variables.add }))
+    await user.type(within(dialog).getByLabelText(es.chatbots.variables.name), 'cuotas pagadas')
+    await user.click(within(dialog).getByLabelText(es.chatbots.variables.type))
+    await user.click(
+      await screen.findByRole('option', { name: es.chatbots.variables.types.number }),
+    )
+    await user.type(within(dialog).getByLabelText(es.chatbots.variables.defaultValue), '3')
+    await user.click(within(dialog).getByRole('button', { name: es.chatbots.variables.save }))
+
+    await waitFor(() =>
+      expect(patched).toEqual([
+        {
+          variables: [
+            { name: 'cuotas_pagadas', type: 'number', defaultValue: '3', description: '' },
+          ],
+        },
+      ]),
+    )
+    expect(await within(dialog).findByText('{{cuotas_pagadas}}')).toBeInTheDocument()
+  })
+
+  it('saves the general settings and warns when no hours are chosen', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: es.chatbots.editor.settings }))
+    const dialog = await screen.findByRole('dialog', { name: es.chatbots.settings.title })
+    const t = es.chatbots.settings
+
+    await user.type(within(dialog).getByLabelText(t.description), 'Atiende ventas')
+    const keywords = within(dialog).getByLabelText(t.keywords)
+    await user.type(keywords, 'inicio{Enter}')
+    const restart = within(dialog).getByLabelText(t.restart)
+    await user.clear(restart)
+    await user.type(restart, '1')
+    expect(within(dialog).getByRole('button', { name: t.save })).toBeDisabled()
+    await user.clear(restart)
+    await user.type(restart, '45')
+
+    await user.click(within(dialog).getByLabelText(t.inactivity))
+    const wait = within(dialog).getByLabelText(t.inactivityMinutes)
+    await user.clear(wait)
+    await user.type(wait, '30')
+    expect(within(dialog).getByRole('button', { name: t.save })).toBeDisabled()
+    await user.clear(wait)
+    await user.type(wait, '10')
+
+    await user.click(within(dialog).getByLabelText(t.custom))
+    for (const day of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'])
+      await user.click(within(dialog).getByLabelText(day))
+    expect(within(dialog).getByText(t.noRanges)).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: t.save }))
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({
+      name: 'Bot de ventas',
+      description: 'Atiende ventas',
+      restartKeywords: ['menu', 'inicio'],
+      restartAfterMinutes: 45,
+      inactivityMinutes: 10,
+      inactivityText: t.inactivityTextDefault,
+      schedule: { timezone: 'America/La_Paz', days: [] },
+    })
+    expect(patched[0]).not.toHaveProperty('graph')
   })
 })

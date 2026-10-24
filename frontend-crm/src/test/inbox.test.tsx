@@ -66,11 +66,14 @@ const server = setupServer(
     HttpResponse.json({
       mine: 1,
       mineOnHold: 0,
-      mineClosed: 0,
+      mineClosed: 4,
+      mineClosedUnread: 0,
       unassigned: 0,
       all: 3,
       onHold: 2,
-      closed: 0,
+      // Cerrado counts only the closed chats with unread messages.
+      closed: 7,
+      closedUnread: 1,
       unread: chat.unreadCount,
     }),
   ),
@@ -386,6 +389,10 @@ describe('Inbox', () => {
     expect(listUrls.at(-1)?.searchParams.get('view')).toBe('all')
     // The open tab counts the chats of the current view.
     expect(within(screen.getByRole('tab', { name: 'Abierto' })).getByText('3')).toBeInTheDocument()
+    // Cerrado: only the closed chats nobody has read yet, not all 7.
+    const closedTab = screen.getByRole('tab', { name: /Cerrado/ })
+    expect(within(closedTab).getByText('1')).toBeInTheDocument()
+    expect(within(closedTab).queryByText('7')).not.toBeInTheDocument()
 
     const team = screen.getByRole('button', {
       name: 'Mostrar mis conversaciones abiertas y las de mis agentes',
@@ -1000,6 +1007,19 @@ describe('Inbox', () => {
     // Newest first, as the API returns them.
     history = [
       message({
+        id: 'm7',
+        direction: 'EVENT',
+        sentBy: null,
+        event: {
+          kind: 'bot_paused',
+          by: { userId: 'u9', name: 'Beto' },
+          from: null,
+          to: null,
+          pause: { until: null },
+        },
+        createdAt: at(0.5),
+      }),
+      message({
         id: 'm6',
         text: 'Te comunicamos con Ana Agente. En breve te atenderá.',
         createdAt: at(1),
@@ -1013,6 +1033,7 @@ describe('Inbox', () => {
           by: bot,
           from: null,
           to: { membershipId: 'm2', name: 'Ana Agente' },
+          pause: { until: at(-60 * 24) },
         },
         createdAt: at(2),
       }),
@@ -1078,14 +1099,20 @@ describe('Inbox', () => {
     ]
     const botActions: string[] = []
     server.use(
-      http.post(api(`${base}/c1/bot/:action`), ({ params }) => {
-        botActions.push(String(params.action))
+      http.post(api(`${base}/c1/bot/:action`), async ({ params, request }) => {
+        const pause = params.action === 'pause'
+        const duration = pause
+          ? ((await request.json()) as { duration: '24h' | 'permanent' }).duration
+          : null
+        botActions.push(duration ? `pause:${duration}` : String(params.action))
         chat = {
           ...chat,
           bot: {
-            state: params.action === 'pause' ? 'paused' : 'active',
+            state: pause ? 'paused' : 'active',
             name: 'Bot de ventas',
-            pausedBy: params.action === 'pause' ? { userId: 'u1', name: 'Uma' } : null,
+            pausedBy: pause ? { userId: 'u1', name: 'Uma' } : null,
+            pausedUntil:
+              duration === '24h' ? new Date(Date.now() + 24 * 3_600_000).toISOString() : null,
           },
         }
         return HttpResponse.json(chat)
@@ -1110,21 +1137,52 @@ describe('Inbox', () => {
     expect(within(log).getByText('Eligió una opción')).toBeInTheDocument()
     expect(within(log).getByText(/🤖 Bot de ventas agregó la etiqueta VENTAS/)).toBeInTheDocument()
     expect(
-      within(log).getByText(/🤖 Bot de ventas delegó el chat a Ana Agente/),
+      within(log).getByText(
+        /🤖 Bot de ventas delegó el chat a Ana Agente \(bot desactivado por 24 horas\)/,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(log).getByText(/Beto desactivó el bot en este chat permanentemente/),
     ).toBeInTheDocument()
     expect(
       within(log).getByText('Te comunicamos con Ana Agente. En breve te atenderá.'),
     ).toBeInTheDocument()
 
     expect(screen.getByText('🤖 Bot activo')).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'Lista de chats' })
+    expect(within(list).queryByRole('img', { name: /Bot desactivado/ })).not.toBeInTheDocument()
+
+    // Off for a day: the chip and the orange robot on the avatar say how long.
     await user.click(screen.getByRole('button', { name: 'Más opciones' }))
-    await user.click(await screen.findByRole('menuitem', { name: 'Desactivar bot en este chat' }))
-    await waitFor(() => expect(botActions).toEqual(['pause']))
-    expect(await screen.findByText('🤖 Bot pausado')).toBeInTheDocument()
+    await user.click(await screen.findByRole('menuitem', { name: 'Desactivar bot por 24 horas' }))
+    await waitFor(() => expect(botActions).toEqual(['pause:24h']))
+    expect(await screen.findByText(/🤖 Bot off · 2[34] h/)).toBeInTheDocument()
+    expect(
+      await within(list).findByRole('img', {
+        name: /^Bot desactivado por 24 horas por Uma · vuelve en 2[34] h/,
+      }),
+    ).toBeInTheDocument()
+
+    // From a day to for good.
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Desactivar bot permanentemente' }),
+    )
+    await waitFor(() => expect(botActions).toEqual(['pause:24h', 'pause:permanent']))
+    expect(await screen.findByText('🤖 Bot off permanente')).toBeInTheDocument()
+    expect(
+      await within(list).findByRole('img', { name: 'Bot desactivado permanentemente por Uma' }),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Más opciones' }))
-    await user.click(await screen.findByRole('menuitem', { name: 'Activar bot en este chat' }))
-    await waitFor(() => expect(botActions).toEqual(['pause', 'resume']))
+    expect(
+      screen.queryByRole('menuitem', { name: 'Desactivar bot permanentemente' }),
+    ).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('menuitem', { name: 'Activar bot' }))
+    await waitFor(() => expect(botActions).toEqual(['pause:24h', 'pause:permanent', 'resume']))
     expect(await screen.findByText('🤖 Bot activo')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(within(list).queryByRole('img', { name: /Bot desactivado/ })).not.toBeInTheDocument(),
+    )
   })
 })

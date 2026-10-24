@@ -20,6 +20,8 @@ import { es } from '../../i18n/es'
 import {
   chatbotsApi,
   type BotAction,
+  type BotVariable,
+  type ChatbotSettings,
   type FlowGraph,
   type InteractiveContent,
   type SimulationSession,
@@ -48,9 +50,11 @@ function describe(action: BotAction, tags: Map<string, TagSummary>, members: Mem
         : action.to === 'auto'
           ? 'a los agentes de la línea, por turnos'
           : 'a la cola sin asignar'
-    return tt.transfer(to)
+    return tt.transfer(to, action.pause === 'permanent' ? 'de forma permanente' : 'por 24 horas')
   }
   if (action.kind === 'status') return tt.status(es.chatbots.node.statuses[action.status])
+  if (action.kind === 'contact')
+    return tt.contact(action.field === 'name' ? 'el nombre' : 'el email', action.value)
   return ''
 }
 
@@ -144,12 +148,17 @@ function InteractiveBubble({
 export function TestChat({
   workspaceId,
   graph,
+  settings,
+  variables,
   tags,
   members,
   onClose,
 }: {
   workspaceId: string
   graph: () => FlowGraph
+  /** As in "Configuración" (saved): what to say when nothing fits, words for the menu. */
+  settings: Pick<ChatbotSettings, 'fallbackText' | 'restartKeywords'>
+  variables: BotVariable[]
   tags: TagSummary[]
   members: Member[]
   onClose: () => void
@@ -181,7 +190,12 @@ export function TestChat({
         text: message,
         replyId,
         contactName: 'Cliente de prueba',
+        fallbackText: settings.fallbackText,
+        restartKeywords: settings.restartKeywords,
+        variables,
       })
+      // The flow reached a card with nothing after it: the chat stays open.
+      const finished = result.session?.nodeId === null && session?.nodeId !== null
       setSession(result.session)
       setEntries((current) => [
         ...current,
@@ -210,7 +224,11 @@ export function TestChat({
                   : []),
               ],
         ),
-        ...(result.session ? [] : [{ id: next(), from: 'system' as const, text: tt.ended }]),
+        ...(result.session
+          ? finished
+            ? [{ id: next(), from: 'system' as const, text: tt.finished }]
+            : []
+          : [{ id: next(), from: 'system' as const, text: tt.ended }]),
       ])
     } catch (caught: unknown) {
       setError(errorMessage(caught))

@@ -23,6 +23,7 @@ import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
 import { contactKeys, contactsApi } from '../../lib/api/contacts'
 import { inboxApi, inboxKeys } from '../../lib/api/inbox'
 import { BlockContactDialog, type BlockTarget } from '../contacts/BlockContactDialog'
+import { botChoices, BOT_CHOICES } from './bot-pause'
 import { ChatHeader, type ChatAction } from './ChatHeader'
 import { ChatTagChips, ChatTagPopover } from './ChatTags'
 import { useCanTagChat } from './useCanTagChat'
@@ -108,12 +109,17 @@ export function ConversationPanel({
     onError: fail,
   })
   const bot = useMutation({
-    mutationFn: (chosen: 'pause' | 'resume') => inboxApi.bot(workspaceId, id, chosen),
+    mutationFn: (chosen: '24h' | 'permanent' | 'resume') =>
+      chosen === 'resume'
+        ? inboxApi.bot(workspaceId, id, 'resume')
+        : inboxApi.bot(workspaceId, id, 'pause', chosen),
     onSuccess: (_, chosen) => {
       enqueueSnackbar(
-        chosen === 'pause'
-          ? 'Bot desactivado en este chat'
-          : 'Bot activado: responderá al próximo mensaje del cliente',
+        chosen === 'resume'
+          ? 'Bot activado: responderá al próximo mensaje del cliente'
+          : chosen === '24h'
+            ? 'Bot desactivado en este chat por 24 horas'
+            : 'Bot desactivado en este chat permanentemente',
         { variant: 'success' },
       )
       void refresh()
@@ -257,25 +263,23 @@ export function ConversationPanel({
           onToggleDetails={() => onDetailsChange(!detailsOpen)}
           blocked={contact.data?.blocked ?? false}
           extraMenuItems={(close) => [
-            has('messages.send') && conversation.bot && conversation.bot.state !== 'none' && (
-              <MenuItem
-                key="bot"
-                disabled={bot.isPending}
-                onClick={() => {
-                  close()
-                  bot.mutate(conversation.bot?.state === 'active' ? 'pause' : 'resume')
-                }}
-              >
-                <ListItemIcon>
-                  <SmartToyOutlined />
-                </ListItemIcon>
-                <ListItemText>
-                  {conversation.bot.state === 'active'
-                    ? 'Desactivar bot en este chat'
-                    : 'Activar bot en este chat'}
-                </ListItemText>
-              </MenuItem>
-            ),
+            ...(has('messages.send') && conversation.bot && conversation.bot.state !== 'none'
+              ? botChoices(conversation.bot).map((choice) => (
+                  <MenuItem
+                    key={`bot-${choice}`}
+                    disabled={bot.isPending}
+                    onClick={() => {
+                      close()
+                      bot.mutate(choice)
+                    }}
+                  >
+                    <ListItemIcon>
+                      <SmartToyOutlined color={choice === 'resume' ? 'primary' : 'warning'} />
+                    </ListItemIcon>
+                    <ListItemText>{BOT_CHOICES[choice]}</ListItemText>
+                  </MenuItem>
+                ))
+              : []),
             has('contacts.write') && contact.data && (
               <MenuItem
                 key="block"

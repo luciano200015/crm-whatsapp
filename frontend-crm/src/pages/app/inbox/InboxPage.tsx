@@ -127,11 +127,11 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
   }
   const counts = useInboxCounts()
   const tabCounts = teamView
-    ? { OPEN: counts.data?.all, ON_HOLD: counts.data?.onHold, CLOSED: counts.data?.closed }
+    ? { OPEN: counts.data?.all, ON_HOLD: counts.data?.onHold, CLOSED: counts.data?.closedUnread }
     : {
         OPEN: counts.data?.mine,
         ON_HOLD: counts.data?.mineOnHold,
-        CLOSED: counts.data?.mineClosed,
+        CLOSED: counts.data?.mineClosedUnread,
       }
   const options = useQuery({
     queryKey: inboxKeys.options(workspaceId),

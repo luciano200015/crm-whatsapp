@@ -44,6 +44,8 @@ export interface Conversation {
     state: 'none' | 'active' | 'paused'
     name: string | null
     pausedBy: { userId: string; name: string } | null
+    /** When it turns on again by itself (24 h); null while paused: until someone turns it on. */
+    pausedUntil?: string | null
   }
 }
 
@@ -72,6 +74,8 @@ export interface ConversationEvent {
   to: { membershipId: string; name: string } | null
   /** bot_tagged: names of the tags added and removed. */
   tags?: { added: string[]; removed: string[] } | null
+  /** bot_paused, bot_transferred: until when the bot is off (null: until someone turns it on). */
+  pause?: { until: string | null } | null
 }
 
 export interface SharedContact {
@@ -169,10 +173,14 @@ export interface InboxCounts {
   mine: number
   mineOnHold?: number
   mineClosed?: number
+  /** My closed chats with unread messages (what the Cerrado tab counts). */
+  mineClosedUnread?: number
   unassigned: number
   all: number
   onHold: number
   closed: number
+  /** Closed chats with unread messages, e.g. closed by the chatbot. */
+  closedUnread?: number
   unread: number
 }
 
@@ -301,10 +309,16 @@ export const inboxApi = {
       ...(action === 'assign' ? { body: { membershipId } } : {}),
     })
   },
-  /** Turns the line's chatbot off (or back on) in this chat. */
-  bot(workspaceId: string, id: string, action: 'pause' | 'resume') {
+  /** Turns the line's chatbot off (for 24 h or for good) or back on in this chat. */
+  bot(
+    workspaceId: string,
+    id: string,
+    action: 'pause' | 'resume',
+    duration: '24h' | 'permanent' = '24h',
+  ) {
     return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/bot/${action}`, {
       method: 'POST',
+      ...(action === 'pause' ? { body: { duration } } : {}),
     })
   },
 }

@@ -3,11 +3,13 @@ import DoneRounded from '@mui/icons-material/DoneRounded'
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded'
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded'
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded'
+import SmartToyRounded from '@mui/icons-material/SmartToyRounded'
 import WhatsApp from '@mui/icons-material/WhatsApp'
 import { Avatar, Badge, Box, Chip, ListItemButton, Stack, Tooltip, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import type { Conversation } from '../../lib/api/inbox'
 import type { TagSummary } from '../../lib/api/types'
+import { botPaused, botPauseText } from './bot-pause'
 import { useChatColors, type ChatColors } from './chat-colors'
 import {
   avatarColor,
@@ -93,6 +95,35 @@ function LineBadge({ lineName, color }: { lineName: string | null; color?: strin
   )
 }
 
+/** Orange robot on the avatar: the bot is off in this chat (and for how long). */
+function BotOffBadge({ text }: { text: string }) {
+  return (
+    <Tooltip title={text} placement="right">
+      <Box
+        role="img"
+        aria-label={text}
+        sx={{
+          position: 'absolute',
+          top: -4,
+          left: -4,
+          width: 20,
+          height: 20,
+          borderRadius: '50%',
+          bgcolor: '#f97316',
+          color: '#fff',
+          display: 'grid',
+          placeItems: 'center',
+          border: 2,
+          borderColor: 'background.paper',
+          zIndex: 1,
+        }}
+      >
+        <SmartToyRounded sx={{ fontSize: 12 }} />
+      </Box>
+    </Tooltip>
+  )
+}
+
 /**
  * One row of the chat list, as in wasapi: avatar with the line, name, time,
  * preview with ✓✓, unread badge, the contact's tags and who attends it.
@@ -145,15 +176,20 @@ export function ConversationListItem({
         }),
       }}
     >
-      <Tooltip title={conversation.lineName ?? 'Línea eliminada'} placement="right">
-        <Badge
-          overlap="circular"
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-          badgeContent={<LineBadge lineName={conversation.lineName} color={lineColor} />}
-        >
-          <ContactAvatar contact={conversation.contact} ring={lineColor} />
-        </Badge>
-      </Tooltip>
+      <Box sx={{ position: 'relative', flexShrink: 0 }}>
+        <Tooltip title={conversation.lineName ?? 'Línea eliminada'} placement="right">
+          <Badge
+            overlap="circular"
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            badgeContent={<LineBadge lineName={conversation.lineName} color={lineColor} />}
+          >
+            <ContactAvatar contact={conversation.contact} ring={lineColor} />
+          </Badge>
+        </Tooltip>
+        {conversation.bot && botPaused(conversation.bot) && (
+          <BotOffBadge text={botPauseText(conversation.bot)} />
+        )}
+      </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
           <Typography noWrap sx={{ flex: 1, fontWeight: unread ? 700 : 500 }}>
