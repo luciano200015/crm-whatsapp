@@ -662,6 +662,64 @@ describe('Chatbots (e2e)', () => {
     ]);
   });
 
+  it('answers a menu written as text, and opens a card by its words from anywhere', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    await botOn(owner, line, {
+      nodes: [
+        { id: 'start', type: 'start', position: at, data: {} },
+        {
+          id: 'hello',
+          type: 'message',
+          position: at,
+          data: {
+            text: 'Escribe 1 para precios o 2 para horarios',
+            wait: true,
+          },
+        },
+        {
+          id: 'prices',
+          type: 'message',
+          trigger: '1, precios',
+          position: at,
+          data: { text: 'Desde 10 USD' },
+        },
+        {
+          id: 'hours',
+          type: 'message',
+          trigger: '2',
+          position: at,
+          data: { text: 'De 8 a 18' },
+        },
+        {
+          id: 'promo',
+          type: 'message',
+          trigger: 'promo',
+          position: at,
+          data: { text: '2x1 este mes' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', sourceHandle: 'next', target: 'hello' },
+        { id: 'e2', source: 'hello', sourceHandle: 'next', target: 'prices' },
+        { id: 'e3', source: 'hello', sourceHandle: 'next', target: 'hours' },
+      ],
+    });
+    await incoming(line, 'hola');
+    const chat = await chatOf(owner, line);
+    const outTexts = async () =>
+      (await messagesOf(owner, chat.id))
+        .filter((m) => m.direction === 'OUT')
+        .map((m) => m.text);
+    await incoming(line, '1.');
+    await incoming(line, 'PROMO');
+    expect(await outTexts()).toEqual([
+      'Escribe 1 para precios o 2 para horarios',
+      'Desde 10 USD',
+      '2x1 este mes',
+    ]);
+  });
+
   it('saves the general settings and the variables of the bot', async () => {
     const owner = await signUp();
     const bot = (

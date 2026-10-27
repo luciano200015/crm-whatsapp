@@ -64,6 +64,7 @@ import {
   NODE_COLORS,
   newId,
   outputsOf,
+  waitsForAnswer,
   PALETTE,
   toGraph,
   type EditorEdge,
@@ -205,14 +206,19 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
   const onConnect = useCallback(
     (connection: Connection) => {
       const handle = connection.sourceHandle ?? 'next'
+      const source = latest.current.nodes.find((node) => node.id === connection.source)
       // Each way out goes to one node: a new connection replaces the old one.
+      // A message that waits opens several cards, one per answer.
+      const many = waitsForAnswer(source?.type, source?.data ?? {})
       setEdges((current) =>
         addEdge(
           { ...connection, ...EDGE_DEFAULTS, sourceHandle: handle, id: newId('e') },
-          current.filter(
-            (edge) =>
-              !(edge.source === connection.source && (edge.sourceHandle ?? 'next') === handle),
-          ),
+          many
+            ? current
+            : current.filter(
+                (edge) =>
+                  !(edge.source === connection.source && (edge.sourceHandle ?? 'next') === handle),
+              ),
         ),
       )
       setDirty(true)
@@ -253,10 +259,19 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
     const node = latest.current.nodes.find((item) => item.id === id)
     if (!node) return
     const handles = new Set(outputsOf(node.type as NodeKind, data).map((output) => output.id))
+    const many = waitsForAnswer(node.type, data)
     setNodes((current) => current.map((item) => (item.id === id ? { ...item, data } : item)))
-    // Options that disappeared take their connections with them.
+    // Options that disappeared take their connections with them; a message
+    // that stops waiting keeps only its first connection.
+    const used = new Set<string>()
     setEdges((current) =>
-      current.filter((edge) => edge.source !== id || handles.has(edge.sourceHandle ?? 'next')),
+      current.filter((edge) => {
+        if (edge.source !== id) return true
+        const handle = edge.sourceHandle ?? 'next'
+        if (!handles.has(handle) || (!many && used.has(handle))) return false
+        used.add(handle)
+        return true
+      }),
     )
     requestAnimationFrame(() => updateNodeInternals(id))
     setDirty(true)
@@ -515,6 +530,14 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
                 workspaceId={workspaceId}
                 chatbotId={chatbot.id}
                 node={editingNode}
+                triggerLocked={edges.some(
+                  (edge) =>
+                    edge.target === editingNode.id &&
+                    !waitsForAnswer(
+                      nodes.find((item) => item.id === edge.source)?.type,
+                      nodes.find((item) => item.id === edge.source)?.data ?? {},
+                    ),
+                )}
                 tags={tags.data ?? []}
                 members={memberList}
                 onChange={(data) => updateData(editingNode.id, data)}

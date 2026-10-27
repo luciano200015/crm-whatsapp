@@ -38,10 +38,10 @@ Cada nodo tiene un `title` (≤ 60) que solo ve quien arma el flujo, y el editor
 | Nodo | Qué hace | Salidas |
 | --- | --- | --- |
 | `start` | Uno por flujo | `next` |
-| `message` | Texto y hasta 5 archivos (`attachments`). Un archivo lleva el texto como pie; varios van después del texto | `next` |
+| `message` | Texto y hasta 5 archivos (`attachments`). Un archivo lleva el texto como pie; varios van después del texto. `wait: true` desmarca «Enviar mensaje y saltar al siguiente nodo»: espera la respuesta (ver «Respuesta del usuario») | `next` (con `wait`, varias conexiones) |
 | `buttons` | Hasta 3 botones de respuesta rápida (título ≤ 20, cuerpo ≤ 1024, encabezado y pie ≤ 60). `attachments` se envían antes. `invalidText` obligatorio | Una por botón |
 | `list` | Lista desplegable: botón ≤ 20, hasta 10 filas (título ≤ 24, descripción ≤ 72). `attachments` antes; `invalidText` obligatorio. El título de sección solo se ve en WhatsApp con dos o más secciones (y entonces es obligatorio) | Una por fila |
-| `url` | Botón con enlace (`cta_url`) | `next` |
+| `url` | Botón con enlace (`cta_url`). Admite `wait` como `message` | `next` (con `wait`, varias conexiones) |
 | `question` | Guarda la respuesta en una variable del bot; valida por `validation` y por el tipo de la variable. `saveTo: name \| email` la guarda también en el contacto | `next` y `other` (respuesta no válida, opcional) |
 | `condition` | Reglas sobre el último mensaje o una variable (del bot o del contacto): igual, contiene, empieza con, es número, está vacío, mayor que, menor que, es sí, es no | Una por regla y `else` |
 | `hours` | **No envía nada**: según la hora en su zona, sigue por «Dentro» o «Fuera del horario». Hay que conectar una respuesta en cada salida | `in` y `out` |
@@ -59,8 +59,14 @@ El editor inserta cualquiera con «Agregar variable». Una variable desconocida 
 
 **Mensaje al transferir:** el predeterminado es «Te comunicamos con {{agente}}. En breve te atenderá.». Vacío: no se envía nada.
 
+**«Respuesta del usuario»** (`trigger` en cada nodo, salvo el inicio): palabras separadas por comas que abren la tarjeta. Al comparar no importan mayúsculas, tildes ni un punto o paréntesis final («1.» = «1»).
+- **Menú de texto:** un `message` o `url` con `wait: true` espera la respuesta y sigue por la tarjeta conectada cuyo `trigger` coincide. Puede conectar varias tarjetas desde `next`. Cada una necesita su `trigger`, sin repetirse; si no conecta ninguna, es un error.
+- **Desde cualquier punto:** una tarjeta a la que no llega ninguna conexión y tiene `trigger` se abre cuando el cliente lo escribe, incluso como primer mensaje (en lugar del saludo), después del final del flujo o mientras otro nodo espera y la respuesta no le sirve a ese nodo. Estas tarjetas no cuentan como inalcanzables. Dos de ellas no pueden compartir palabras.
+- **Sin efecto en tarjetas a las que llegan botones, listas o nodos que siguen solos:** ahí lo que activa la tarjeta es el botón o la conexión. El editor deshabilita el campo y el `trigger` se descarta al guardar.
+
 **Respuestas que no coinciden** (sin bucles de errores ni silencio):
 - **En botones o lista**, una respuesta fuera de las opciones recibe «Respuesta si elige otra cosa» del nodo como mensaje con botones: «Ver menú» (`<nodo>:@menu`, vuelve a mostrar las opciones) y «Volver al inicio» (`start:@start`). El segundo no aparece en el primer menú del flujo, donde mostraría lo mismo. No se repite el menú completo y el bot nunca deja de responder.
+- **En un mensaje que espera**, una respuesta sin tarjeta recibe `fallbackText` con los mismos botones; «Ver menú» reenvía el mensaje.
 - **En una pregunta**, una respuesta no válida sigue la salida `other` si está conectada; si no, envía su texto con «Volver al inicio» y espera otra respuesta. Si la pregunta es lo primero del flujo, envía el texto y la pregunta otra vez.
 - **Ya no existe la salida «Otra respuesta» de botones y listas.** Las conexiones antiguas desde `other` se descartan al leer el flujo, en el backend y en el editor.
 - **Las opciones de mensajes anteriores siguen funcionando:** el `id` de cada opción (`<nodo>:<opción>`) es único en el flujo, así que pulsar un menú viejo (o uno después de que el flujo terminó) sigue esa opción.

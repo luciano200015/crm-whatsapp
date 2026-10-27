@@ -24,7 +24,8 @@ const node = (
   id: string,
   type: string,
   data: Record<string, unknown> = {},
-) => ({ id, type, title: '', position: { x: 0, y: 0 }, data });
+  trigger = '',
+) => ({ id, type, title: '', trigger, position: { x: 0, y: 0 }, data });
 let edgeCount = 0;
 const link = (source: string, target: string, sourceHandle = 'next') => ({
   id: `e${++edgeCount}`,
@@ -295,8 +296,59 @@ const nestedVariables: BotVariable[] = [
   { name: 'problema', type: 'text', defaultValue: '', description: '' },
 ];
 
+/**
+ * Menú de texto: the greeting waits and the cards answer "1", "2", "3"
+ * ("Respuesta del usuario"); "precios" opens its card from anywhere.
+ */
+const textMenu = () =>
+  parseFlow({
+    nodes: [
+      node('start', 'start'),
+      node('hello', 'message', {
+        text: 'Hola {{nombre}}. Escribe:\n1. Ventas\n2. Soporte\n3. Pagar',
+        wait: true,
+      }),
+      node('sales', 'message', { text: 'Te paso con ventas.' }, '1, ventas'),
+      node('seller', 'transfer', { to: 'auto', message: '' }),
+      node(
+        'help',
+        'message',
+        { text: 'Escribe "menu" para volver.' },
+        '2, soporte',
+      ),
+      node(
+        'pay',
+        'url',
+        {
+          body: 'Paga en línea',
+          text: 'Pagar',
+          url: 'https://pagos.example.com',
+        },
+        '3, pagar',
+      ),
+      // "Enviar mensaje y saltar al siguiente nodo": no waiting after the link.
+      node('paid', 'message', { text: 'Avísanos cuando pagues 🙌' }),
+      node(
+        'prices',
+        'message',
+        { text: 'Planes desde 10 USD.' },
+        'precios, precio',
+      ),
+    ],
+    edges: [
+      link('start', 'hello'),
+      link('hello', 'sales'),
+      link('hello', 'help'),
+      link('hello', 'pay'),
+      link('sales', 'seller'),
+      link('pay', 'paid'),
+    ],
+  });
+const TEXT_MENU = 'Hola Lucía. Escribe:\n1. Ventas\n2. Soporte\n3. Pagar';
+
 describe('chatbot conversations', () => {
   it('builds flows the editor accepts', () => {
+    expect(errorsOf(textMenu())).toEqual([]);
     expect(errorsOf(shop())).toEqual([]);
     expect(errorsOf(signUp(), signUpVariables)).toEqual([]);
     expect(errorsOf(nested(), nestedVariables)).toEqual([]);
@@ -455,5 +507,71 @@ describe('chatbot conversations', () => {
       vars: { problema: 'Mi pedido no llegó' },
       attempts: 0,
     });
+  });
+
+  it('Menú de texto: the words of each card choose it, and nothing hangs', () => {
+    const chat = conversation(textMenu());
+    expect(chat.send('hola')).toEqual([TEXT_MENU]);
+    expect(chat.session?.nodeId).toBe('hello');
+    // Not one of the answers: the general message and the menu again on tap.
+    expect(chat.send('5')).toEqual([
+      'Mensaje inválido. Por favor escoge una de las opciones. [Ver menú]',
+    ]);
+    expect(chat.tap('Ver menú')).toEqual([TEXT_MENU]);
+    // "3." and "Pagar" both work; the link moves on by itself.
+    expect(chat.send('3.')).toEqual([
+      'Paga en línea {Pagar → https://pagos.example.com}',
+      'Avísanos cuando pagues 🙌',
+    ]);
+    expect(chat.session?.nodeId).toBeNull();
+    // Its words open a card nothing connects to, even after the end.
+    expect(chat.send('Precio')).toEqual(['Planes desde 10 USD.']);
+
+    const sales = conversation(textMenu());
+    sales.send('hola');
+    expect(sales.send(' Ventas ')).toEqual([
+      'Te paso con ventas.',
+      '[transferir: auto]',
+    ]);
+  });
+
+  it('Menú de texto: a keyword skips the greeting, or leaves a waiting menu', () => {
+    const chat = conversation(textMenu());
+    expect(chat.send('precios')).toEqual(['Planes desde 10 USD.']);
+    chat.send('menu');
+    expect(chat.session?.nodeId).toBe('hello');
+    expect(chat.send('precios')).toEqual(['Planes desde 10 USD.']);
+  });
+
+  it('asks for the words of the cards a waiting message opens', () => {
+    const issues = (flow: Flow) => errorsOf(flow).map((issue) => issue.message);
+    const alone = textMenu();
+    alone.edges = alone.edges.filter((edge) => edge.source !== 'hello');
+    expect(issues(alone)).toContain(
+      'Conecta las tarjetas que responden o marca «Enviar mensaje y saltar al siguiente nodo»',
+    );
+    const silent = textMenu();
+    silent.nodes = silent.nodes.map((item) =>
+      item.id === 'help' ? { ...item, trigger: '' } : item,
+    );
+    expect(issues(silent)).toEqual([
+      'Cada tarjeta conectada necesita su «Respuesta del usuario»',
+    ]);
+    const twice = textMenu();
+    twice.nodes = twice.nodes.map((item) =>
+      item.id === 'help' ? { ...item, trigger: 'soporte, 1' } : item,
+    );
+    expect(issues(twice)).toEqual([
+      'Las respuestas del usuario de las tarjetas conectadas se repiten',
+    ]);
+    // Only a message that waits may connect "Siguiente" to several cards.
+    const raw = textMenu();
+    const moving = raw.nodes.find((item) => item.id === 'hello');
+    if (moving?.type === 'message') moving.data.wait = false;
+    expect(() => parseFlow(raw)).toThrow();
+    // A card opened by its words is not "unreachable".
+    expect(
+      flowIssues(textMenu()).filter((issue) => issue.nodeId === 'prices'),
+    ).toEqual([]);
   });
 });

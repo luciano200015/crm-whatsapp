@@ -7,6 +7,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   Divider,
   FormControl,
@@ -28,7 +29,7 @@ import type { BotPause, NodeData, NodeKind, Operator, Validation } from '../../l
 import type { TagSummary } from '../../lib/api/types'
 import { AttachmentsField } from './AttachmentsField'
 import { useFlowEditor } from './flow-editor-context'
-import { LIMITS, newId, titleOf, type EditorNode } from './flow-model'
+import { LIMITS, newId, titleOf, triggerOf, type EditorNode } from './flow-model'
 import { NodeIcon } from './node-icons'
 import { ScheduleEditor } from './ScheduleEditor'
 import { VariableButton } from './VariableButton'
@@ -142,6 +143,32 @@ function InteractiveTexts({
   )
 }
 
+/** "Enviar mensaje y saltar al siguiente nodo", or wait for an answer. */
+function JumpField({
+  wait,
+  onChange,
+}: {
+  wait: boolean
+  onChange: (changes: { wait: boolean }) => void
+}) {
+  return (
+    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, px: 1.5, py: 1 }}>
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={!wait}
+            onChange={(event) => onChange({ wait: !event.target.checked })}
+          />
+        }
+        label={t.jump}
+      />
+      <Typography variant="caption" color="text.secondary" component="p">
+        {wait ? t.waitHelp : t.jumpHelp}
+      </Typography>
+    </Box>
+  )
+}
+
 /** "Respuesta si elige otra cosa": required on buttons and lists. */
 function InvalidText({ value, onValue }: { value: string; onValue: (value: string) => void }) {
   const missing = !value.trim()
@@ -175,6 +202,7 @@ export function NodeEditor({
   workspaceId,
   chatbotId,
   node,
+  triggerLocked,
   tags,
   members,
   onChange,
@@ -184,6 +212,8 @@ export function NodeEditor({
   workspaceId: string
   chatbotId: string
   node: EditorNode
+  /** Something that moves on by itself (buttons, a list…) connects to it. */
+  triggerLocked: boolean
   tags: TagSummary[]
   members: Member[]
   onChange: (data: Record<string, unknown>) => void
@@ -220,6 +250,20 @@ export function NodeEditor({
           helperText={t.titleHelp}
           onValue={(title) => onChange({ ...node.data, title })}
         />
+        {kind !== 'start' && (
+          <Stack spacing={1}>
+            <LimitedField
+              label={t.trigger}
+              value={triggerLocked ? '' : triggerOf(node.data)}
+              max={LIMITS.trigger}
+              disabled={triggerLocked}
+              placeholder={t.triggerPlaceholder}
+              helperText={t.triggerHelp}
+              onValue={(trigger) => onChange({ ...node.data, trigger })}
+            />
+            {triggerLocked && <Alert severity="info">{t.triggerLocked}</Alert>}
+          </Stack>
+        )}
         <Alert severity="info" icon={false} sx={{ '& .MuiAlert-message': { width: '100%' } }}>
           <AlertTitle sx={{ fontSize: 14 }}>{t.howItWorks}</AlertTitle>
           <Typography variant="body2">{es.chatbots.nodes[kind].guide}</Typography>
@@ -268,12 +312,15 @@ function NodeForm({
       return null
     case 'message':
       return (
-        <MessageForm
-          workspaceId={workspaceId}
-          chatbotId={chatbotId}
-          data={data as NodeData['message']}
-          onChange={onChange}
-        />
+        <>
+          <MessageForm
+            workspaceId={workspaceId}
+            chatbotId={chatbotId}
+            data={data as NodeData['message']}
+            onChange={onChange}
+          />
+          <JumpField wait={(data as NodeData['message']).wait === true} onChange={onChange} />
+        </>
       )
     case 'buttons': {
       const value = data as NodeData['buttons']
@@ -367,6 +414,7 @@ function NodeForm({
             error={!/^https:\/\/\S+\.\S+/.test(value.url)}
             onChange={(event) => onChange({ url: event.target.value.trim().slice(0, 2000) })}
           />
+          <JumpField wait={value.wait === true} onChange={onChange} />
         </>
       )
     }

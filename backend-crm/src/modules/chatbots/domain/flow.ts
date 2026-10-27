@@ -38,6 +38,8 @@ export const MAX_EDGES = 400;
 export const MAX_ATTACHMENTS = 5;
 /** Name of a card in the diagram, only for whoever builds the flow. */
 export const MAX_TITLE = 60;
+/** "Respuesta del usuario": words that open a card, separated by commas. */
+export const MAX_TRIGGER = 100;
 
 /** A file uploaded for the chatbot (GridFS), sent with a message node. */
 export interface BotMedia {
@@ -90,8 +92,13 @@ export interface ConditionRule {
 /** Optional texts are '' when empty, so the editor's forms stay simple. */
 export interface NodeData {
   start: Record<string, never>;
-  /** Files go after the text; a single file takes the text as its caption. */
-  message: { text: string; attachments: BotMedia[] };
+  /**
+   * Files go after the text; a single file takes the text as its caption.
+   * wait: instead of "Enviar mensaje y saltar al siguiente nodo", waits for
+   * the customer and follows the connected card whose "Respuesta del
+   * usuario" matches (a menu written as text: "1. Ventas, 2. Soporte").
+   */
+  message: { text: string; attachments: BotMedia[]; wait?: boolean };
   buttons: {
     header: string;
     body: string;
@@ -117,6 +124,8 @@ export interface NodeData {
     footer: string;
     text: string;
     url: string;
+    /** Like message: waits for an answer that opens a connected card. */
+    wait?: boolean;
   };
   question: {
     text: string;
@@ -148,6 +157,12 @@ export type FlowNode = {
     type: K;
     /** Name of the card in the diagram ('' none). */
     title: string;
+    /**
+     * "Respuesta del usuario": what the customer writes to open this card,
+     * after a message that waits, or at any moment when nothing connects to
+     * it. '' (or missing) none.
+     */
+    trigger?: string;
     position: { x: number; y: number };
     data: NodeData[K];
   };
@@ -262,6 +277,16 @@ class Reader {
     return value.slice(0, max);
   }
 
+  bool(source: Json, key: string): boolean {
+    const value = source[key];
+    if (value === undefined || value === null) return false;
+    if (typeof value !== 'boolean') {
+      this.fail(`Valor inválido en ${key}`);
+      return false;
+    }
+    return value;
+  }
+
   oneOf<T extends string>(
     source: Json,
     key: string,
@@ -342,6 +367,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
       return {
         text: read.text(data, 'text', LIMITS.text, 'Texto'),
         attachments: readAttachments(read, data),
+        wait: read.bool(data, 'wait'),
       };
     case 'buttons':
       return {
@@ -417,6 +443,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
         footer: read.text(data, 'footer', LIMITS.footer, 'Pie'),
         text: read.text(data, 'text', LIMITS.urlText, 'Texto del botón'),
         url: read.text(data, 'url', LIMITS.url, 'Enlace'),
+        wait: read.bool(data, 'wait'),
       };
     case 'question':
       return {
@@ -539,6 +566,10 @@ export function parseFlow(value: unknown): Flow {
       id,
       type,
       title: read.text(raw, 'title', MAX_TITLE, 'Título'),
+      trigger:
+        type === 'start'
+          ? ''
+          : read.text(raw, 'trigger', MAX_TRIGGER, 'Respuesta del usuario'),
       position: {
         x: Number.isFinite(x) ? x : 0,
         y: Number.isFinite(y) ? y : 0,
@@ -588,7 +619,7 @@ export function parseFlow(value: unknown): Flow {
       continue;
     }
     const key = `${edge.source}:${edge.sourceHandle}`;
-    if (used.has(key)) {
+    if (used.has(key) && !waitsForAnswer(source)) {
       read.fail('Una salida solo puede ir a un nodo');
       continue;
     }
@@ -747,10 +778,49 @@ export function flowIssues(
     }
   }
 
+  // A message that waits needs cards to open, each with its own words.
+  const byId = new Map(flow.nodes.map((node) => [node.id, node]));
+  const targets = new Set(flow.edges.map((edge) => edge.target));
+  for (const node of flow.nodes) {
+    if (!waitsForAnswer(node)) continue;
+    const children = flow.edges
+      .filter((edge) => edge.source === node.id)
+      .map((edge) => byId.get(edge.target));
+    if (children.length === 0)
+      error(
+        node.id,
+        'Conecta las tarjetas que responden o marca «Enviar mensaje y saltar al siguiente nodo»',
+      );
+    else if (
+      children.some((child) => triggerWords(child?.trigger).length === 0)
+    )
+      error(
+        node.id,
+        'Cada tarjeta conectada necesita su «Respuesta del usuario»',
+      );
+    else if (!uniqueWords(children.map((child) => child?.trigger)))
+      error(
+        node.id,
+        'Las respuestas del usuario de las tarjetas conectadas se repiten',
+      );
+  }
+  // Cards opened by their words from anywhere.
+  const entries = flow.nodes.filter(
+    (node) => !targets.has(node.id) && triggerWords(node.trigger).length > 0,
+  );
+  if (!uniqueWords(entries.map((node) => node.trigger)))
+    error(
+      null,
+      'Dos tarjetas sin conexiones se activan con la misma «Respuesta del usuario»',
+    );
+
   // Nodes nobody reaches never run.
   const start = flow.nodes.find((node) => node.type === 'start');
   const reached = new Set<string>();
-  const pending = start ? [start.id] : [];
+  const pending = [
+    ...(start ? [start.id] : []),
+    ...entries.map((node) => node.id),
+  ];
   while (pending.length > 0) {
     const id = pending.pop() as string;
     if (reached.has(id)) continue;
@@ -762,6 +832,37 @@ export function flowIssues(
     if (!reached.has(node.id)) warn(node.id, 'Ningún camino llega a este nodo');
   }
   return issues;
+}
+
+/** Message and link cards that wait for an answer instead of moving on. */
+export const waitsForAnswer = (node: FlowNode) =>
+  (node.type === 'message' || node.type === 'url') && node.data.wait === true;
+
+const simplify = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    // "1." or "1)" are the same answer as "1".
+    .replace(/[.):\-\s]+$/, '')
+    .replace(/\s+/g, ' ');
+
+/** The answers a "Respuesta del usuario" accepts ("1, ventas" → two). */
+export function triggerWords(trigger: string | undefined): string[] {
+  return (trigger ?? '')
+    .split(',')
+    .map(simplify)
+    .filter((word) => word !== '');
+}
+
+/** Whether the customer's text is one of the answers of a card. */
+export const matchesTrigger = (trigger: string | undefined, text: string) =>
+  triggerWords(trigger).includes(simplify(text));
+
+function uniqueWords(triggers: (string | undefined)[]): boolean {
+  const words = triggers.flatMap(triggerWords);
+  return new Set(words).size === words.length;
 }
 
 /** The flow of a new chatbot: a greeting after the start. */

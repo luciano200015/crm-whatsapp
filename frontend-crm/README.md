@@ -279,6 +279,7 @@ Para probar sin WhatsApp real, activa el modo simulado y carga el seed del backe
       - «Agregar variable» en los textos ([`VariableButton.tsx`](src/components/chatbots/VariableButton.tsx));
       - «Adjuntar archivos», hasta 5 ([`AttachmentsField.tsx`](src/components/chatbots/AttachmentsField.tsx));
       - «Respuesta si elige otra cosa» obligatoria en botones y listas: el bot la envía con los botones «Ver menú» y «Volver al inicio» (ya no hay salida «Otra respuesta»; las conexiones antiguas se descartan al abrir el flujo);
+      - «Respuesta del usuario» en cada tarjeta (palabras que la abren; deshabilitada si le llegan botones, listas o tarjetas que siguen solas) y «Enviar mensaje y saltar al siguiente nodo» en Respuesta básica y Botón de URL: desmarcado, el mensaje espera y conecta varias tarjetas, una por respuesta (menús de texto «1, 2, 3»);
       - en listas, el título de la sección avisa que WhatsApp solo lo muestra con dos o más secciones;
       - Guardar respuesta elige una variable del bot y puede guardar nombre o email en el contacto;
       - Transferir: mensaje al cliente con `{{agente}}` y bot apagado 24 horas o permanentemente;

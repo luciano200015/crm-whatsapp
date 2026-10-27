@@ -5,6 +5,8 @@ import {
 import type { BotPause } from '../../inbox/domain/bot-pause';
 import {
   isEmail,
+  matchesTrigger,
+  waitsForAnswer,
   type BotMedia,
   type ConditionRule,
   type Flow,
@@ -255,6 +257,21 @@ export function advance(
   );
   const next = (node: FlowNode, handle: string) =>
     edges.get(`${node.id}:${handle}`) ?? null;
+  const targets = new Set(flow.edges.map((edge) => edge.target));
+  /** The card connected to a waiting message whose words were written. */
+  const answered = (node: FlowNode, text: string) =>
+    flow.edges
+      .filter((edge) => edge.source === node.id)
+      .map((edge) => byId.get(edge.target))
+      .find((child) => child && matchesTrigger(child.trigger, text)) ?? null;
+  /** A card nothing connects to, opened by its words at any moment. */
+  const entry = (text: string) =>
+    flow.nodes.find(
+      (node) =>
+        node.type !== 'start' &&
+        !targets.has(node.id) &&
+        matchesTrigger(node.trigger, text),
+    ) ?? null;
   const lastText = input.text ?? '';
   const settings = context.settings;
   const actions: BotAction[] = [];
@@ -334,6 +351,8 @@ export function advance(
             if (text) say({ kind: 'text', text: cut(text, LIMITS.text) });
             sendFiles(files);
           }
+          if (waitsForAnswer(node))
+            return { nodeId: node.id, vars, attempts: 0 };
           cursor = next(node, 'next');
           break;
         }
@@ -356,6 +375,8 @@ export function advance(
               url: { text: node.data.text, url: node.data.url },
             },
           });
+          if (waitsForAnswer(node))
+            return { nodeId: node.id, vars, attempts: 0 };
           cursor = next(node, 'next');
           break;
         case 'condition': {
@@ -427,9 +448,9 @@ export function advance(
   for (let steps = 0; home && steps < MAX_STEPS; steps++) {
     const node = byId.get(home);
     if (
-      node?.type !== 'message' &&
-      node?.type !== 'url' &&
-      node?.type !== 'tags'
+      !node ||
+      waitsForAnswer(node) ||
+      (node.type !== 'message' && node.type !== 'url' && node.type !== 'tags')
     )
       break;
     home = next(node, 'next');
@@ -477,7 +498,8 @@ export function advance(
       repliedOption === SHOW_AGAIN &&
       (replied.type === 'buttons' ||
         replied.type === 'list' ||
-        replied.type === 'question')
+        replied.type === 'question' ||
+        waitsForAnswer(replied))
     )
       return { actions, session: run(replied.id, vars) };
     const options =
@@ -500,10 +522,21 @@ export function advance(
   )
     return restart();
 
-  if (!session) return restart();
+  // A card opened by its words ("Respuesta del usuario"), from anywhere.
+  const opened = input.replyId ? null : entry(lastText);
+  const open = (node: FlowNode) => ({
+    actions,
+    session: run(
+      node.id,
+      session ? { ...session.vars } : initialVars(context.variables),
+    ),
+  });
+
+  if (!session) return opened ? open(opened) : restart();
 
   // After the end of the flow: the fallback text, as nothing is expected,
   // with a button to start again.
+  if (opened && session.nodeId === null) return open(opened);
   if (session.nodeId === null) {
     const text = fill(settings?.fallbackText ?? '', session.vars).trim();
     if (text)
@@ -520,7 +553,8 @@ export function advance(
     !waiting ||
     (waiting.type !== 'buttons' &&
       waiting.type !== 'list' &&
-      waiting.type !== 'question')
+      waiting.type !== 'question' &&
+      !waitsForAnswer(waiting))
   )
     return restart();
 
@@ -542,7 +576,11 @@ export function advance(
         });
       handle = 'next';
     }
-  } else {
+  } else if (waiting.type === 'message' || waiting.type === 'url') {
+    // A menu written as text: the card whose words were written.
+    const child = answered(waiting, lastText);
+    if (child) return { actions, session: run(child.id, vars) };
+  } else if (waiting.type === 'buttons' || waiting.type === 'list') {
     const choices =
       waiting.type === 'buttons'
         ? waiting.data.buttons
@@ -558,6 +596,8 @@ export function advance(
     handle = chosen?.id ?? null;
   }
   if (handle) return { actions, session: run(next(waiting, handle), vars) };
+  // Not an answer here, but the words of a card open from anywhere.
+  if (opened) return open(opened);
 
   // An answer a question cannot take goes down its "respuesta no válida"
   // branch when it is connected.
@@ -565,7 +605,10 @@ export function advance(
   if (invalid) return { actions, session: run(invalid, vars) };
   sorry(
     waiting,
-    fill(waiting.data.invalidText, vars).trim() ||
+    fill(
+      'invalidText' in waiting.data ? waiting.data.invalidText : '',
+      vars,
+    ).trim() ||
       fill(settings?.fallbackText ?? '', vars).trim() ||
       DEFAULT_INVALID_TEXT,
     vars,

@@ -113,6 +113,48 @@ const menuGraph = (): FlowGraph => ({
   ],
 })
 
+/** Inicio → greeting that waits → "1" opens Ventas; "precios" opens Precios from anywhere. */
+const textMenuGraph = (): FlowGraph => ({
+  nodes: [
+    { id: 'start', type: 'start', title: '', position: { x: 0, y: 0 }, data: {} },
+    {
+      id: 'hello',
+      type: 'message',
+      title: 'Saludo',
+      position: { x: 0, y: 150 },
+      data: { text: 'Escribe 1 para ventas', attachments: [], wait: true },
+    },
+    {
+      id: 'sales',
+      type: 'message',
+      title: 'Ventas',
+      trigger: '1, ventas',
+      position: { x: 0, y: 300 },
+      data: { text: 'Te paso con ventas', attachments: [] },
+    },
+    {
+      id: 'help',
+      type: 'message',
+      title: 'Soporte',
+      trigger: '2',
+      position: { x: 300, y: 300 },
+      data: { text: 'Cuéntanos', attachments: [] },
+    },
+    {
+      id: 'prices',
+      type: 'message',
+      title: 'Precios',
+      position: { x: 600, y: 300 },
+      data: { text: 'Desde 10 USD', attachments: [] },
+    },
+  ],
+  edges: [
+    { id: 'e1', source: 'start', sourceHandle: 'next', target: 'hello' },
+    { id: 'e2', source: 'hello', sourceHandle: 'next', target: 'sales' },
+    { id: 'e3', source: 'hello', sourceHandle: 'next', target: 'help' },
+  ],
+})
+
 const summary = (changes: Partial<ChatbotSummary> = {}): ChatbotSummary => ({
   id: 'b1',
   name: 'Bot de ventas',
@@ -389,6 +431,49 @@ describe('Chatbots', () => {
     })
     expect(menu.data).not.toHaveProperty('title')
     expect(patched[0]!.graph!.edges.map((edge) => edge.sourceHandle)).toEqual(['next', 'sales'])
+  })
+
+  it('opens cards by the words of the customer, or sends and moves on', async () => {
+    server.use(http.get(api(`${BOTS}/b1`), () => HttpResponse.json(chatbot(textMenuGraph()))))
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    expect(await screen.findByText(es.chatbots.node.triggerShort('1, ventas'))).toBeInTheDocument()
+    expect(screen.getByText(es.chatbots.node.waiting)).toBeInTheDocument()
+    const edit = (title: string) =>
+      user.click(
+        screen.getByRole('button', {
+          name: `${es.chatbots.editor.editNode}: ${title}`,
+          hidden: true,
+        }),
+      )
+
+    // Nothing connects to «Precios»: its words open it from anywhere.
+    await edit('Precios')
+    let editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    await user.type(within(editor).getByLabelText(es.chatbots.node.trigger), 'precios, precio')
+    expect(within(editor).getByRole('checkbox', { name: es.chatbots.node.jump })).toBeChecked()
+
+    // The greeting stops waiting: it keeps one connection, and the card
+    // after it no longer needs words.
+    await edit('Saludo')
+    editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    expect(within(editor).getByLabelText(es.chatbots.node.trigger)).toBeDisabled()
+    expect(within(editor).getByText(es.chatbots.node.triggerLocked)).toBeInTheDocument()
+    const jump = within(editor).getByRole('checkbox', { name: es.chatbots.node.jump })
+    expect(jump).not.toBeChecked()
+    expect(within(editor).getByText(es.chatbots.node.waitHelp)).toBeInTheDocument()
+    await user.click(jump)
+    expect(within(editor).getByText(es.chatbots.node.jumpHelp)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
+    await waitFor(() => expect(patched).toHaveLength(1))
+    const saved = patched[0]!.graph!
+    const byId = (id: string) => saved.nodes.find((node) => node.id === id)!
+    expect(byId('hello').data).toMatchObject({ wait: false })
+    expect(saved.edges.map((edge) => edge.target)).toEqual(['hello', 'sales'])
+    expect(byId('sales').trigger).toBe('')
+    expect(byId('prices').trigger).toBe('precios, precio')
+    expect(byId('prices').data).not.toHaveProperty('trigger')
   })
 
   it('creates a numeric variable in «Variables»', async () => {

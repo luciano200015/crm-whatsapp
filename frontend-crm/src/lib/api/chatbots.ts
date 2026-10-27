@@ -87,7 +87,8 @@ export interface ConditionRule {
 export interface NodeData {
   start: Record<string, never>
   /** One file takes the text as caption; several go after it. */
-  message: { text: string; attachments: BotMedia[] }
+  /** wait: waits for an answer instead of "Enviar mensaje y saltar al siguiente nodo". */
+  message: { text: string; attachments: BotMedia[]; wait?: boolean }
   buttons: {
     header: string
     body: string
@@ -106,7 +107,7 @@ export interface NodeData {
     invalidText: string
     attachments: BotMedia[]
   }
-  url: { header: string; body: string; footer: string; text: string; url: string }
+  url: { header: string; body: string; footer: string; text: string; url: string; wait?: boolean }
   question: {
     text: string
     variable: string
@@ -136,6 +137,8 @@ export type FlowNode = {
     type: K
     /** Name of the card in the diagram, only for whoever builds the flow. */
     title: string
+    /** "Respuesta del usuario": words (comma separated) that open the card. */
+    trigger?: string
     position: { x: number; y: number }
     data: NodeData[K]
   }

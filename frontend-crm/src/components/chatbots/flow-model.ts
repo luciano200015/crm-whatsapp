@@ -5,6 +5,7 @@ import type { FlowGraph, FlowNode, NodeData, NodeKind } from '../../lib/api/chat
 /** WhatsApp's limits for interactive messages (same as the API checks). */
 export const LIMITS = {
   title: 60,
+  trigger: 100,
   text: 4096,
   body: 1024,
   header: 60,
@@ -186,6 +187,14 @@ export const EDGE_DEFAULTS = {
 export const titleOf = (data: Record<string, unknown>) =>
   typeof data.title === 'string' ? data.title : ''
 
+/** "Respuesta del usuario" of a card, also kept in its canvas data. */
+export const triggerOf = (data: Record<string, unknown>) =>
+  typeof data.trigger === 'string' ? data.trigger : ''
+
+/** A message or link that waits for an answer instead of moving on. */
+export const waitsForAnswer = (kind: NodeKind | undefined, data: Record<string, unknown>) =>
+  (kind === 'message' || kind === 'url') && data.wait === true
+
 export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: EditorEdge[] } {
   // Menus had an "otra respuesta" output: the chatbot now answers that itself.
   const menus = new Set(
@@ -198,7 +207,11 @@ export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: Edito
       id: node.id,
       type: node.type,
       position: node.position,
-      data: { ...(node.data as Record<string, unknown>), title: node.title ?? '' },
+      data: {
+        ...(node.data as Record<string, unknown>),
+        title: node.title ?? '',
+        trigger: node.trigger ?? '',
+      },
       deletable: node.type !== 'start',
     })),
     edges: graph.edges
@@ -214,13 +227,25 @@ export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: Edito
 }
 
 export function toGraph(nodes: EditorNode[], edges: EditorEdge[]): FlowGraph {
+  // Cards reached by buttons, lists or a card that moves on by itself are
+  // not opened by words: their "Respuesta del usuario" is dropped.
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const locked = new Set(
+    edges
+      .filter((edge) => {
+        const source = byId.get(edge.source)
+        return !waitsForAnswer(source?.type, source?.data ?? {})
+      })
+      .map((edge) => edge.target),
+  )
   return {
     nodes: nodes.map((node) => {
-      const { title, ...data } = node.data
+      const { title, trigger, ...data } = node.data
       return {
         id: node.id,
         type: node.type,
         title: typeof title === 'string' ? title.trim() : '',
+        trigger: typeof trigger === 'string' && !locked.has(node.id) ? trigger.trim() : '',
         position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
         data,
       } as FlowNode

@@ -821,7 +821,7 @@ export const es = {
         label: 'Respuesta básica',
         help: 'Texto y archivos: imagen, video, audio o documento.',
         guide:
-          'Envía un texto y, si quieres, hasta 5 archivos (imagen, video, audio o documento). No espera respuesta: después de enviarlo sigue enseguida por «Siguiente». Si no conectas nada, la conversación queda abierta y lo que escriba el cliente recibe el «Mensaje cuando no se encuentra respuesta» de la configuración con el botón «Volver al inicio» (también vuelve si escribe «menu»).',
+          'Envía un texto y, si quieres, hasta 5 archivos (imagen, video, audio o documento). Con «Enviar mensaje y saltar al siguiente nodo» (por defecto) sigue enseguida por «Siguiente». Si lo desmarcas, espera la respuesta del cliente y sigue por la tarjeta conectada cuya «Respuesta del usuario» coincida: así armas un menú de texto («Escribe 1 para ventas, 2 para soporte»). Si no conectas nada, la conversación queda abierta y lo que escriba el cliente recibe el «Mensaje cuando no se encuentra respuesta» de la configuración con el botón «Volver al inicio» (también vuelve si escribe «menu»).',
       },
       buttons: {
         label: 'Botones',
@@ -839,7 +839,7 @@ export const es = {
         label: 'Botón de URL',
         help: 'Un botón que abre un enlace.',
         guide:
-          'Envía un mensaje con un botón que abre una página web (https://), por ejemplo para pagar o ver el catálogo. WhatsApp no avisa si el cliente lo pulsó, así que el flujo sigue enseguida por «Siguiente».',
+          'Envía un mensaje con un botón que abre una página web (https://), por ejemplo para pagar o ver el catálogo. WhatsApp no avisa si el cliente lo pulsó, así que por defecto el flujo sigue enseguida por «Siguiente» («Enviar mensaje y saltar al siguiente nodo»). Si lo desmarcas, espera una respuesta escrita, como en Respuesta básica.',
       },
       question: {
         label: 'Guardar respuesta',
@@ -887,6 +887,18 @@ export const es = {
     node: {
       title: 'Título',
       titleHelp: 'Solo tú verás este título; sirve para identificar la tarjeta en el diagrama.',
+      trigger: 'Respuesta del usuario',
+      triggerPlaceholder: 'Ej.: 1, ventas',
+      triggerHelp:
+        'Lo que debe escribir el cliente para activar esta tarjeta; separa varias con comas. Sirve cuando cuelga de un mensaje que espera respuesta, o si nada se conecta a ella: entonces se activa en cualquier momento de la conversación.',
+      triggerLocked:
+        'Para habilitar «Respuesta del usuario», elimina las conexiones entrantes desde botones, listas u otras tarjetas que siguen solas.',
+      triggerShort: (words: string) => `Responde: ${words}`,
+      jump: 'Enviar mensaje y saltar al siguiente nodo',
+      jumpHelp: 'Este mensaje se enviará y el siguiente se mostrará automáticamente.',
+      waitHelp:
+        'El bot espera la respuesta del cliente y sigue por la tarjeta conectada cuya «Respuesta del usuario» coincida (ej.: escribe 1 para ventas, 2 para soporte). Puedes conectar varias tarjetas.',
+      waiting: 'Espera respuesta',
       howItWorks: 'Cómo funciona',
       hoursNotice: 'No envía mensajes: conecta una respuesta en cada salida.',
       next: 'Siguiente',

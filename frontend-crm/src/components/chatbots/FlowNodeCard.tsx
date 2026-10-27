@@ -9,7 +9,15 @@ import { memo } from 'react'
 import { es } from '../../i18n/es'
 import type { NodeData } from '../../lib/api/chatbots'
 import { useFlowEditor } from './flow-editor-context'
-import { NODE_COLORS, outputsOf, preview, titleOf, type EditorNode } from './flow-model'
+import {
+  NODE_COLORS,
+  outputsOf,
+  preview,
+  titleOf,
+  triggerOf,
+  waitsForAnswer,
+  type EditorNode,
+} from './flow-model'
 import { NodeIcon } from './node-icons'
 
 const handleSx = { width: 12, height: 12, border: '2px solid #fff' }
@@ -35,6 +43,8 @@ function FlowNodeCardBase({ id, type, data, selected }: NodeProps<EditorNode>) {
   const title = titleOf(data)
   const summary = preview(type, data)
   const pills = type === 'buttons' || type === 'list'
+  const trigger = triggerOf(data).trim()
+  const waits = waitsForAnswer(type, data)
 
   return (
     <Box
@@ -106,6 +116,27 @@ function FlowNodeCardBase({ id, type, data, selected }: NodeProps<EditorNode>) {
       </Stack>
       <Box sx={{ px: 1.25, py: 1 }}>
         <NodeBody type={type} data={data} tags={tags} summary={summary} />
+        {(trigger || waits) && (
+          <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
+            {trigger && (
+              <Chip
+                size="small"
+                variant="outlined"
+                color="primary"
+                label={es.chatbots.node.triggerShort(trigger)}
+                sx={{ maxWidth: '100%' }}
+              />
+            )}
+            {waits && (
+              <Chip
+                size="small"
+                variant="outlined"
+                color="warning"
+                label={es.chatbots.node.waiting}
+              />
+            )}
+          </Stack>
+        )}
       </Box>
       {!single && outputs.length > 0 && (
         <Stack sx={{ pb: 0.5 }}>
