@@ -26,6 +26,7 @@ import { FlowFormatError, parseFlow, type Flow } from '../domain/flow';
 import {
   advance,
   AGENT,
+  nudgeMessage,
   type BotAction,
   type BotMessage,
 } from '../domain/flow-engine';
@@ -246,7 +247,10 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
       { id: attending.bot.id, name: attending.bot.name },
       {
         kind: 'send',
-        message: { kind: 'text', text: attending.bot.inactivityText.trim() },
+        message: nudgeMessage(
+          attending.bot.inactivityText.trim(),
+          session.nodeId,
+        ),
       },
     );
   }

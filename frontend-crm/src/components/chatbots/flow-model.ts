@@ -145,20 +145,14 @@ export function outputsOf(kind: NodeKind, data: Record<string, unknown>) {
         { id: 'other', label: labels.other },
       ]
     case 'buttons':
-      return [
-        ...(data as NodeData['buttons']).buttons.map((button) => ({
-          id: button.id,
-          label: button.title || labels.empty,
-        })),
-        { id: 'other', label: labels.other },
-      ]
+      return (data as NodeData['buttons']).buttons.map((button) => ({
+        id: button.id,
+        label: button.title || labels.empty,
+      }))
     case 'list':
-      return [
-        ...(data as NodeData['list']).sections.flatMap((section) =>
-          section.rows.map((row) => ({ id: row.id, label: row.title || labels.empty })),
-        ),
-        { id: 'other', label: labels.other },
-      ]
+      return (data as NodeData['list']).sections.flatMap((section) =>
+        section.rows.map((row) => ({ id: row.id, label: row.title || labels.empty })),
+      )
     case 'condition':
       return [
         ...(data as NodeData['condition']).rules.map((rule, index) => ({
@@ -193,6 +187,12 @@ export const titleOf = (data: Record<string, unknown>) =>
   typeof data.title === 'string' ? data.title : ''
 
 export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: EditorEdge[] } {
+  // Menus had an "otra respuesta" output: the chatbot now answers that itself.
+  const menus = new Set(
+    graph.nodes
+      .filter((node) => node.type === 'buttons' || node.type === 'list')
+      .map((node) => node.id),
+  )
   return {
     nodes: graph.nodes.map((node) => ({
       id: node.id,
@@ -201,13 +201,15 @@ export function fromGraph(graph: FlowGraph): { nodes: EditorNode[]; edges: Edito
       data: { ...(node.data as Record<string, unknown>), title: node.title ?? '' },
       deletable: node.type !== 'start',
     })),
-    edges: graph.edges.map((edge) => ({
-      ...EDGE_DEFAULTS,
-      id: edge.id,
-      source: edge.source,
-      sourceHandle: edge.sourceHandle,
-      target: edge.target,
-    })),
+    edges: graph.edges
+      .filter((edge) => !(edge.sourceHandle === 'other' && menus.has(edge.source)))
+      .map((edge) => ({
+        ...EDGE_DEFAULTS,
+        id: edge.id,
+        source: edge.source,
+        sourceHandle: edge.sourceHandle,
+        target: edge.target,
+      })),
   }
 }
 

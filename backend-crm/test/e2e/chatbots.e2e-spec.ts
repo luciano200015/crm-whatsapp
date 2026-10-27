@@ -637,6 +637,13 @@ describe('Chatbots (e2e)', () => {
       '¿Qué necesitas?',
       '¿Sigues ahí?',
     ]);
+    // With a button that shows the menu again.
+    const nudge = (await messagesOf(owner, chat.id)).at(-1);
+    expect(nudge?.interactive?.buttons).toEqual([
+      { id: 'menu:@menu', title: 'Continuar' },
+    ]);
+    await incoming(line, 'Continuar', { id: 'menu:@menu', title: 'Continuar' });
+    expect((await outTexts()).at(-1)).toBe('¿Qué necesitas?');
 
     await incoming(line, 'Soporte', { id: 'menu:help', title: 'Soporte' });
     await incoming(line, 'gracias');
@@ -644,6 +651,10 @@ describe('Chatbots (e2e)', () => {
       'Escribe tu consulta',
       'Mensaje inválido. Escribe menu para volver.',
     ]);
+    // The general message carries a way back to the beginning.
+    expect(
+      (await messagesOf(owner, chat.id)).at(-1)?.interactive?.buttons,
+    ).toEqual([{ id: 'start:@start', title: 'Volver al inicio' }]);
     await incoming(line, 'MENU');
     expect((await outTexts()).slice(-2)).toEqual([
       'Hola Lucía',

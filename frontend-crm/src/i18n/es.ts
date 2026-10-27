@@ -821,19 +821,19 @@ export const es = {
         label: 'Respuesta básica',
         help: 'Texto y archivos: imagen, video, audio o documento.',
         guide:
-          'Envía un texto y, si quieres, hasta 5 archivos (imagen, video, audio o documento). No espera respuesta: después de enviarlo sigue enseguida por «Siguiente». Si no conectas nada, la conversación queda abierta y lo que escriba el cliente recibe el «Mensaje cuando no se encuentra respuesta» de la configuración (o vuelve al inicio si escribe «menu»).',
+          'Envía un texto y, si quieres, hasta 5 archivos (imagen, video, audio o documento). No espera respuesta: después de enviarlo sigue enseguida por «Siguiente». Si no conectas nada, la conversación queda abierta y lo que escriba el cliente recibe el «Mensaje cuando no se encuentra respuesta» de la configuración con el botón «Volver al inicio» (también vuelve si escribe «menu»).',
       },
       buttons: {
         label: 'Botones',
         help: 'Hasta 3 botones de respuesta rápida.',
         guide:
-          'Envía un mensaje con hasta 3 botones y espera a que el cliente pulse uno. Cada botón tiene su propia salida: conéctala con la tarjeta que debe responder. Si el cliente escribe otra cosa, recibe la «Respuesta si elige otra cosa» y se le muestran los botones otra vez (hasta 3 intentos). Si conectas «Otra respuesta», el flujo sigue por ahí. Escribir el texto del botón o su número (1, 2, 3) también vale.',
+          'Envía un mensaje con hasta 3 botones y espera a que el cliente pulse uno. Cada botón tiene su propia salida: conéctala con la tarjeta que debe responder. Si el cliente escribe otra cosa, recibe la «Respuesta si elige otra cosa» con los botones «Ver menú» y «Volver al inicio», así no queda en un bucle de errores. Escribir el texto del botón o su número (1, 2, 3) también vale, y los botones de mensajes anteriores siguen funcionando.',
       },
       list: {
         label: 'Lista de opciones',
         help: 'Un menú desplegable de hasta 10 opciones.',
         guide:
-          'Envía un mensaje con un botón que abre un menú de hasta 10 opciones (en secciones). Cada opción tiene su propia salida. Igual que en Botones: si el cliente escribe otra cosa, recibe la «Respuesta si elige otra cosa» y la lista otra vez; «Otra respuesta» sirve para atender lo que no está en la lista.',
+          'Envía un mensaje con un botón que abre un menú de hasta 10 opciones (en secciones). Cada opción tiene su propia salida. Igual que en Botones: si el cliente escribe otra cosa, recibe la «Respuesta si elige otra cosa» con los botones «Ver menú» y «Volver al inicio». El título de la sección solo se ve en WhatsApp cuando hay dos o más secciones.',
       },
       url: {
         label: 'Botón de URL',
@@ -845,7 +845,7 @@ export const es = {
         label: 'Guardar respuesta',
         help: 'Pregunta y guarda lo que responde en una variable.',
         guide:
-          'Hace una pregunta y espera la respuesta. Si es válida (según «Respuesta esperada» o el tipo de la variable: número, sí/no…), la guarda en la variable y sigue por «Siguiente»; si no, envía «Si responde otra cosa» y pregunta de nuevo. Usa la variable después en los textos como {{variable}} o en Condiciones. También puede guardar el nombre o el correo en la ficha del contacto.',
+          'Hace una pregunta y espera la respuesta. Si es válida (según «Respuesta esperada» o el tipo de la variable: número, sí/no…), la guarda en la variable y sigue por «Siguiente»; si no, envía «Si responde otra cosa» con el botón «Volver al inicio» y espera otra respuesta (o sigue por «Respuesta no válida», si la conectas). Usa la variable después en los textos como {{variable}} o en Condiciones. También puede guardar el nombre o el correo en la ficha del contacto.',
       },
       condition: {
         label: 'Condiciones',
@@ -890,7 +890,7 @@ export const es = {
       howItWorks: 'Cómo funciona',
       hoursNotice: 'No envía mensajes: conecta una respuesta en cada salida.',
       next: 'Siguiente',
-      other: 'Otra respuesta',
+      other: 'Respuesta no válida',
       else: 'Si no',
       in: 'Dentro del horario',
       out: 'Fuera del horario',
@@ -916,18 +916,21 @@ export const es = {
       listButton: 'Texto del botón que abre la lista',
       section: (n: number) => `Sección ${n}`,
       sectionTitle: 'Título de la sección',
+      sectionTitleOne:
+        'Con una sola sección, WhatsApp no muestra este título: solo se ve cuando la lista tiene dos o más secciones.',
+      sectionTitleMany: 'Obligatorio con varias secciones: WhatsApp muestra el título de cada una.',
       addSection: 'Agregar sección',
       option: 'Opción',
       description: 'Descripción (opcional)',
       addRow: 'Agregar opción',
       invalidText: 'Respuesta si elige otra cosa',
       invalidHelp:
-        'Obligatoria. Se envía cuando el cliente escribe algo que no es una opción, y luego se repiten las opciones. Si conectas «Otra respuesta», el flujo sigue por ahí.',
+        'Obligatoria. Se envía cuando el cliente escribe algo que no es una opción, con los botones «Ver menú» (vuelve a mostrar estas opciones) y «Volver al inicio» (no aparece en el primer menú del flujo). Así nunca queda atrapado en mensajes de error.',
       invalidRequired: 'Escribe qué responder cuando el cliente no elige una opción.',
       invalidDefault: 'Opción inválida. Por favor elige una de las opciones 👇',
       questionInvalid: 'Si responde otra cosa',
       questionInvalidHelp:
-        'Se envía cuando la respuesta no es válida, antes de preguntar de nuevo. Vacío: el mensaje cuando no se encuentra respuesta.',
+        'Se envía cuando la respuesta no es válida, con el botón «Volver al inicio»; el cliente puede responder de nuevo. Vacío: el mensaje cuando no se encuentra respuesta. Si conectas «Respuesta no válida», el flujo sigue por ahí.',
       urlText: 'Texto del botón',
       url: 'Enlace (https://)',
       question: 'Pregunta',

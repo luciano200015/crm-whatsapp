@@ -2,9 +2,10 @@ import {
   advance,
   DEFAULT_INVALID_TEXT,
   interpolate,
-  MAX_ATTEMPTS,
+  nudgeMessage,
   optionReplyId,
   type EngineContext,
+  type EngineSession,
 } from './flow-engine';
 import {
   flowIssues,
@@ -34,6 +35,22 @@ const photo = (name: string) => ({
   filename: `${name}.jpg`,
   size: 10,
 });
+/** The chatbot's own buttons after an answer it cannot take. */
+const sorry = (text: string, buttons: [string, string][]) => ({
+  kind: 'send',
+  message: {
+    kind: 'interactive',
+    content: {
+      kind: 'buttons',
+      header: null,
+      body: text,
+      footer: null,
+      buttons: buttons.map(([id, title]) => ({ id, title })),
+    },
+  },
+});
+const SEE_MENU: [string, string] = ['menu:@menu', 'Ver menú'];
+const FROM_START: [string, string] = ['start:@start', 'Volver al inicio'];
 const edge = (source: string, target: string, sourceHandle = 'next') => ({
   id: `${source}-${sourceHandle}-${target}`,
   source,
@@ -195,65 +212,159 @@ describe('chatbot flow engine', () => {
     expect(numbered.session?.nodeId).toBe('ask');
   });
 
-  it('asks again when the answer matches no option, and gives up after a few tries', () => {
+  it('answers an unknown option with a "Ver menú" button, every time, without repeating the menu', () => {
     let session = { nodeId: 'menu', vars: {}, attempts: 0 };
-    const first = advance(
-      menuFlow(),
-      session,
-      { text: 'precio?', replyId: null },
-      context,
-    );
-    expect(first.actions[0]).toEqual({
-      kind: 'send',
-      message: { kind: 'text', text: DEFAULT_INVALID_TEXT },
-    });
-    expect(first.actions[1]).toMatchObject({
-      message: { kind: 'interactive', content: { kind: 'buttons' } },
-    });
-    session = first.session as typeof session;
-    expect(session.attempts).toBe(1);
-
-    for (let i = 1; i < MAX_ATTEMPTS - 1; i++) {
-      session = advance(
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const result = advance(
         menuFlow(),
         session,
-        { text: 'x', replyId: null },
+        { text: 'precio?', replyId: null },
         context,
-      ).session as typeof session;
+      );
+      // The first menu of the flow: "Volver al inicio" would show the same.
+      expect(result.actions).toEqual([sorry(DEFAULT_INVALID_TEXT, [SEE_MENU])]);
+      session = result.session as typeof session;
+      expect(session).toEqual({ nodeId: 'menu', vars: {}, attempts: attempt });
     }
-    const last = advance(
+
+    const again = advance(
       menuFlow(),
       session,
-      { text: 'x', replyId: null },
+      { text: 'Ver menú', replyId: 'menu:@menu' },
       context,
     );
-    expect(last).toEqual({ actions: [], session: null });
+    expect(again.actions).toHaveLength(1);
+    expect(again.actions[0]).toMatchObject({
+      message: { content: { kind: 'buttons', body: '¿Qué necesitas?' } },
+    });
+    expect(again.session).toEqual({ nodeId: 'menu', vars: {}, attempts: 0 });
   });
 
-  it('takes the "otra respuesta" branch when it is connected', () => {
+  it('offers "Volver al inicio" from a menu further down the flow', () => {
     const flow = menuFlow({
       nodes: [
         {
-          id: 'sorry',
-          type: 'message',
+          id: 'plans',
+          type: 'buttons',
           title: '',
           position: at(),
-          data: { text: 'Un agente te ayudará', attachments: [] },
+          data: {
+            header: '',
+            body: '¿Qué plan?',
+            footer: '',
+            buttons: [{ id: 'basic', title: 'Básico' }],
+            invalidText: 'Toca un plan',
+            attachments: [],
+          },
         },
       ],
-      edges: [edge('menu', 'sorry', 'other')],
     });
+    flow.edges = flow.edges.map((item) =>
+      item.sourceHandle === 'sales' ? edge('menu', 'plans', 'sales') : item,
+    );
+    const session = { nodeId: 'plans', vars: { a: '1' }, attempts: 0 };
+    const wrong = advance(
+      flow,
+      session,
+      { text: 'hola', replyId: null },
+      context,
+    );
+    expect(wrong.actions).toEqual([
+      sorry('Toca un plan', [['plans:@menu', 'Ver menú'], FROM_START]),
+    ]);
+
+    const home = advance(
+      flow,
+      wrong.session,
+      { text: 'Volver al inicio', replyId: 'start:@start' },
+      context,
+    );
+    expect(home.actions[0]).toEqual({
+      kind: 'send',
+      message: { kind: 'text', text: 'Hola Lucía' },
+    });
+    // Back at the greeting, with the variables of a new conversation.
+    expect(home.session).toEqual({ nodeId: 'menu', vars: {}, attempts: 0 });
+  });
+
+  it('follows an option tapped in an older menu, even after the flow ended', () => {
+    for (const session of <(EngineSession | null)[]>[
+      { nodeId: null, vars: { correo: 'a@b.co' }, attempts: 0 },
+      { nodeId: 'ask', vars: {}, attempts: 2 },
+      null,
+    ]) {
+      const result = advance(
+        menuFlow(),
+        session,
+        { text: 'Ventas', replyId: optionReplyId('menu', 'sales') },
+        { ...context, settings },
+      );
+      expect(result.actions.map((action) => action.kind)).toEqual([
+        'tags',
+        'transfer',
+      ]);
+      expect(result.session).toBeNull();
+    }
+    // An option of another chatbot (or a node since deleted) is just text.
+    const unknown = advance(
+      menuFlow(),
+      { nodeId: 'menu', vars: {}, attempts: 0 },
+      { text: 'Ventas', replyId: 'gone:sales' },
+      context,
+    );
+    expect(unknown.actions[0]).toMatchObject({ kind: 'tags' });
+  });
+
+  it('drops the old "otra respuesta" connections of menus', () => {
+    const flow = parseFlow({
+      ...menuFlow(),
+      edges: [...menuFlow().edges, edge('menu', 'thanks', 'other')],
+    });
+    expect(flow.edges.some((item) => item.sourceHandle === 'other')).toBe(
+      false,
+    );
     const result = advance(
       flow,
       { nodeId: 'menu', vars: {}, attempts: 0 },
       { text: '???', replyId: null },
       context,
     );
-    expect(result.actions).toEqual([
-      { kind: 'send', message: { kind: 'text', text: 'Un agente te ayudará' } },
+    expect(result.actions).toEqual([sorry(DEFAULT_INVALID_TEXT, [SEE_MENU])]);
+  });
+
+  it('nudges with a button that shows the waiting node again', () => {
+    expect(nudgeMessage('¿Seguimos?', 'menu')).toEqual(
+      sorry('¿Seguimos?', [['menu:@menu', 'Continuar']]).message,
+    );
+    const shown = advance(
+      menuFlow(),
+      { nodeId: 'ask', vars: {}, attempts: 0 },
+      { text: 'Continuar', replyId: 'ask:@menu' },
+      context,
+    );
+    expect(shown.actions).toEqual([
+      { kind: 'send', message: { kind: 'text', text: '¿Cuál es tu correo?' } },
     ]);
-    // The flow ran out: still the same conversation.
-    expect(result.session).toEqual({ nodeId: null, vars: {}, attempts: 0 });
+  });
+
+  it('asks a first question again when the answer is not valid', () => {
+    const flow = menuFlow();
+    flow.edges = flow.edges.map((item) =>
+      item.source === 'hello' ? edge('hello', 'ask') : item,
+    );
+    const result = advance(
+      flow,
+      { nodeId: 'ask', vars: {}, attempts: 0 },
+      { text: 'no sé', replyId: null },
+      context,
+    );
+    expect(result.actions).toEqual([
+      {
+        kind: 'send',
+        message: { kind: 'text', text: 'Ese correo no parece válido' },
+      },
+      { kind: 'send', message: { kind: 'text', text: '¿Cuál es tu correo?' } },
+    ]);
   });
 
   it('saves a valid answer in its variable and uses it later', () => {
@@ -264,10 +375,10 @@ describe('chatbot flow engine', () => {
       { text: 'no tengo', replyId: null },
       context,
     );
-    expect(wrong.actions[0]).toEqual({
-      kind: 'send',
-      message: { kind: 'text', text: 'Ese correo no parece válido' },
-    });
+    // Further down the flow: no menu to show again, only the beginning.
+    expect(wrong.actions).toEqual([
+      sorry('Ese correo no parece válido', [FROM_START]),
+    ]);
 
     const right = advance(
       menuFlow(),
@@ -578,12 +689,7 @@ describe('chatbot flow engine', () => {
       { ...context, settings },
     );
     expect(after).toEqual({
-      actions: [
-        {
-          kind: 'send',
-          message: { kind: 'text', text: settings.fallbackText },
-        },
-      ],
+      actions: [sorry(settings.fallbackText, [FROM_START])],
       session: ended,
     });
 
@@ -613,10 +719,7 @@ describe('chatbot flow engine', () => {
       { text: 'precio?', replyId: null },
       { ...context, settings },
     );
-    expect(general.actions[0]).toEqual({
-      kind: 'send',
-      message: { kind: 'text', text: settings.fallbackText },
-    });
+    expect(general.actions).toEqual([sorry(settings.fallbackText, [SEE_MENU])]);
     if (menu?.type === 'buttons') menu.data.invalidText = 'Toca un botón 👇';
     const own = advance(
       flow,
@@ -624,10 +727,7 @@ describe('chatbot flow engine', () => {
       { text: 'precio?', replyId: null },
       { ...context, settings },
     );
-    expect(own.actions[0]).toEqual({
-      kind: 'send',
-      message: { kind: 'text', text: 'Toca un botón 👇' },
-    });
+    expect(own.actions).toEqual([sorry('Toca un botón 👇', [SEE_MENU])]);
   });
 
   it('sends the files of a node: one takes the text as caption, several go after it', () => {

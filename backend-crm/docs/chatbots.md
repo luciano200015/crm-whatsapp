@@ -39,10 +39,10 @@ Cada nodo tiene un `title` (≤ 60) que solo ve quien arma el flujo, y el editor
 | --- | --- | --- |
 | `start` | Uno por flujo | `next` |
 | `message` | Texto y hasta 5 archivos (`attachments`). Un archivo lleva el texto como pie; varios van después del texto | `next` |
-| `buttons` | Hasta 3 botones de respuesta rápida (título ≤ 20, cuerpo ≤ 1024, encabezado y pie ≤ 60). `attachments` se envían antes. `invalidText` obligatorio | Una por botón y `other` |
-| `list` | Lista desplegable: botón ≤ 20, hasta 10 filas (título ≤ 24, descripción ≤ 72). `attachments` antes; `invalidText` obligatorio | Una por fila y `other` |
+| `buttons` | Hasta 3 botones de respuesta rápida (título ≤ 20, cuerpo ≤ 1024, encabezado y pie ≤ 60). `attachments` se envían antes. `invalidText` obligatorio | Una por botón |
+| `list` | Lista desplegable: botón ≤ 20, hasta 10 filas (título ≤ 24, descripción ≤ 72). `attachments` antes; `invalidText` obligatorio. El título de sección solo se ve en WhatsApp con dos o más secciones (y entonces es obligatorio) | Una por fila |
 | `url` | Botón con enlace (`cta_url`) | `next` |
-| `question` | Guarda la respuesta en una variable del bot; valida por `validation` y por el tipo de la variable. `saveTo: name \| email` la guarda también en el contacto | `next` |
+| `question` | Guarda la respuesta en una variable del bot; valida por `validation` y por el tipo de la variable. `saveTo: name \| email` la guarda también en el contacto | `next` y `other` (respuesta no válida, opcional) |
 | `condition` | Reglas sobre el último mensaje o una variable (del bot o del contacto): igual, contiene, empieza con, es número, está vacío, mayor que, menor que, es sí, es no | Una por regla y `else` |
 | `hours` | **No envía nada**: según la hora en su zona, sigue por «Dentro» o «Fuera del horario». Hay que conectar una respuesta en cada salida | `in` y `out` |
 | `tags` | Agrega y quita etiquetas del contacto | `next` |
@@ -59,9 +59,11 @@ El editor inserta cualquiera con «Agregar variable». Una variable desconocida 
 
 **Mensaje al transferir:** el predeterminado es «Te comunicamos con {{agente}}. En breve te atenderá.». Vacío: no se envía nada.
 
-**Respuestas que no coinciden:**
-- **Una respuesta fuera de las opciones** envía «Respuesta si elige otra cosa» del nodo (si falta, `fallbackText`) y repite las opciones.
-- **Tras 3 intentos** sigue la salida `other` si está conectada; si no, el flujo termina.
+**Respuestas que no coinciden** (sin bucles de errores ni silencio):
+- **En botones o lista**, una respuesta fuera de las opciones recibe «Respuesta si elige otra cosa» del nodo como mensaje con botones: «Ver menú» (`<nodo>:@menu`, vuelve a mostrar las opciones) y «Volver al inicio» (`start:@start`). El segundo no aparece en el primer menú del flujo, donde mostraría lo mismo. No se repite el menú completo y el bot nunca deja de responder.
+- **En una pregunta**, una respuesta no válida sigue la salida `other` si está conectada; si no, envía su texto con «Volver al inicio» y espera otra respuesta. Si la pregunta es lo primero del flujo, envía el texto y la pregunta otra vez.
+- **Ya no existe la salida «Otra respuesta» de botones y listas.** Las conexiones antiguas desde `other` se descartan al leer el flujo, en el backend y en el editor.
+- **Las opciones de mensajes anteriores siguen funcionando:** el `id` de cada opción (`<nodo>:<opción>`) es único en el flujo, así que pulsar un menú viejo (o uno después de que el flujo terminó) sigue esa opción.
 - **Escribir a mano el título o el número de la opción** también vale.
 - **Contra bucles:** un turno recorre como máximo 25 nodos.
 
@@ -78,11 +80,11 @@ El editor inserta cualquiera con «Agregar variable». Una variable desconocida 
    - `transfer`;
    - `status`;
    - `contact` (nombre o email guardados por `question`).
-   Antes de avanzar, una palabra de `restartKeywords` vuelve al inicio. Si el flujo ya terminó pero la conversación sigue activa (`session.nodeId: null`), el mensaje recibe `fallbackText`.
+   Antes de avanzar, una palabra de `restartKeywords` vuelve al inicio. Si el flujo ya terminó pero la conversación sigue activa (`session.nodeId: null`), el mensaje recibe `fallbackText` con el botón «Volver al inicio».
 5. **Se ejecutan las acciones** con `InboxService`:
    - los mensajes salen firmados `sentBy: { userId: 'bot:<id>', name, kind: 'bot' }`;
    - un mensaje rechazado (ventana de 24 h, cupo del plan…) detiene el resto del turno.
-6. **Inactividad.** Si el bot quedó esperando y hay `inactivityMinutes`, la sesión guarda `nudgeAt`. Cada 30 s el runner reclama los vencidos de cada espacio (`claimBotNudges`, atómico) y envía `inactivityText` una sola vez.
+6. **Inactividad.** Si el bot quedó esperando y hay `inactivityMinutes`, la sesión guarda `nudgeAt`. Cada 30 s el runner reclama los vencidos de cada espacio (`claimBotNudges`, atómico) y envía `inactivityText` una sola vez, con el botón «Continuar» (`<nodo>:@menu`), que vuelve a mostrar lo que el bot esperaba.
 
 ## Historial
 
@@ -129,8 +131,8 @@ En la bandeja, `POST /conversations/:id/bot/pause` con `{ duration: '24h' | 'per
 
 - **Editor:** «Probar chatbot» abre un chat de prueba contra `simulate`, con la configuración y las variables guardadas. Los botones y las filas se pueden pulsar, y las acciones se muestran como avisos («Transferiría el chat a Ana y el bot quedaría desactivado en ese chat por 24 horas»).
 - **Pruebas automáticas:**
-  - `npx jest src/modules/chatbots`: motor y formato;
-  - `npm run test:e2e -- chatbots`: con el gateway simulado, el bot responde, transfiere, avisa al cliente, se pausa 24 h o permanentemente y vuelve solo al vencer la pausa, cierra sin marcar como leído, responde con `fallbackText`, vuelve al menú con una palabra y envía el mensaje de inactividad.
+  - `npx jest src/modules/chatbots`: motor y formato, y en `flow-scenarios.spec.ts` conversaciones completas con bots de distinta forma (tienda con lista, horario y cierre; registro con preguntas, validaciones y condición por edad; menús anidados con transferencia y «En espera»);
+  - `npm run test:e2e -- chatbots`: con el gateway simulado, el bot responde, transfiere, avisa al cliente, se pausa 24 h o permanentemente y vuelve solo al vencer la pausa, cierra sin marcar como leído, responde con `fallbackText` y «Volver al inicio», vuelve al menú con una palabra y envía el mensaje de inactividad con «Continuar».
 
 ## Límites
 

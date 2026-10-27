@@ -23,8 +23,18 @@ import {
 
 /** Nodes run per customer message at most: a loop in the flow stops here. */
 export const MAX_STEPS = 25;
-/** Answers that match no option before the chatbot gives up. */
-export const MAX_ATTEMPTS = 3;
+
+/**
+ * Options the chatbot adds on its own (the "@" keeps them apart from the
+ * flow's options): show the waiting node again, or go back to the greeting.
+ */
+export const SHOW_AGAIN = '@menu';
+export const FROM_START = '@start';
+export const BOT_BUTTONS = {
+  showAgain: 'Ver menú',
+  fromStart: 'Volver al inicio',
+  resume: 'Continuar',
+} as const;
 
 export const DEFAULT_INVALID_TEXT =
   'No entendí tu respuesta. Elige una de las opciones, por favor.';
@@ -191,6 +201,30 @@ function ruleMatches(
 
 const cut = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+/** A text with the chatbot's own buttons. */
+const withButtons = (
+  text: string,
+  buttons: { id: string; title: string }[],
+): BotMessage => ({
+  kind: 'interactive',
+  content: {
+    kind: 'buttons',
+    header: null,
+    body: cut(text, LIMITS.body),
+    footer: null,
+    buttons,
+  },
+});
+
+/**
+ * "¿Quieres que avancemos?" after a while without an answer, with a button
+ * that shows the waiting node again.
+ */
+export const nudgeMessage = (text: string, nodeId: string): BotMessage =>
+  withButtons(text, [
+    { id: optionReplyId(nodeId, SHOW_AGAIN), title: BOT_BUTTONS.resume },
+  ]);
 
 /** What a new conversation starts with: the default value of each variable. */
 export function initialVars(
@@ -378,6 +412,83 @@ export function advance(
     actions,
     session: run(start?.id ?? null, initialVars(context.variables)),
   });
+  const fromStart = start
+    ? [
+        {
+          id: optionReplyId(start.id, FROM_START),
+          title: BOT_BUTTONS.fromStart,
+        },
+      ]
+    : [];
+
+  // The first node that waits for an answer: "Volver al inicio" from there
+  // would only show it again.
+  let home = start ? next(start, 'next') : null;
+  for (let steps = 0; home && steps < MAX_STEPS; steps++) {
+    const node = byId.get(home);
+    if (
+      node?.type !== 'message' &&
+      node?.type !== 'url' &&
+      node?.type !== 'tags'
+    )
+      break;
+    home = next(node, 'next');
+  }
+
+  /**
+   * An answer the node cannot take: its invalid-answer text with buttons to
+   * see the options again or go back to the greeting, so the customer is
+   * never stuck in a loop of errors.
+   */
+  const sorry = (
+    node: FlowNode,
+    text: string,
+    vars: Record<string, string>,
+  ) => {
+    const buttons = [
+      ...(node.type === 'question'
+        ? []
+        : [
+            {
+              id: optionReplyId(node.id, SHOW_AGAIN),
+              title: BOT_BUTTONS.showAgain,
+            },
+          ]),
+      ...(node.id === home ? [] : fromStart),
+    ];
+    if (buttons.length > 0) {
+      say(withButtons(text, buttons));
+    } else {
+      // A question at the very beginning: it is simply asked again.
+      say({ kind: 'text', text: cut(text, LIMITS.text) });
+      ask(node, vars);
+    }
+  };
+
+  // A tapped option is followed even from an older message (the customer
+  // scrolled up to a menu sent before) or after the flow ended.
+  const [repliedNode, repliedOption] = input.replyId?.split(':') ?? [];
+  const replied = repliedNode ? byId.get(repliedNode) : undefined;
+  if (replied && repliedOption) {
+    const vars = session ? { ...session.vars } : initialVars(context.variables);
+    if (repliedOption === FROM_START && replied.type === 'start')
+      return restart();
+    if (
+      repliedOption === SHOW_AGAIN &&
+      (replied.type === 'buttons' ||
+        replied.type === 'list' ||
+        replied.type === 'question')
+    )
+      return { actions, session: run(replied.id, vars) };
+    const options =
+      replied.type === 'buttons'
+        ? replied.data.buttons
+        : replied.type === 'list'
+          ? replied.data.sections.flatMap((section) => section.rows)
+          : [];
+    if (options.some((option) => option.id === repliedOption))
+      return { actions, session: run(next(replied, repliedOption), vars) };
+  }
 
   // "menu" (or another word of the settings) goes back to the greeting.
   const typed = normalize(lastText);
@@ -391,10 +502,16 @@ export function advance(
 
   if (!session) return restart();
 
-  // After the end of the flow: the fallback text, as nothing is expected.
+  // After the end of the flow: the fallback text, as nothing is expected,
+  // with a button to start again.
   if (session.nodeId === null) {
     const text = fill(settings?.fallbackText ?? '', session.vars).trim();
-    if (text) say({ kind: 'text', text: cut(text, LIMITS.text) });
+    if (text)
+      say(
+        fromStart.length > 0
+          ? withButtons(text, fromStart)
+          : { kind: 'text', text: cut(text, LIMITS.text) },
+      );
     return { actions, session };
   }
 
@@ -442,20 +559,19 @@ export function advance(
   }
   if (handle) return { actions, session: run(next(waiting, handle), vars) };
 
-  // An answer that matches nothing: the "otra respuesta" branch if there is
-  // one, otherwise the node's invalid-answer text and the question again (a
-  // few times).
-  const other = next(waiting, 'other');
-  if (other) return { actions, session: run(other, vars) };
-  const attempts = session.attempts + 1;
-  if (attempts >= MAX_ATTEMPTS) return { actions, session: null };
-  say({
-    kind: 'text',
-    text:
-      fill(waiting.data.invalidText, vars).trim() ||
+  // An answer a question cannot take goes down its "respuesta no válida"
+  // branch when it is connected.
+  const invalid = waiting.type === 'question' ? next(waiting, 'other') : null;
+  if (invalid) return { actions, session: run(invalid, vars) };
+  sorry(
+    waiting,
+    fill(waiting.data.invalidText, vars).trim() ||
       fill(settings?.fallbackText ?? '', vars).trim() ||
       DEFAULT_INVALID_TEXT,
-  });
-  ask(waiting, vars);
-  return { actions, session: { nodeId: waiting.id, vars, attempts } };
+    vars,
+  );
+  return {
+    actions,
+    session: { nodeId: waiting.id, vars, attempts: session.attempts + 1 },
+  };
 }

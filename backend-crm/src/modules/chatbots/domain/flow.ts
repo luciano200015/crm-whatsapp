@@ -193,14 +193,11 @@ export function outputs(node: FlowNode): string[] {
     case 'question':
       return ['next', 'other'];
     case 'buttons':
-      return [...node.data.buttons.map((button) => button.id), 'other'];
+      return node.data.buttons.map((button) => button.id);
     case 'list':
-      return [
-        ...node.data.sections.flatMap((section) =>
-          section.rows.map((row) => row.id),
-        ),
-        'other',
-      ];
+      return node.data.sections.flatMap((section) =>
+        section.rows.map((row) => row.id),
+      );
     case 'condition':
       return [...node.data.rules.map((rule) => rule.id), 'else'];
     case 'hours':
@@ -579,6 +576,13 @@ export function parseFlow(value: unknown): Flow {
       read.fail('Conexión a un nodo que no existe');
       continue;
     }
+    // Menus had an "otra respuesta" output: the chatbot now answers that
+    // itself, so those old connections are dropped.
+    if (
+      edge.sourceHandle === 'other' &&
+      (source.type === 'buttons' || source.type === 'list')
+    )
+      continue;
     if (!outputs(source).includes(edge.sourceHandle)) {
       read.fail('Conexión desde una salida que no existe');
       continue;

@@ -278,7 +278,8 @@ Para probar sin WhatsApp real, activa el modo simulado y carga el seed del backe
       - «Título» (solo lo ve quien arma el flujo) y la guía «Cómo funciona» del nodo;
       - «Agregar variable» en los textos ([`VariableButton.tsx`](src/components/chatbots/VariableButton.tsx));
       - «Adjuntar archivos», hasta 5 ([`AttachmentsField.tsx`](src/components/chatbots/AttachmentsField.tsx));
-      - «Respuesta si elige otra cosa» obligatoria en botones y listas;
+      - «Respuesta si elige otra cosa» obligatoria en botones y listas: el bot la envía con los botones «Ver menú» y «Volver al inicio» (ya no hay salida «Otra respuesta»; las conexiones antiguas se descartan al abrir el flujo);
+      - en listas, el título de la sección avisa que WhatsApp solo lo muestra con dos o más secciones;
       - Guardar respuesta elige una variable del bot y puede guardar nombre o email en el contacto;
       - Transferir: mensaje al cliente con `{{agente}}` y bot apagado 24 horas o permanentemente;
     - «Probar chatbot» ([`TestChat.tsx`](src/components/chatbots/TestChat.tsx)): un chat simulado que no envía nada por WhatsApp.

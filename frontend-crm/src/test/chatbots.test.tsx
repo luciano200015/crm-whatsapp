@@ -108,6 +108,8 @@ const menuGraph = (): FlowGraph => ({
   edges: [
     { id: 'e1', source: 'start', sourceHandle: 'next', target: 'menu' },
     { id: 'e2', source: 'menu', sourceHandle: 'sales', target: 'agent' },
+    // The old "otra respuesta" output of menus: dropped by the editor.
+    { id: 'e3', source: 'menu', sourceHandle: 'other', target: 'agent' },
   ],
 })
 
@@ -352,6 +354,7 @@ describe('Chatbots', () => {
     const user = userEvent.setup()
     // A titled card shows its title; the rest their kind.
     expect(await screen.findByText('Pasar a Ana')).toBeInTheDocument()
+    expect(screen.queryByText('Otra respuesta')).not.toBeInTheDocument()
     await user.click(
       screen.getByRole('button', {
         name: `${es.chatbots.editor.editNode}: ${es.chatbots.nodes.buttons.label}`,
@@ -385,6 +388,7 @@ describe('Chatbots', () => {
       data: { body: 'Hola {{nombre}}', invalidText: 'Elige Ventas o Soporte' },
     })
     expect(menu.data).not.toHaveProperty('title')
+    expect(patched[0]!.graph!.edges.map((edge) => edge.sourceHandle)).toEqual(['next', 'sales'])
   })
 
   it('creates a numeric variable in «Variables»', async () => {

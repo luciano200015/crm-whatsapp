@@ -710,6 +710,8 @@ function ListForm({
               label={t.sectionTitle}
               value={section.title}
               max={LIMITS.sectionTitle}
+              required={data.sections.length > 1}
+              helperText={data.sections.length > 1 ? t.sectionTitleMany : t.sectionTitleOne}
               onValue={(title) => setSection(section.id, { title })}
             />
             {data.sections.length > 1 && (
