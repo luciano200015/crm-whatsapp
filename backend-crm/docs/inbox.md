@@ -90,6 +90,7 @@ Cada cambio de una conversación se guarda en ella como mensaje `direction: EVEN
 | `bot_paused`, `bot_resumed` | Un agente desactivó o activó el chatbot de la línea en este chat. `pause: { until }`: hasta cuándo (`null`: permanente) |
 | `bot_transferred` | El chatbot pasó el chat a un agente (`to`) o a la cola sin asignar, y se apagó en el chat (`pause`) |
 | `bot_tagged` | El chatbot agregó o quitó etiquetas (`tags: { added, removed }`, con los nombres) |
+| `funnel_stage` | El contacto entró a una etapa de un embudo o cambió de etapa (`funnel: { name, from, to }`; `from: null` al entrar). `by`: quien lo movió, el chatbot, o `null` si fue una automatización ([funnels.md](funnels.md)) |
 
 Lo que hace un chatbot va firmado con `by: { userId: 'bot:<id>', name, kind: 'bot' }`, también en `closed`, `on_hold` y `reopened` (ver [chatbots.md](chatbots.md#historial)).
 
@@ -186,6 +187,7 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 - El frontend lee `/api/v1/workspaces/:workspaceId/conversations/events` con `fetch` y Bearer.
 - Si se corta, reconecta esperando cada vez más (hasta 30 segundos) y resincroniza las consultas al volver.
 - Al cambiar de workspace o cerrar sesión, cancela la conexión.
+- También llega `funnel.changed { funnelId }` cuando cambia un tablero de embudos; el navegador lo vuelve a pedir con sus permisos ([funnels.md](funnels.md#api)).
 
 **Controles del servidor:**
 - Antes de cada evento, y cada 25 segundos sin actividad, revalida el token, la sesión, la membresía y el permiso.

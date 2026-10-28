@@ -121,6 +121,13 @@ function toMessage(doc: MessageDocument): MessageRecord {
           ...(doc.event.pause && {
             pause: { until: doc.event.pause.until ?? null },
           }),
+          ...(doc.event.funnel && {
+            funnel: {
+              name: doc.event.funnel.name,
+              from: doc.event.funnel.from ?? null,
+              to: doc.event.funnel.to,
+            },
+          }),
         }
       : null,
     interactive: doc.interactive ?? null,

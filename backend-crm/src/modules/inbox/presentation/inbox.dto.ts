@@ -59,6 +59,7 @@ const EVENT_KINDS = [
   'bot_resumed',
   'bot_transferred',
   'bot_tagged',
+  'funnel_stage',
 ] as const;
 
 // ─────────────────────────── Requests ───────────────────────────
@@ -699,6 +700,25 @@ export class ConversationEventDto {
       'bot_paused, bot_transferred: until when the chatbot is off (until: null, until someone turns it on).',
   })
   pause?: EventPauseDto | null;
+
+  @ApiPropertyOptional({
+    type: () => EventFunnelDto,
+    nullable: true,
+    description:
+      'funnel_stage: the funnel and the stage before (null: the contact joined it) and after.',
+  })
+  funnel?: EventFunnelDto | null;
+}
+
+export class EventFunnelDto {
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  from: string | null;
+
+  @ApiProperty()
+  to: string;
 }
 
 export class EventPauseDto {

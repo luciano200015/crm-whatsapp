@@ -1204,6 +1204,7 @@ export class InboxService {
       type: 'conversation.updated',
       conversation,
       previousAssigneeId: before.assignee?.membershipId ?? null,
+      previousStatus: before.status,
     });
   }
 

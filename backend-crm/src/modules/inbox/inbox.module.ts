@@ -90,6 +90,7 @@ import {
     InboxEvents,
     InboxStore,
     MediaStore,
+    ConversationTimeline,
   ],
 })
 export class InboxModule {}

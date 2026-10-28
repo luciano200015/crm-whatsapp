@@ -137,6 +137,9 @@ export class InboxIngestService extends WhatsAppEventsSink {
       type: 'message.created',
       conversation: updated,
       message,
+      created,
+      // The customer wrote to a closed chat: it is open again.
+      ...(reopened && { previousStatus: 'CLOSED' as const }),
     });
     if (autoAssigned) {
       await this.timeline.assignment(updated, null, null, 'auto_assigned');

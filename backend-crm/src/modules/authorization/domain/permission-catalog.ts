@@ -28,6 +28,11 @@ export const PERMISSIONS = {
     'Create, edit and delete the quick replies of the team',
   'chatbots.manage':
     'Build chatbots, turn them on and choose the lines they answer',
+  'funnels.read': 'View the funnel boards of your lines and export them',
+  'funnels.write':
+    'Add leads to funnels, move them between stages, set their value and archive them',
+  'funnels.manage':
+    'Create and edit funnels and stages, their privileges, sync and automation',
   'billing.read': 'View subscription and invoices',
   'billing.manage': 'Change subscription and payment details',
 } as const satisfies Record<string, string>;
@@ -48,6 +53,7 @@ export const PERMISSION_GROUPS = [
   'conversations',
   'quick_replies',
   'chatbots',
+  'funnels',
   'billing',
 ] as const;
 export type PermissionGroup = (typeof PERMISSION_GROUPS)[number];
@@ -97,6 +103,8 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'contacts.write',
       'messages.read',
       'messages.send',
+      'funnels.read',
+      'funnels.write',
     ],
   },
 };

@@ -15,6 +15,7 @@ import { WhatsAppWebhookModule } from './modules/channels/whatsapp-webhook.modul
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { InboxModule } from './modules/inbox/inbox.module';
 import { ChatbotsModule } from './modules/chatbots/chatbots.module';
+import { FunnelsModule } from './modules/funnels/funnels.module';
 import { TeamModule } from './modules/team/team.module';
 import { UsersModule } from './modules/users/users.module';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
@@ -44,6 +45,7 @@ import { SecurityModule } from './shared/security/security.module';
     ChannelsModule,
     InboxModule,
     ChatbotsModule,
+    FunnelsModule,
     WhatsAppWebhookModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],

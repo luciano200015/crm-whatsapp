@@ -37,7 +37,9 @@ export type ConversationEventKind =
   /** The chatbot handed the chat to an agent (to) or to the unassigned queue. */
   | 'bot_transferred'
   /** The chatbot added or removed tags of the contact (tags). */
-  | 'bot_tagged';
+  | 'bot_tagged'
+  /** The lead of the contact moved to another stage of a funnel (funnel). */
+  | 'funnel_stage';
 
 /** Who did it (null: the system) and the assignees before and after. */
 export interface ConversationEvent {
@@ -50,6 +52,8 @@ export interface ConversationEvent {
   tags?: { added: string[]; removed: string[] } | null;
   /** bot_paused, bot_transferred: until when the chatbot is off (null: until turned on). */
   pause?: { until: Date | null } | null;
+  /** funnel_stage: the funnel and the stages before (null: it joined) and after. */
+  funnel?: { name: string; from: string | null; to: string } | null;
 }
 
 /** Media of a message: Meta's id plus our stored copy (GridFS), once downloaded. */

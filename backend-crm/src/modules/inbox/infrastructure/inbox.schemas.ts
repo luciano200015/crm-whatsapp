@@ -35,6 +35,7 @@ const EVENT_KINDS = [
   'bot_resumed',
   'bot_transferred',
   'bot_tagged',
+  'funnel_stage',
 ];
 
 interface PartyDocument {
@@ -113,6 +114,7 @@ export interface MessageDocument {
     to: PartyDocument | null;
     tags?: { added: string[]; removed: string[] } | null;
     pause?: { until: Date | null } | null;
+    funnel?: { name: string; from: string | null; to: string } | null;
   } | null;
   interactive?: InteractiveContent | null;
   reply?: { id: string; title: string } | null;
@@ -327,6 +329,17 @@ export const MessageSchema = new Schema<MessageDocument>(
           pause: {
             type: new Schema(
               { until: { type: Date, default: null } },
+              { _id: false },
+            ),
+            default: undefined,
+          },
+          funnel: {
+            type: new Schema(
+              {
+                name: { type: String, required: true },
+                from: { type: String, default: null },
+                to: { type: String, required: true },
+              },
               { _id: false },
             ),
             default: undefined,

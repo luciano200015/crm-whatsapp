@@ -86,6 +86,18 @@ La reserva se hace bajo bloqueo de la fila del workspace, así que dos respuesta
 
 Ver [channels.md](channels.md).
 
+## Embudos (migración `funnels`)
+
+| Tabla | Propósito | Claves / restricciones |
+| ----- | --------- | ---------------------- |
+| `funnels` | Embudo de una línea: nombre, descripción, `is_primary`, `archive_after_days` (1–365 o `null`), `sync_rules` (JSONB) | Único parcial `(line_id) WHERE is_primary`: **un principal por línea**; `CASCADE` con el workspace y la línea |
+| `funnel_stages` | Etapas ordenadas (`position`, luego `created_at`) | `CASCADE` con el embudo |
+| `funnel_stage_access` | «Privilegios del embudo»: etapas que ve cada membresía (sin filas: todas) | PK `(funnel_id, membership_id, stage_id)`; `CASCADE` con embudo, membresía y etapa |
+| `funnel_automation_rules` | Estado del chat → embudo y etapa, por línea | Único `(line_id, status)`; `CHECK` del estado; `CASCADE` con línea, embudo y etapa |
+| `funnel_board_preferences` | «Personalizar tablero» por usuario y embudo | PK `(user_id, funnel_id)` |
+
+Los leads están en MongoDB (`funnel_leads`). Ver [funnels.md](funnels.md).
+
 ## MongoDB
 
 Datos operativos del CRM. Todas las colecciones usan el plugin `workspaceScoped` (ver [contacts.md](contacts.md#convenciones-mongodb)).
@@ -97,6 +109,7 @@ Datos operativos del CRM. Todas las colecciones usan el plugin `workspaceScoped`
 | `conversations` | **El** chat de un contacto en una línea (se reabre, nunca se duplica): copia del contacto, estado `OPEN`/`ON_HOLD`/`CLOSED`, agente asignado, último mensaje (con `messageId` y `status` para los ✓✓ de la lista), `lastInboundAt` (ventana de 24 h), no leídos y `bot: { paused, pausedBy, pausedUntil, session: { nodeId, vars, nudgeAt… } }` (dónde va el chatbot en su flujo; `pausedUntil: null` con `paused`: apagado permanente) | `(workspaceId, lineId, contactId)` **único** (antes solo para `OPEN`: `npm run inbox:merge-conversations` une los duplicados antiguos); `(workspaceId, status, lastActivityAt, _id)`; por agente y por línea; parcial `(workspaceId, bot.session.nudgeAt)` para el mensaje de inactividad |
 | `messages` | Mensajes entrantes (`IN`), salientes (`OUT`), notas internas (`NOTE`) y movimientos (`EVENT`, con `event: { kind, by, from, to, tags }`), con estado de entrega. Los menús de un chatbot guardan `interactive`; la opción que pulsó el cliente, `reply: { id, title }`; lo enviado por un bot, `sentBy.kind: 'bot'`. Los archivos guardan el id de Meta y, una vez copiados, `media.fileId` (GridFS) y `media.size`. Las ubicaciones guardan `location` y las tarjetas de contacto, `contacts`. Los enviados desde el CRM guardan el `clientId` que les dio el navegador | `(workspaceId, conversationId, _id)`; `(workspaceId, waMessageId)` único parcial: un webhook repetido no duplica |
 | `quick_replies` | Respuestas rápidas: `shortcut` y `text` | `(workspaceId, shortcut)` único |
+| `funnel_leads` | Un contacto en un embudo: `funnelId`, `lineId`, `stageId`, `contactId`, `amountCents` (entero), `archivedAt`/`archivedBy`, `activityAt` y `version` | `(workspaceId, funnelId, contactId)` **único**; `(workspaceId, funnelId, stageId, archivedAt, activityAt)`; por contacto; por línea y contacto |
 | `media.files` / `media.chunks` | Archivos de los chats en **GridFS**, con `metadata.workspaceId` y `metadata.mimeType`. Toda lectura filtra por workspace | Índices propios de GridFS |
 
 ## Equipo (migración `team_members_roles`)

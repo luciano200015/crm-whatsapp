@@ -184,6 +184,7 @@ model Workspace {
   subscription Subscription?
   channelLines ChannelLine[]
   chatbots     Chatbot[]
+  funnels      Funnel[]
   contactUsage WorkspaceContactUsage[]
 
   @@map("workspaces")
@@ -206,11 +207,12 @@ model WorkspaceMembership {
   createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  user      User               @relation("MembershipUser", fields: [userId], references: [id], onDelete: Restrict)
-  invitedBy User?              @relation("MembershipInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
-  roles     MembershipRole[]
-  lines     ChannelLineAgent[]
+  workspace         Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  user              User                @relation("MembershipUser", fields: [userId], references: [id], onDelete: Restrict)
+  invitedBy         User?               @relation("MembershipInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  roles             MembershipRole[]
+  lines             ChannelLineAgent[]
+  funnelStageAccess FunnelStageAccess[]
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -540,9 +542,11 @@ model ChannelLine {
   createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agents    ChannelLineAgent[]
-  chatbot   Chatbot?           @relation(fields: [chatbotId], references: [id], onDelete: SetNull)
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agents      ChannelLineAgent[]
+  chatbot     Chatbot?               @relation(fields: [chatbotId], references: [id], onDelete: SetNull)
+  funnels     Funnel[]
+  funnelRules FunnelAutomationRule[]
 
   @@index([workspaceId])
   @@index([chatbotId])
@@ -608,4 +612,105 @@ model ChannelLineAgent {
   @@id([lineId, membershipId])
   @@index([membershipId])
   @@map("channel_line_agents")
+}
+
+// ─────────────────────────────── Funnels ───────────────────────────────
+// Kanban boards of leads per WhatsApp line. The leads themselves (contact +
+// stage + value) live in MongoDB next to contacts and conversations.
+
+model Funnel {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  workspaceId      String   @map("workspace_id") @db.Uuid
+  lineId           String   @map("line_id") @db.Uuid
+  name             String   @db.VarChar(80)
+  description      String   @default("") @db.VarChar(300)
+  /// New conversations of the line become leads in its first stage. One per line.
+  isPrimary        Boolean  @default(false) @map("is_primary")
+  /// Leads without messages for this many days are archived (null: never).
+  archiveAfterDays Int?     @map("archive_after_days")
+  /// Last "Sincronizar contactos" rules: [{ status, stageId }].
+  syncRules        Json     @default("[]") @map("sync_rules")
+  createdByUserId  String?  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  line        ChannelLine             @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  stages      FunnelStage[]
+  access      FunnelStageAccess[]
+  rules       FunnelAutomationRule[]
+  preferences FunnelBoardPreference[]
+
+  @@unique([lineId], where: { isPrimary: true }, map: "funnels_line_primary_key")
+  @@index([workspaceId])
+  @@index([lineId])
+  @@map("funnels")
+}
+
+model FunnelStage {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  funnelId  String   @map("funnel_id") @db.Uuid
+  name      String   @db.VarChar(40)
+  /// Column order (then created_at).
+  position  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  funnel Funnel                 @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  access FunnelStageAccess[]
+  rules  FunnelAutomationRule[]
+
+  @@index([funnelId, position])
+  @@map("funnel_stages")
+}
+
+/// "Privilegios del embudo": the stages a member sees. No rows: every stage.
+model FunnelStageAccess {
+  funnelId     String @map("funnel_id") @db.Uuid
+  membershipId String @map("membership_id") @db.Uuid
+  stageId      String @map("stage_id") @db.Uuid
+
+  funnel     Funnel              @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  membership WorkspaceMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  stage      FunnelStage         @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@id([funnelId, membershipId, stageId])
+  @@index([membershipId])
+  @@index([stageId])
+  @@map("funnel_stage_access")
+}
+
+/// "Automatización de chat con embudos": a chat of the line that changes to
+/// `status` moves its lead to the stage. One rule per line and status.
+model FunnelAutomationRule {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  lineId    String   @map("line_id") @db.Uuid
+  /// OPEN | ON_HOLD | CLOSED (conversation status, stored in MongoDB).
+  status    String   @db.VarChar(16)
+  funnelId  String   @map("funnel_id") @db.Uuid
+  stageId   String   @map("stage_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  line   ChannelLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  funnel Funnel      @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  stage  FunnelStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@unique([lineId, status])
+  @@index([funnelId])
+  @@index([stageId])
+  @@map("funnel_automation_rules")
+}
+
+/// "Personalizar tablero", per member and funnel.
+model FunnelBoardPreference {
+  userId    String   @map("user_id") @db.Uuid
+  funnelId  String   @map("funnel_id") @db.Uuid
+  showValue Boolean  @default(false) @map("show_value")
+  showAgent Boolean  @default(true) @map("show_agent")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  funnel Funnel @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+
+  @@id([userId, funnelId])
+  @@map("funnel_board_preferences")
 }

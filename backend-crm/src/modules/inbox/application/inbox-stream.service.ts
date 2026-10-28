@@ -13,7 +13,11 @@ import {
 import { AuthorizationService } from '../../authorization/application/authorization.service';
 import { AuthService } from '../../auth/application/auth.service';
 import { canSee, type InboxScope } from '../domain/inbox-rules';
-import { InboxEvents, type InboxEvent } from './inbox-events';
+import {
+  InboxEvents,
+  type InboxEvent,
+  type WorkspaceSignal,
+} from './inbox-events';
 import { InboxService, toMessageView, type InboxActor } from './inbox.service';
 
 const PING_MS = 25_000;
@@ -62,6 +66,10 @@ export class InboxStreamService {
       this.events.events$.pipe(
         filter((event) => event.workspaceId === workspaceId),
       ),
+      this.events.signals$.pipe(
+        filter((signal) => signal.workspaceId === workspaceId),
+        map((signal) => ({ signal })),
+      ),
       timer(0, PING_MS).pipe(map(() => null)),
     ).pipe(
       concatMap((event) =>
@@ -69,9 +77,10 @@ export class InboxStreamService {
           (async () => {
             await refreshScope();
             if (!allowed) return false as const;
-            return event
-              ? this.toMessage(event, scope)
-              : { type: 'ping', data: {} };
+            if (!event) return { type: 'ping', data: {} };
+            return 'signal' in event
+              ? signalMessage(event.signal)
+              : this.toMessage(event, scope);
           })(),
         ),
       ),
@@ -106,6 +115,12 @@ export class InboxStreamService {
     };
   }
 }
+
+/** Only what changed: the browser refetches it with its own permissions. */
+const signalMessage = (signal: WorkspaceSignal): MessageEvent => ({
+  type: signal.type,
+  data: signal.data,
+});
 
 function expiryDelay(token: string): number {
   try {

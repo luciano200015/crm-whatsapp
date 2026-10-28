@@ -35,6 +35,10 @@ Fuente única: [`src/modules/authorization/domain/permission-catalog.ts`](../src
 | `conversations.assign`   | ✓ | ✓ |   |
 | `conversations.view_all` | ✓ | ✓ |   |
 | `quick_replies.manage` | ✓ | ✓ |   |
+| `chatbots.manage`  | ✓ | ✓ |   |
+| `funnels.read`     | ✓ | ✓ | ✓ |
+| `funnels.write`    | ✓ | ✓ | ✓ |
+| `funnels.manage`   | ✓ | ✓ |   |
 | `billing.read`     | ✓ | ✓ |   |
 | `billing.manage`   | ✓ |   |   |
 
