@@ -15,6 +15,7 @@ import PersonOutlined from '@mui/icons-material/PersonOutlined'
 import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined'
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
 import AccountTreeOutlined from '@mui/icons-material/AccountTreeOutlined'
+import ViewKanbanOutlined from '@mui/icons-material/ViewKanbanOutlined'
 import type { PermissionRule } from '../auth/usePermissions'
 import { es } from '../i18n/es'
 
@@ -60,6 +61,12 @@ export const NAVIGATION: NavEntry[] = [
     label: 'Autoasignación',
     icon: AltRouteOutlined,
     anyOf: ['channels.manage'],
+  }),
+  link({
+    to: '/funnels',
+    label: es.app.nav.funnels,
+    icon: ViewKanbanOutlined,
+    anyOf: ['funnels.read'],
   }),
   link({
     to: '/quick-replies',

@@ -14,10 +14,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import type { ReactNode } from 'react'
 import { usePermissions } from '../../auth/usePermissions'
+import { es } from '../../i18n/es'
 import { contactsApi, contactKeys } from '../../lib/api/contacts'
 import { errorMessage } from '../../lib/api/errors'
 import { inboxApi, inboxKeys, type Conversation } from '../../lib/api/inbox'
 import { TagChip } from '../contacts/TagChip'
+import { ContactFunnels } from '../funnels/ContactFunnels'
+import { useContactFunnels } from '../funnels/useFunnels'
 import { ContactAvatar } from './ConversationList'
 import { contactName, STATUS_LABELS } from './inbox-format'
 
@@ -60,6 +63,7 @@ export function ContactPanel({
     queryFn: () => contactsApi.tags(workspaceId),
     enabled: has('contacts.read') && has('contacts.write'),
   })
+  const funnels = useContactFunnels(workspaceId, conversation.contactId, conversation.lineId)
   const save = useMutation({
     // Through the chat, so the list and the header show the new tags at once.
     mutationFn: (tagIds: string[]) => inboxApi.setTags(workspaceId, conversation.id, tagIds),
@@ -162,6 +166,18 @@ export function ContactPanel({
         )}
         {tags.error && <Alert severity="warning">{errorMessage(tags.error)}</Alert>}
       </Section>
+      {!!funnels.query.data?.length && (
+        <>
+          <Divider />
+          <Section title={es.funnels.chat.funnels}>
+            <ContactFunnels
+              workspaceId={workspaceId}
+              contactId={conversation.contactId}
+              lineId={conversation.lineId}
+            />
+          </Section>
+        </>
+      )}
       {contact.data?.notes && (
         <>
           <Divider />

@@ -87,6 +87,18 @@ export const routes = [
                 ],
               },
               {
+                element: <RequirePermission anyOf={['funnels.read']} />,
+                children: [
+                  {
+                    path: '/funnels/:funnelId?',
+                    lazy: async () => ({
+                      Component: (await import('./pages/app/funnels/FunnelBoardPage'))
+                        .FunnelBoardPage,
+                    }),
+                  },
+                ],
+              },
+              {
                 element: <RequirePermission anyOf={['chatbots.manage']} />,
                 children: [
                   {

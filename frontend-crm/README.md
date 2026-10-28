@@ -96,6 +96,7 @@ Los mensajes de la API se muestran en español. Los `401` de login siempre muest
 | `/inbox` | `messages.read` | Bandeja de mensajes (`?conversation=` abre un chat, `?contactId=` filtra por contacto) |
 | `/inbox/auto-assignment` | `channels.manage` | Autoasignación |
 | `/quick-replies` | `quick_replies.manage` | Respuestas rápidas |
+| `/funnels`, `/funnels/:funnelId` | `funnels.read` | Embudos: tablero Kanban (`/funnels` abre el último embudo usado o el primero) |
 | `/team/agents` | `members.read` | Equipo → Agentes (`/team/members` redirige aquí) |
 | `/team/roles` | `roles.read` | Equipo → Roles |
 | `/forbidden` | autenticado | «No autorizado»: adonde se redirige al abrir una página sin permiso |
@@ -288,3 +289,34 @@ Para probar sin WhatsApp real, activa el modo simulado y carga el seed del backe
   - **Configuración** ([`BotSettingsDialog.tsx`](src/components/chatbots/BotSettingsDialog.tsx)): nombre, descripción, líneas, mensaje cuando no se encuentra respuesta, palabras para volver al saludo, duración de conversación activa (30 min, mínimo 2), mensaje de inactividad (hasta 29 min) y días y horas con zona horaria (America/La_Paz por defecto). Sin días elegidos, el bot queda apagado.
 
 Reglas, nodos y API: [Chatbots](../backend-crm/docs/chatbots.md).
+
+El nodo «Establecer contacto en embudo» elige un embudo (primero los de las líneas del bot) y una etapa. Avisa si el embudo es de otra línea, porque entonces el bot no mueve al contacto.
+
+## Embudos
+
+**Embudos** en el menú (permiso `funnels.read`; plan Empresa o Corporativo) es un tablero Kanban de leads por embudo ([`FunnelBoardPage.tsx`](src/pages/app/funnels/FunnelBoardPage.tsx)). Un lead es un contacto dentro de un embudo.
+
+- **Barra superior:**
+  - selector de embudo agrupado por línea;
+  - «Nuevo embudo»;
+  - búsqueda (espera 300 ms);
+  - «Filtros» ([`FunnelFilters.tsx`](src/components/funnels/FunnelFilters.tsx)): agentes, sin asignar, etiquetas, estado del chat, archivados, valor mínimo y máximo, y orden. Hay AND entre grupos y OR dentro de cada uno; «Limpiar» conserva la búsqueda;
+  - «Agregar lead»;
+  - «Personalizar tablero» (mostrar valor y agente, guardado por usuario);
+  - menú ⋮ con Editar embudo, Sincronizar contactos, Privilegios, Automatización por estado del chat y Exportar a CSV.
+- **Columnas** ([`StageColumn.tsx`](src/components/funnels/StageColumn.tsx)):
+  - muestran conteo y total en $ (el valor es solo informativo);
+  - menú con Renombrar, Eliminar (si tiene leads, pide la etapa destino), Seleccionar leads y Seleccionar toda la etapa;
+  - «Cargar más»;
+  - con `funnels.manage` se reordenan con su asa, y «+ Etapa» agrega una.
+- **Tarjetas** ([`LeadCard.tsx`](src/components/funnels/LeadCard.tsx)):
+  - contenido: nombre, último mensaje, estado del chat, etiquetas, valor y agente;
+  - si el chat es de otro agente, dice «Chat de otro agente» y no muestra el mensaje;
+  - se arrastran con mouse, toque o teclado ([dnd-kit](https://dndkit.com): Espacio, flechas, Espacio) y también se mueven con el menú «Mover a…»;
+  - el movimiento es optimista: si la API falla, la tarjeta vuelve a su lugar y se muestra el error.
+- **Selección múltiple:** una barra inferior con Mover a, Archivar o Restaurar y Quitar del embudo, cada una con confirmación.
+- **Chat del lead** ([`LeadChatDialog.tsx`](src/components/funnels/LeadChatDialog.tsx)): un modal con la etapa del contacto en cada embudo, el valor, Archivar y Quitar, y debajo la conversación de la línea (`ConversationPanel`). No se abre el chat de otro agente.
+- **Bandeja:** el panel del contacto tiene la sección «Embudos» para cambiar su etapa ([`ContactFunnels.tsx`](src/components/funnels/ContactFunnels.tsx)).
+- **Tiempo real:** `InboxRealtime` recarga los tableros con `funnel.changed` y con los cambios de los chats.
+
+Reglas, API y CSV: [Embudos](../backend-crm/docs/funnels.md).

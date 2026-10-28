@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router'
 import { usePermissions } from '../../auth/usePermissions'
 import { apiResponse } from '../../lib/api/client'
 import { readEvents } from '../../lib/api/event-stream'
+import { funnelKeys } from '../../lib/api/funnels'
 import { inboxBase, inboxKeys, type ChatMessage, type Conversation } from '../../lib/api/inbox'
 import { tokenStore } from '../../lib/api/token-store'
 import { meQueryKey } from '../../lib/api/users'
@@ -118,6 +119,9 @@ export function InboxRealtime() {
             void client.invalidateQueries({ queryKey: meQueryKey })
             return
           }
+          // Boards show the chat's status, agent and last message.
+          void client.invalidateQueries({ queryKey: funnelKeys.all(workspaceId) })
+          if (type === 'funnel.changed') return
           if (type === 'conversation.removed') {
             client.removeQueries({ queryKey: ['inbox', workspaceId, 'conversation'] })
             client.removeQueries({ queryKey: ['inbox', workspaceId, 'messages'] })

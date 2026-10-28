@@ -91,6 +91,7 @@ export function InboxToolbar({
   const links = [
     { to: '/quick-replies', label: 'Respuestas rápidas', allowed: has('quick_replies.manage') },
     { to: '/inbox/auto-assignment', label: 'Autoasignación', allowed: has('channels.manage') },
+    { to: '/funnels', label: 'Embudos', allowed: has('funnels.read') },
     { to: '/channels/lines', label: 'Líneas de WhatsApp', allowed: has('channels.read') },
   ].filter((link) => link.allowed)
 

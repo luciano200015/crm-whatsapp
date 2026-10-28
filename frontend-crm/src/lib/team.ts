@@ -11,6 +11,9 @@ export const PERMISSION_GROUP_ORDER = [
   'channels',
   'messages',
   'conversations',
+  'quick_replies',
+  'chatbots',
+  'funnels',
   'billing',
 ] as const
 
