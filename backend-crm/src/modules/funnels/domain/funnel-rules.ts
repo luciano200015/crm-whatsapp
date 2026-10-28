@@ -19,7 +19,7 @@ export const FUNNEL_LIMITS = {
   amountCents: 10_000_000_000_000,
   archiveAfterDays: 365,
   /** Leads of each column in the board; the rest with "Cargar más". */
-  pageSize: 50,
+  pageSize: 10,
   /** Larger exports must be filtered first. */
   exportRows: 10_000,
 } as const;

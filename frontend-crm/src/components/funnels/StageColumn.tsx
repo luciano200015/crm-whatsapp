@@ -15,6 +15,7 @@ import {
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useState } from 'react'
+import { useWhenVisible } from '../../hooks/useWhenVisible'
 import { es } from '../../i18n/es'
 import type { BoardColumn, Lead } from '../../lib/api/funnels'
 import { formatMoney } from './funnel-format'
@@ -60,6 +61,8 @@ export function StageColumn({
 }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null)
   const { stage } = column
+  // 10 leads at a time: the next ones load when the end of the column shows.
+  const end = useWhenVisible<HTMLDivElement>(onLoadMore, hasMore && !loadingMore, leads.length)
   const {
     attributes,
     listeners,
@@ -151,9 +154,15 @@ export function StageColumn({
           </Typography>
         )}
         {hasMore && (
-          <Button size="small" onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? <CircularProgress size={16} /> : t.loadMore}
-          </Button>
+          <Box ref={end} sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+            {loadingMore ? (
+              <CircularProgress size={16} aria-label={t.loadMore} />
+            ) : (
+              <Button size="small" onClick={onLoadMore}>
+                {t.loadMore}
+              </Button>
+            )}
+          </Box>
         )}
       </Stack>
       <Menu anchorEl={menu} open={!!menu} onClose={close}>

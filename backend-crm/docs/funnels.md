@@ -60,7 +60,7 @@ Bajo `/api/v1/workspaces/:workspaceId`.
 | `POST /funnels/:id/stages` · `PATCH …/stages/:stageId` | manage | Crear o renombrar una etapa (`{ name }`) |
 | `PUT /funnels/:id/stages/order` | manage | `{ stageIds }`: todas las etapas, en el nuevo orden |
 | `DELETE /funnels/:id/stages/:stageId?moveTo=` | manage | Ver «Borrar una etapa» |
-| `GET /funnels/:id/board` | read | Columnas con `count`, `totalCents`, `hasMore` y los primeros 50 leads |
+| `GET /funnels/:id/board` | read | Columnas con `count`, `totalCents`, `hasMore` y los primeros 10 leads |
 | `GET /funnels/:id/stages/:stageId/leads?offset=` | read | «Cargar más» de una columna |
 | `POST /funnels/:id/leads` | write | `{ contactId, stageId }`. Si ya está: 409 `LEAD_EXISTS` con `leadId` |
 | `PATCH /funnels/:id/leads/:leadId/stage` · `…/amount` · `…/archive` | write | `{ stageId, version? }` · `{ amountCents, version? }` · `{ archived }` |
@@ -130,5 +130,5 @@ Lo que la documentación pública no define y aquí se resolvió así:
 - **Reglas de automatización:** hay una por estado y línea, sin prioridades.
 - **Búsqueda:** solo dentro del embudo abierto.
 - **Archivado por inactividad:** el umbral lo define cada embudo y viene apagado.
-- **Paginación:** 50 leads por columna y «Cargar más».
+- **Paginación:** 10 leads por columna; al bajar en la columna se cargan 10 más (`GET …/stages/:stageId/leads?offset=`).
 - **CSV:** las columnas son las indicadas arriba.

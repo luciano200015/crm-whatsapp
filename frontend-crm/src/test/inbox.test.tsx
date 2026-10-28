@@ -75,6 +75,9 @@ const server = setupServer(
       closed: 7,
       closedUnread: 1,
       unread: chat.unreadCount,
+      // The tabs show unread messages, not chats.
+      unreadByStatus: { OPEN: 3, ON_HOLD: 120, CLOSED: 1 },
+      mineUnreadByStatus: { OPEN: 1, ON_HOLD: 0, CLOSED: 0 },
     }),
   ),
   http.get(api(`${base}/options`), () =>
@@ -145,6 +148,12 @@ const server = setupServer(
     if (name === 'reopen') chat = { ...chat, status: 'OPEN' }
     if (name === 'take')
       chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
+    if (name === 'accept')
+      chat = {
+        ...chat,
+        status: 'OPEN',
+        assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' },
+      }
     return HttpResponse.json(chat)
   }),
   http.get(api('/workspaces/w1/quick-replies'), () => HttpResponse.json(quickReplies)),
@@ -263,6 +272,35 @@ describe('Inbox', () => {
     expect(actions.map((action) => action.name)).toEqual(
       expect.arrayContaining(['read', 'take', 'messages', 'notes', 'close', 'reopen']),
     )
+  })
+
+  it('«Aceptar» takes a chat on hold and opens it', async () => {
+    chat = { ...chat, status: 'ON_HOLD' }
+    renderAt('/inbox')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: /En espera/ }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Aceptar el chat con Lucía Cliente' }),
+    )
+    await waitFor(() => expect(actions.map((action) => action.name)).toContain('accept'))
+    expect(await screen.findByText('Aceptaste el chat con Lucía Cliente')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Abierto/ })).toHaveAttribute('aria-selected', 'true'),
+    )
+    // Accepted: it is mine and open, so there is nothing left to accept.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Aceptar el chat con Lucía Cliente' }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('offers no «Aceptar» without permission to reply', async () => {
+    permissions = ['messages.read']
+    chat = { ...chat, status: 'ON_HOLD' }
+    renderAt('/inbox')
+    await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
+    expect(screen.queryByRole('button', { name: /Aceptar el chat/ })).not.toBeInTheDocument()
   })
 
   it('blocks expired replies while allowing internal notes', async () => {
@@ -387,9 +425,11 @@ describe('Inbox', () => {
     const user = userEvent.setup()
     await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
     expect(listUrls.at(-1)?.searchParams.get('view')).toBe('all')
-    // The open tab counts the chats of the current view.
+    // Each tab counts the unread messages of the current view, not its chats.
     expect(within(screen.getByRole('tab', { name: 'Abierto' })).getByText('3')).toBeInTheDocument()
-    // Cerrado: only the closed chats nobody has read yet, not all 7.
+    expect(
+      within(screen.getByRole('tab', { name: /En espera/ })).getByText('99+'),
+    ).toBeInTheDocument()
     const closedTab = screen.getByRole('tab', { name: /Cerrado/ })
     expect(within(closedTab).getByText('1')).toBeInTheDocument()
     expect(within(closedTab).queryByText('7')).not.toBeInTheDocument()

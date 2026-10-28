@@ -318,6 +318,8 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       mineClosed,
       closedUnread,
       mineClosedUnread,
+      unreadByStatus,
+      mineUnreadByStatus,
     ] = await Promise.all([
       this.conversations.countDocuments({ ...open, ...mineOnly }),
       this.conversations.countDocuments({
@@ -362,6 +364,8 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
         unreadCount: { $gt: 0 },
         ...mineOnly,
       }),
+      this.unreadByStatus({ workspaceId, ...visible }),
+      this.unreadByStatus({ workspaceId, ...mineOnly }),
     ]);
     return {
       mine,
@@ -374,6 +378,28 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       closedUnread,
       mineClosedUnread,
       unread: unread[0]?.total ?? 0,
+      unreadByStatus,
+      mineUnreadByStatus,
+    };
+  }
+
+  /** Messages nobody read, added up by the status of their chat. */
+  private async unreadByStatus(
+    match: ConversationFilter,
+  ): Promise<Record<ConversationStatus, number>> {
+    const rows = await this.conversations.aggregate<{
+      _id: ConversationStatus;
+      total: number;
+    }>([
+      { $match: { ...match, unreadCount: { $gt: 0 } } },
+      { $group: { _id: '$status', total: { $sum: '$unreadCount' } } },
+    ]);
+    const total = (status: ConversationStatus) =>
+      rows.find((row) => row._id === status)?.total ?? 0;
+    return {
+      OPEN: total('OPEN'),
+      ON_HOLD: total('ON_HOLD'),
+      CLOSED: total('CLOSED'),
     };
   }
 

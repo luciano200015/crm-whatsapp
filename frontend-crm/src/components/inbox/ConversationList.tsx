@@ -5,7 +5,17 @@ import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded'
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded'
 import SmartToyRounded from '@mui/icons-material/SmartToyRounded'
 import WhatsApp from '@mui/icons-material/WhatsApp'
-import { Avatar, Badge, Box, Chip, ListItemButton, Stack, Tooltip, Typography } from '@mui/material'
+import {
+  Avatar,
+  Badge,
+  Box,
+  Button,
+  Chip,
+  ListItemButton,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import type { Conversation } from '../../lib/api/inbox'
 import type { TagSummary } from '../../lib/api/types'
@@ -135,6 +145,8 @@ export function ConversationListItem({
   meId,
   tags,
   lineColor,
+  onAccept,
+  accepting,
 }: {
   conversation: Conversation
   selected: boolean
@@ -145,6 +157,9 @@ export function ConversationListItem({
   tags?: Map<string, TagSummary>
   /** Color of the chat's line: frames the row and rings the avatar, as in wasapi. */
   lineColor?: string | null
+  /** «Aceptar» on a chat on hold: it becomes mine and goes back to Abierto. */
+  onAccept?: () => void
+  accepting?: boolean
 }) {
   const colors = useChatColors()
   const unread = conversation.unreadCount > 0
@@ -195,16 +210,35 @@ export function ConversationListItem({
           <Typography noWrap sx={{ flex: 1, fontWeight: unread ? 700 : 500 }}>
             {contactName(conversation.contact)}
           </Typography>
-          <Typography
-            variant="caption"
-            sx={{
-              color: unread ? colors.unread : 'text.secondary',
-              fontWeight: unread ? 700 : 400,
-              flexShrink: 0,
-            }}
-          >
-            {listTime(last?.at ?? conversation.lastActivityAt)}
-          </Typography>
+          <Stack sx={{ alignItems: 'flex-end', flexShrink: 0 }}>
+            {onAccept && (
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                disabled={accepting}
+                aria-label={`Aceptar el chat con ${contactName(conversation.contact)}`}
+                // Inside the row: accepting does not open the chat.
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onAccept()
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+                sx={{ minWidth: 0, py: 0, px: 1, fontSize: 12, fontWeight: 700, mb: 0.25 }}
+              >
+                Aceptar
+              </Button>
+            )}
+            <Typography
+              variant="caption"
+              sx={{
+                color: unread ? colors.unread : 'text.secondary',
+                fontWeight: unread ? 700 : 400,
+              }}
+            >
+              {listTime(last?.at ?? conversation.lastActivityAt)}
+            </Typography>
+          </Stack>
         </Stack>
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'text.secondary' }}>
           {last?.direction === 'OUT' && <LastDelivery status={last.status} colors={colors} />}

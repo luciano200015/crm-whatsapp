@@ -259,7 +259,7 @@ function FunnelBoard({
   /** Leads loaded with «Cargar más», by stage, and whether there are more. */
   const [extra, setExtra] = useState<Record<string, Lead[]>>({})
   const [hasMore, setHasMore] = useState<Record<string, boolean>>({})
-  const [loadingMore, setLoadingMore] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState<Record<string, boolean>>({})
 
   /** Other filters: other pages, and nothing selected. */
   const changeFilters = (update: (current: BoardFilters) => BoardFilters) => {
@@ -402,7 +402,8 @@ function FunnelBoard({
   })
 
   const loadMore = async (stageId: string, offset: number) => {
-    setLoadingMore(stageId)
+    if (loadingMore[stageId]) return
+    setLoadingMore((current) => ({ ...current, [stageId]: true }))
     try {
       const page = await funnelsApi.stageLeads(workspaceId, summary.id, stageId, filters, offset)
       setExtra((current) => ({
@@ -411,9 +412,11 @@ function FunnelBoard({
       }))
       setHasMore((current) => ({ ...current, [stageId]: page.hasMore }))
     } catch (error: unknown) {
+      // No retrying in a loop while the end of the column is in view.
+      setHasMore((current) => ({ ...current, [stageId]: false }))
       fail(error)
     } finally {
-      setLoadingMore(null)
+      setLoadingMore((current) => ({ ...current, [stageId]: false }))
     }
   }
 
@@ -708,7 +711,7 @@ function FunnelBoard({
                       column={column}
                       leads={leads}
                       hasMore={hasMore[column.stage.id] ?? column.hasMore}
-                      loadingMore={loadingMore === column.stage.id}
+                      loadingMore={!!loadingMore[column.stage.id]}
                       onLoadMore={() => void loadMore(column.stage.id, leads.length)}
                       canManage={canManage}
                       canWrite={canWrite}

@@ -393,6 +393,27 @@ export class ConversationsController {
     return this.inbox.take(actor(auth, workspace), conversationId);
   }
 
+  @Post(':conversationId/accept')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: '«Aceptar» a chat on hold',
+    description:
+      "Assigns the chat to me (someone else's needs conversations.assign) and reopens it.",
+  })
+  @ApiOkResponse({ type: ConversationDto })
+  @ApiConflictResponse({
+    description: 'ALREADY_ASSIGNED.',
+    type: ErrorResponseDto,
+  })
+  accept(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ConversationDto> {
+    return this.inbox.accept(actor(auth, workspace), conversationId);
+  }
+
   @Post(':conversationId/close')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('messages.send')

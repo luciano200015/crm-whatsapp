@@ -642,6 +642,50 @@ describe('Inbox (e2e)', () => {
     expect(await conversations(owner, '?view=all')).toHaveLength(1);
   });
 
+  it('counts unread messages by status and «Aceptar» takes a chat on hold', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana Agente');
+    const beto = await agentOf(owner, 'Beto Agente');
+    const line = await lineWithAgents(owner, [ana, beto], false);
+    await incoming(line, '59170000093', 'Hola');
+    await incoming(line, '59170000093', '¿Están?');
+    await incoming(line, '59170000094', 'Buenas');
+    // Newest first: the chat with two messages is the second one.
+    const [second, first] = await conversations(owner, '?view=all');
+    await api(owner).post(`/conversations/${first?.id}/hold`).expect(200);
+
+    // Messages, not chats: 2 waiting on hold and 1 open.
+    let counts = (await api(ana).get('/conversations/counts').expect(200))
+      .body as Record<string, unknown>;
+    expect(counts).toMatchObject({
+      unreadByStatus: { OPEN: 1, ON_HOLD: 2, CLOSED: 0 },
+      mineUnreadByStatus: { OPEN: 0, ON_HOLD: 0, CLOSED: 0 },
+    });
+
+    const accepted = await api(ana)
+      .post(`/conversations/${first?.id}/accept`)
+      .expect(200);
+    expect(accepted.body).toMatchObject({
+      status: 'OPEN',
+      assignee: { name: 'Ana Agente' },
+    });
+    counts = (await api(ana).get('/conversations/counts').expect(200))
+      .body as Record<string, unknown>;
+    expect(counts).toMatchObject({
+      mineUnreadByStatus: { OPEN: 2, ON_HOLD: 0, CLOSED: 0 },
+    });
+
+    // Ana's chat, on hold again: Beto cannot take it, the owner can.
+    await api(ana).post(`/conversations/${first?.id}/hold`).expect(200);
+    await api(owner).post(`/conversations/${second?.id}/hold`).expect(200);
+    const taken = await api(beto)
+      .post(`/conversations/${first?.id}/accept`)
+      .expect(404);
+    expect(taken.body).toMatchObject({ code: 'CONVERSATION_NOT_FOUND' });
+    await api(owner).post(`/conversations/${first?.id}/accept`).expect(200);
+    await api(beto).post(`/conversations/${second?.id}/accept`).expect(200);
+  });
+
   it('sends contact cards and reads the ones customers share', async () => {
     const owner = await signUp();
     const line = await lineWithAgents(owner, [], false);

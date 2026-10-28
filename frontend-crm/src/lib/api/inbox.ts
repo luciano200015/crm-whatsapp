@@ -185,6 +185,10 @@ export interface InboxCounts {
   /** Closed chats with unread messages, e.g. closed by the chatbot. */
   closedUnread?: number
   unread: number
+  /** Unread messages of the chats I see, by status (the tabs of «Equipo»). */
+  unreadByStatus?: Record<Conversation['status'], number>
+  /** Unread messages of my chats, by status (the tabs of «Mis chats»). */
+  mineUnreadByStatus?: Record<Conversation['status'], number>
 }
 
 export const inboxBase = (workspaceId: string) =>
@@ -205,7 +209,7 @@ export const inboxKeys = {
 
 export const inboxApi = {
   list(workspaceId: string, filter: InboxFilter, cursor?: string, signal?: AbortSignal) {
-    const query = new URLSearchParams({ view: filter.view, status: filter.status, limit: '30' })
+    const query = new URLSearchParams({ view: filter.view, status: filter.status, limit: '10' })
     for (const key of ['search', 'lineId', 'contactId', 'from', 'to', 'sort'] as const) {
       if (filter[key]) query.set(key, filter[key])
     }
@@ -304,7 +308,7 @@ export const inboxApi = {
   action(
     workspaceId: string,
     id: string,
-    action: 'take' | 'read' | 'unread' | 'hold' | 'close' | 'reopen' | 'assign',
+    action: 'take' | 'accept' | 'read' | 'unread' | 'hold' | 'close' | 'reopen' | 'assign',
     membershipId?: string | null,
   ) {
     return apiRequest<Conversation>(`${conversationPath(workspaceId, id)}/${action}`, {

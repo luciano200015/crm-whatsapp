@@ -3,8 +3,14 @@ import { useEffect, useRef } from 'react'
 /**
  * Calls `onVisible` when the returned element scrolls into view (infinite
  * lists: older messages, more chats). Nothing happens while `enabled` is false.
+ * A new `version` (e.g. the rows loaded) looks again: with short pages the end
+ * may still be in view after loading one.
  */
-export function useWhenVisible<T extends HTMLElement>(onVisible: () => void, enabled: boolean) {
+export function useWhenVisible<T extends HTMLElement>(
+  onVisible: () => void,
+  enabled: boolean,
+  version?: unknown,
+) {
   const ref = useRef<T>(null)
   const callback = useRef(onVisible)
   useEffect(() => {
@@ -22,6 +28,6 @@ export function useWhenVisible<T extends HTMLElement>(onVisible: () => void, ena
     )
     observer.observe(element)
     return () => observer.disconnect()
-  }, [enabled])
+  }, [enabled, version])
   return ref
 }

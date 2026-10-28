@@ -1091,6 +1091,25 @@ export class InboxService {
     return this.view(updated);
   }
 
+  /**
+   * «Aceptar» in En espera: the chat becomes mine and goes back to Abierto.
+   * Someone else's chat needs conversations.assign.
+   */
+  async accept(
+    actor: InboxActor,
+    conversationId: string,
+  ): Promise<ConversationView> {
+    const { membershipId, permissions } = actor.access;
+    const conversation = await this.requireVisible(actor, conversationId);
+    if (conversation.assignee?.membershipId !== membershipId) {
+      if (!conversation.assignee) await this.take(actor, conversationId);
+      else if (permissions.has('conversations.assign'))
+        await this.assign(actor, conversationId, membershipId);
+      else throw InboxErrors.alreadyAssigned();
+    }
+    return this.setStatus(actor, conversationId, 'OPEN');
+  }
+
   async setStatus(
     actor: InboxActor,
     conversationId: string,

@@ -21,13 +21,15 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSnackbar } from 'notistack'
 import { useDeferredValue, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { useMe } from '../../../auth/useMe'
 import { usePermissions } from '../../../auth/usePermissions'
 import { useChatColors } from '../../../components/inbox/chat-colors'
 import { ConversationFilters } from '../../../components/inbox/ConversationFilters'
+import { contactName } from '../../../components/inbox/inbox-format'
 import {
   activeFilters,
   NO_FILTERS,
@@ -43,7 +45,7 @@ import { useFillHeight } from '../../../hooks/useFillHeight'
 import { useWhenVisible } from '../../../hooks/useWhenVisible'
 import { contactKeys, contactsApi } from '../../../lib/api/contacts'
 import { errorMessage } from '../../../lib/api/errors'
-import { inboxApi, inboxKeys, type InboxFilter } from '../../../lib/api/inbox'
+import { inboxApi, inboxKeys, type Conversation, type InboxFilter } from '../../../lib/api/inbox'
 import { useActiveWorkspace } from '../../../workspace/active-workspace-context'
 
 export function InboxPage() {
@@ -79,8 +81,8 @@ const subscribeFullscreen = (onChange: () => void) => {
 }
 const isFullscreen = () => !!document.fullscreenElement
 
-/** Tab of a status with its icon and counter (red on «Abierto», as in wasapi). */
-function statusTab(icon: ReactNode, label: string, count: number | undefined, alert: boolean) {
+/** Tab of a status with its icon and its unread messages (red, 99+ at most, as in wasapi). */
+function statusTab(icon: ReactNode, label: string, count: number | undefined) {
   return (
     <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', whiteSpace: 'nowrap' }}>
       {icon}
@@ -89,7 +91,7 @@ function statusTab(icon: ReactNode, label: string, count: number | undefined, al
         <Chip
           size="small"
           label={count > 99 ? '99+' : count}
-          color={alert ? 'error' : 'default'}
+          color="error"
           sx={{ height: 20, fontSize: 12, fontWeight: 700 }}
         />
       )}
@@ -100,6 +102,7 @@ function statusTab(icon: ReactNode, label: string, count: number | undefined, al
 function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
   const { has } = usePermissions()
   const client = useQueryClient()
+  const { enqueueSnackbar } = useSnackbar()
   const colors = useChatColors()
   const meId = useMe().data?.id
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLDivElement>()
@@ -126,13 +129,12 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
     ...toQuery(canFilterAgents ? filters : { ...filters, assigneeIds: [] }),
   }
   const counts = useInboxCounts()
-  const tabCounts = teamView
-    ? { OPEN: counts.data?.all, ON_HOLD: counts.data?.onHold, CLOSED: counts.data?.closedUnread }
-    : {
-        OPEN: counts.data?.mine,
-        ON_HOLD: counts.data?.mineOnHold,
-        CLOSED: counts.data?.mineClosedUnread,
-      }
+  // Messages nobody read in each tab, not chats.
+  const tabCounts = (teamView ? counts.data?.unreadByStatus : counts.data?.mineUnreadByStatus) ?? {
+    OPEN: undefined,
+    ON_HOLD: undefined,
+    CLOSED: undefined,
+  }
   const options = useQuery({
     queryKey: inboxKeys.options(workspaceId),
     queryFn: ({ signal }) => inboxApi.options(workspaceId, signal),
@@ -159,11 +161,34 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
         .map((conversation) => [conversation.id, conversation]),
     ).values(),
   ]
-  const moreChats = useWhenVisible<HTMLDivElement>(() => {
-    if (conversations.hasNextPage && !conversations.isFetchingNextPage) {
-      void conversations.fetchNextPage()
-    }
-  }, !!conversations.hasNextPage)
+  const moreChats = useWhenVisible<HTMLDivElement>(
+    () => {
+      if (conversations.hasNextPage && !conversations.isFetchingNextPage) {
+        void conversations.fetchNextPage()
+      }
+    },
+    !!conversations.hasNextPage &&
+      !conversations.isFetchingNextPage &&
+      !conversations.isFetchNextPageError,
+    rows.length,
+  )
+  // «Aceptar» in En espera: mine (someone else's needs conversations.assign) and open again.
+  const canAccept = (conversation: Conversation) =>
+    conversation.status === 'ON_HOLD' &&
+    has('messages.send') &&
+    (!conversation.assignee || conversation.assignee.userId === meId || has('conversations.assign'))
+  const accept = useMutation({
+    mutationFn: (id: string) => inboxApi.action(workspaceId, id, 'accept'),
+    onSuccess: (conversation) => {
+      enqueueSnackbar(`Aceptaste el chat con ${contactName(conversation.contact)}`, {
+        variant: 'success',
+      })
+      setStatus('OPEN')
+      select(conversation.id)
+    },
+    onError: (error) => enqueueSnackbar(errorMessage(error), { variant: 'error' }),
+    onSettled: () => client.invalidateQueries({ queryKey: inboxKeys.all(workspaceId) }),
+  })
   const select = (id: string) => {
     const next = new URLSearchParams(params)
     if (id) next.set('conversation', id)
@@ -297,7 +322,6 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                     <MailOutlineRounded fontSize="small" />,
                     'Abierto',
                     tabCounts.OPEN,
-                    true,
                   )}
                 />
                 <Tab
@@ -307,7 +331,6 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                     <ScheduleRounded fontSize="small" />,
                     'En espera',
                     tabCounts.ON_HOLD,
-                    false,
                   )}
                 />
                 <Tab
@@ -317,7 +340,6 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                     <TaskAltRounded fontSize="small" />,
                     'Cerrado',
                     tabCounts.CLOSED,
-                    false,
                   )}
                 />
               </Tabs>
@@ -336,6 +358,10 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                   meId={meId}
                   tags={tagsById}
                   lineColor={lineColors.get(conversation.lineId)}
+                  onAccept={
+                    canAccept(conversation) ? () => accept.mutate(conversation.id) : undefined
+                  }
+                  accepting={accept.isPending && accept.variables === conversation.id}
                 />
               ))}
               {noLines ? (

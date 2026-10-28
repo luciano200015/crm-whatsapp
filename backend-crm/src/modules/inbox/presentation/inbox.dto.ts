@@ -486,6 +486,17 @@ export class ConversationPageDto {
   nextCursor: string | null;
 }
 
+export class UnreadByStatusDto {
+  @ApiProperty()
+  OPEN: number;
+
+  @ApiProperty()
+  ON_HOLD: number;
+
+  @ApiProperty()
+  CLOSED: number;
+}
+
 export class InboxCountsDto {
   @ApiProperty({ description: 'Open conversations assigned to me.' })
   mine: number;
@@ -523,6 +534,20 @@ export class InboxCountsDto {
     description: 'Unread messages in open conversations visible to me.',
   })
   unread: number;
+
+  @ApiProperty({
+    description:
+      'Unread messages of the chats visible to me, by status (the badges of the team view).',
+    example: { OPEN: 12, ON_HOLD: 3, CLOSED: 0 },
+  })
+  unreadByStatus: UnreadByStatusDto;
+
+  @ApiProperty({
+    description:
+      'Unread messages of my chats, by status (the badges of «Mis chats»).',
+    example: { OPEN: 4, ON_HOLD: 1, CLOSED: 0 },
+  })
+  mineUnreadByStatus: UnreadByStatusDto;
 }
 
 export class MediaDto {

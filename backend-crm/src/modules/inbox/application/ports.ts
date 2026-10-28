@@ -199,6 +199,10 @@ export interface InboxCounts {
   mineClosedUnread: number;
   /** Unread messages in open or on-hold conversations visible to me. */
   unread: number;
+  /** Unread messages of the chats visible to me, by status (the team's tabs). */
+  unreadByStatus: Record<ConversationStatus, number>;
+  /** Unread messages of my chats, by status (my tabs). */
+  mineUnreadByStatus: Record<ConversationStatus, number>;
 }
 
 export interface NewMessage {
