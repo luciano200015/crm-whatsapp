@@ -702,24 +702,47 @@ describe('Inbox (e2e)', () => {
         })
         .expect(200);
       await api(owner)
-        .patch(`/contacts/${waiting?.contactId}`, {
-          agentMembershipId: '0190e7a0-0000-7000-8000-000000000000',
+        .put(`/contacts/${waiting?.contactId}/agents`, {
+          agents: [
+            {
+              lineId: line.id,
+              membershipId: '0190e7a0-0000-7000-8000-000000000000',
+            },
+          ],
         })
         .expect(404);
       const contact = await api(owner)
-        .patch(`/contacts/${waiting?.contactId}`, {
-          agentMembershipId: beto.membershipId,
+        .put(`/contacts/${waiting?.contactId}/agents`, {
+          agents: [{ lineId: line.id, membershipId: beto.membershipId }],
         })
         .expect(200);
       expect(contact.body).toMatchObject({
-        agentMembershipId: beto.membershipId,
+        lineAgents: [{ lineId: line.id, membershipId: beto.membershipId }],
       });
+      const advisers = await api(owner)
+        .get(`/contacts/${waiting?.contactId}/agents`)
+        .expect(200);
+      expect(advisers.body).toEqual([
+        expect.objectContaining({
+          lineId: line.id,
+          agentMembershipId: beto.membershipId,
+          attending: null,
+        }),
+      ]);
       await api(owner).post(`/conversations/${waiting?.id}/close`).expect(200);
       await incoming(line, '59170000201', 'Volví');
       const reopened = (await conversations(owner, '?view=all')).find(
         (chat) => chat.id === waiting?.id,
       );
       expect(reopened?.assignee?.name).toBe('Beto Agente');
+      // «Atendiendo ahora» shows who has the chat.
+      const attending = await api(owner)
+        .get(`/contacts/${waiting?.contactId}/agents`)
+        .expect(200);
+      expect(
+        (attending.body as { attending: { name: string } | null }[])[0]
+          ?.attending?.name,
+      ).toBe('Beto Agente');
     } finally {
       controller.abort();
     }

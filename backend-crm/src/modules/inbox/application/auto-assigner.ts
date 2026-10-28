@@ -73,8 +73,12 @@ export class AutoAssigner {
         workspaceId,
         request.contactId,
       );
+      // «Asignación de asesores»: the contact's regular agent on this line.
+      const regularId = contact?.lineAgents.find(
+        (agent) => agent.lineId === lineId,
+      )?.membershipId;
       const regular = members.find(
-        (member) => member.membershipId === contact?.agentMembershipId,
+        (member) => member.membershipId === regularId,
       );
       // The regular agent gets it even when away; one who left the line does not.
       if (regular && (regular.viewAll || regular.lineIds.includes(lineId))) {

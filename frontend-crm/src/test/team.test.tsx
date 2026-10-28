@@ -334,7 +334,7 @@ describe('Team: roles', () => {
         {
           name: 'Ventas',
           description: null,
-          permissions: ['contacts.read', 'contacts.write', 'messages.send'],
+          permissions: ['contacts.manage', 'contacts.read', 'contacts.write', 'messages.send'],
         },
       ]),
     )

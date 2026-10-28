@@ -385,6 +385,19 @@ export class MongoLeadsStore extends LeadsStore implements OnModuleInit {
     return deletedCount;
   }
 
+  async removeContacts(
+    workspaceId: string,
+    contactIds: readonly string[] | 'all',
+  ): Promise<string[]> {
+    const filter = {
+      workspaceId,
+      ...(contactIds !== 'all' && { contactId: { $in: [...contactIds] } }),
+    };
+    const funnelIds = await this.leads.distinct('funnelId', filter);
+    if (funnelIds.length > 0) await this.leads.deleteMany(filter);
+    return funnelIds.map(String);
+  }
+
   /**
    * Leads of the scope joined with their contact and their chat on the
    * funnel's line, then filtered. Both joins are scoped to the workspace.

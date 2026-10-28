@@ -15,3 +15,12 @@ export function useTags() {
     enabled: workspaceId !== '',
   })
 }
+
+/** Custom fields of the contacts («Administrar campos personalizados»). */
+export function useContactFields(workspaceId: string, enabled = true) {
+  return useQuery({
+    queryKey: contactKeys.fields(workspaceId),
+    queryFn: () => contactsApi.fields(workspaceId),
+    enabled: enabled && workspaceId !== '',
+  })
+}

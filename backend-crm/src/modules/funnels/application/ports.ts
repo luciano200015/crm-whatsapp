@@ -290,6 +290,11 @@ export abstract class LeadsStore {
   ): Promise<Map<string, number>>;
   abstract countFunnel(workspaceId: string, funnelId: string): Promise<number>;
   abstract removeFunnel(workspaceId: string, funnelId: string): Promise<number>;
+  /** Leads of deleted contacts ('all': every lead of the workspace). */
+  abstract removeContacts(
+    workspaceId: string,
+    contactIds: readonly string[] | 'all',
+  ): Promise<string[]>;
 
   /** The first page of each column, with counts and totals for the filters. */
   abstract board(

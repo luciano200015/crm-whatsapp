@@ -1,26 +1,31 @@
 import CloseRounded from '@mui/icons-material/CloseRounded'
+import EditOutlined from '@mui/icons-material/EditOutlined'
+import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded'
 import {
   Alert,
   Autocomplete,
   Box,
+  Button,
   Chip,
   Divider,
   IconButton,
+  MenuItem,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { usePermissions } from '../../auth/usePermissions'
 import { es } from '../../i18n/es'
 import { useChatSettings } from '../../lib/api/chat-settings'
 import { contactsApi, contactKeys } from '../../lib/api/contacts'
 import { errorMessage } from '../../lib/api/errors'
 import { inboxApi, inboxKeys, type Conversation } from '../../lib/api/inbox'
-import { teamApi, teamKeys } from '../../lib/api/team'
+import { ContactDialog } from '../contacts/ContactDialog'
 import { TagChip } from '../contacts/TagChip'
+import { useContactFields } from '../contacts/useContacts'
 import { ContactFunnels } from '../funnels/ContactFunnels'
 import { useContactFunnels } from '../funnels/useFunnels'
 import { ContactAvatar } from './ConversationList'
@@ -67,23 +72,33 @@ export function ContactPanel({
   })
   const funnels = useContactFunnels(workspaceId, conversation.contactId, conversation.lineId)
   const settings = useChatSettings(workspaceId)
-  const canSetAgent = has('contacts.write') && has('members.read')
-  const members = useQuery({
-    queryKey: teamKeys.members(workspaceId, { status: 'ACTIVE' }),
-    queryFn: () => teamApi.members(workspaceId, { status: 'ACTIVE' }),
-    enabled: canSetAgent,
+  const fields = useContactFields(workspaceId, has('contacts.read'))
+  const [editing, setEditing] = useState(false)
+  const canWrite = has('contacts.write') && has('contacts.read')
+  // «Asignación de asesores» of the contact, for this chat's line.
+  const agentsKey = contactKeys.agents(workspaceId, conversation.contactId)
+  const assignments = useQuery({
+    queryKey: agentsKey,
+    queryFn: () => contactsApi.agents(workspaceId, conversation.contactId),
+    enabled: canWrite,
   })
+  const line = assignments.data?.find((option) => option.lineId === conversation.lineId)
   const setAgent = useMutation({
-    mutationFn: (agentMembershipId: string | null) =>
-      contactsApi.update(workspaceId, conversation.contactId, { agentMembershipId }),
+    mutationFn: (membershipId: string | null) =>
+      contactsApi.setAgents(workspaceId, conversation.contactId, [
+        { lineId: conversation.lineId, membershipId },
+      ]),
     onSuccess: (updated) => {
       client.setQueryData(key, updated)
+      void client.invalidateQueries({ queryKey: agentsKey })
       enqueueSnackbar('Agente regular guardado.', { variant: 'success' })
     },
     onError: (error) => enqueueSnackbar(errorMessage(error), { variant: 'error' }),
   })
-  const regularId = contact.data?.agentMembershipId ?? null
-  const regular = members.data?.items.find((member) => member.id === regularId) ?? null
+  const fieldValues = (fields.data ?? []).flatMap((field) => {
+    const value = contact.data?.fields?.[field.key]
+    return value === undefined ? [] : [{ field, value }]
+  })
   const save = useMutation({
     // Through the chat, so the list and the header show the new tags at once.
     mutationFn: (tagIds: string[]) => inboxApi.setTags(workspaceId, conversation.id, tagIds),
@@ -121,6 +136,11 @@ export function ContactPanel({
         <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>
           {contact.data?.name ?? contactName(conversation.contact)}
         </Typography>
+        {canWrite && contact.data && (
+          <Button size="small" startIcon={<EditOutlined />} onClick={() => setEditing(true)}>
+            Editar contacto
+          </Button>
+        )}
         <Typography variant="body2" color="text.secondary">
           {conversation.contact.phone}
         </Typography>
@@ -158,30 +178,46 @@ export function ContactPanel({
         <Typography>{conversation.assignee?.name ?? 'Sin asignar'}</Typography>
       </Section>
       <Divider />
-      {canSetAgent && contact.data && (
+      {canWrite && line && (
         <>
           <Section title="Agente regular">
-            <Autocomplete
+            <TextField
+              select
+              fullWidth
               size="small"
-              options={members.data?.items ?? []}
-              loading={members.isPending}
-              value={regular}
-              getOptionLabel={(member) => member.displayName}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              onChange={(_, member) => setAgent.mutate(member?.id ?? null)}
+              value={line.agentMembershipId ?? ''}
+              onChange={(event) => setAgent.mutate(event.target.value || null)}
               disabled={setAgent.isPending}
-              renderInput={(props) => (
-                <TextField
-                  {...props}
-                  placeholder="Sin agente regular"
-                  aria-label="Agente regular"
-                />
-              )}
+              slotProps={{
+                htmlInput: { 'aria-label': 'Agente regular' },
+                select: { displayEmpty: true },
+              }}
               sx={{ mt: 0.5 }}
-            />
+            >
+              <MenuItem value="">
+                <em>Sin agente regular</em>
+              </MenuItem>
+              {line.agents.map((agent) => (
+                <MenuItem key={agent.membershipId} value={agent.membershipId}>
+                  {agent.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            {line.attending && line.attending.membershipId !== line.agentMembershipId && (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{ alignItems: 'center', mt: 0.75, color: 'text.secondary' }}
+              >
+                <SwapHorizRounded sx={{ fontSize: 16 }} />
+                <Typography variant="caption">
+                  {es.contacts.form.attending(line.attending.name)}
+                </Typography>
+              </Stack>
+            )}
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
               {settings.data?.assignment.mode === 'CONTACT_AGENT'
-                ? 'Recibe los chats nuevos de este contacto.'
+                ? `Recibe los chats nuevos de este contacto en ${line.name}.`
                 : 'Recibe sus chats nuevos con «Asignar según el agente registrado».'}
             </Typography>
           </Section>
@@ -228,6 +264,27 @@ export function ContactPanel({
           </Section>
         </>
       )}
+      {fieldValues.length > 0 && (
+        <>
+          <Divider />
+          <Section title={es.contacts.form.customFields}>
+            <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+              {fieldValues.map(({ field, value }) => (
+                <Box key={field.id}>
+                  <Typography variant="caption" color="text.secondary">
+                    {field.label}
+                  </Typography>
+                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                    {field.type === 'DATE'
+                      ? new Date(`${value}T00:00:00`).toLocaleDateString('es')
+                      : String(value)}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Section>
+        </>
+      )}
       {contact.data?.notes && (
         <>
           <Divider />
@@ -262,6 +319,19 @@ export function ContactPanel({
           <Divider />
           <Box sx={{ p: 2 }}>{children}</Box>
         </>
+      )}
+      {editing && contact.data && (
+        <ContactDialog
+          workspaceId={workspaceId}
+          contact={contact.data}
+          onClose={() => setEditing(false)}
+          onSaved={(updated) => {
+            client.setQueryData(key, updated)
+            void client.invalidateQueries({ queryKey: contactKeys.all(workspaceId) })
+            void client.invalidateQueries({ queryKey: inboxKeys.all(workspaceId) })
+            enqueueSnackbar(es.contacts.updated, { variant: 'success' })
+          }}
+        />
       )}
     </Box>
   )

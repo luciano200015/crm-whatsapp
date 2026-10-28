@@ -15,6 +15,8 @@ export const PERMISSIONS = {
   'roles.manage': 'Create, change and delete custom roles',
   'contacts.read': 'View contacts',
   'contacts.write': 'Create, update and delete contacts and tag them',
+  'contacts.manage':
+    'Import and export contacts, delete them all and manage their custom fields',
   'tags.manage': 'Create, rename and delete contact tags',
   'channels.read': 'View the WhatsApp lines of the workspace',
   'channels.manage':

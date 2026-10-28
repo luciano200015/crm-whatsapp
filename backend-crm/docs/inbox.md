@@ -56,10 +56,10 @@ El engranaje de la barra de la bandeja abre **Configuración del módulo de chat
 | --- | --- |
 | **No habilitado** (`NONE`) | Los chats nuevos quedan sin asignar y los agentes los toman. |
 | **Autoasignar conversación** (`LEAST_BUSY`) | Al agente de la línea con **menos chats abiertos** entre los **conectados** (con la bandeja abierta, es decir, con el stream de eventos activo). Los empates se turnan. Si nadie está conectado, el chat espera sin asignar. |
-| **Asignar según el agente registrado** (`CONTACT_AGENT`) | Al **agente regular** del contacto, aunque no esté conectado, si atiende la línea. Sin agente regular, como `LEAST_BUSY`. |
+| **Asignar según el agente registrado** (`CONTACT_AGENT`) | Al **agente regular** del contacto **en esa línea**, aunque no esté conectado, si todavía la atiende. Sin agente regular en la línea, como `LEAST_BUSY`. |
 
 - **Incluir a los administradores** (`includeAdmins`): si ningún agente de la línea está conectado, también reciben chats los conectados con `conversations.view_all`.
-- **Agente regular:** se elige en el panel del contacto del chat («Agente regular», con `contacts.write`) o con `PATCH /contacts/:id { agentMembershipId }`.
+- **Agente regular:** uno por línea. Se elige en «Editar contacto» → **Asignación de asesores** (Contactos), en el panel del contacto del chat («Agente regular» de la línea del chat, con `contacts.write`) o con `PUT /contacts/:id/agents` (ver [contacts.md](contacts.md)).
 - **Agentes de cada línea:** en el mismo modal (antes era la página Autoasignación).
 - **Antes de guardar la configuración** (`legacyAssignment: true`) sigue el comportamiento anterior: el interruptor de cada línea y el reparto por turnos entre todos sus agentes.
 - El nodo **Transferir → Autoasignación** de los chatbots usa el mismo modo.

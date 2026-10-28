@@ -270,14 +270,16 @@ export interface Contact {
   email: string | null
   notes: string | null
   tags: TagSummary[]
-  source: 'manual' | 'whatsapp'
+  source: 'manual' | 'whatsapp' | 'import'
   lastMessageAt: string | null
   /** Their WhatsApp messages are ignored. */
   blocked?: boolean
   blockedAt?: string | null
   blockedBy?: { userId: string; name: string } | null
-  /** «Agente regular»: gets the contact's new chats when assignment follows it. */
-  agentMembershipId?: string | null
+  /** «Asignación de asesores»: regular agent per line (gets its new chats there). */
+  lineAgents?: { lineId: string; membershipId: string }[]
+  /** Custom field values by key. */
+  fields?: Record<string, string | number>
   createdAt: string
   updatedAt: string
 }
@@ -300,7 +302,8 @@ export interface ContactRequest {
   email?: string | null
   notes?: string | null
   tagIds?: string[]
-  agentMembershipId?: string | null
+  /** Only the keys sent change; null clears one. */
+  fields?: Record<string, string | number | null>
 }
 
 export interface TagRequest {

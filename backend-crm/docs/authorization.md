@@ -27,6 +27,7 @@ Fuente única: [`src/modules/authorization/domain/permission-catalog.ts`](../src
 | `roles.manage`     | ✓ |   |   |
 | `contacts.read`    | ✓ | ✓ | ✓ |
 | `contacts.write`   | ✓ | ✓ | ✓ |
+| `contacts.manage`  | ✓ | ✓ |   |
 | `tags.manage`      | ✓ | ✓ |   |
 | `channels.read`    | ✓ | ✓ |   |
 | `channels.manage`  | ✓ | ✓ |   |

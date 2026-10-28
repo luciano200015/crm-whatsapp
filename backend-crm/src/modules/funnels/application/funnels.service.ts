@@ -15,7 +15,7 @@ import {
   type ConversationRecord,
 } from '../../inbox/application/ports';
 import { canSee, type InboxScope } from '../../inbox/domain/inbox-rules';
-import { csvDocument } from '../domain/csv';
+import { csvDocument } from '../../../shared/csv';
 import {
   CHAT_STATUSES,
   DEFAULT_STAGES,
@@ -1080,6 +1080,15 @@ export class FunnelsService {
     );
     for (const funnelId of funnelIds)
       this.changed(conversation.workspaceId, funnelId);
+  }
+
+  /** Drops the leads of deleted contacts and refreshes those boards. */
+  async forgetContacts(
+    workspaceId: string,
+    contactIds: string[] | 'all',
+  ): Promise<void> {
+    const funnelIds = await this.leads.removeContacts(workspaceId, contactIds);
+    for (const funnelId of funnelIds) this.changed(workspaceId, funnelId);
   }
 
   /** Archives the leads of funnels with "archivar tras N días sin mensajes". */

@@ -202,6 +202,23 @@ src/
 - Invitaciones por enlace y transferencia de propiedad (pendientes en el backend).
 - Teléfonos asignados a cada agente: llegarán con la mensajería.
 - Pago real: la pantalla de facturación está lista para un checkout cuando el backend tenga una pasarela.
+## Contactos
+
+**Contactos → Administrar** ([`ContactsPage.tsx`](src/pages/app/contacts/ContactsPage.tsx)), como en wasapi:
+
+- **Barra:** buscador (nombre, correo o teléfono), «Seleccionar etiqueta», «Seleccionar estado» (Activo o Bloqueado), **Más opciones** (con `contacts.manage`) y **Nuevo contacto**.
+- **Tabla:** casilla de selección, Contacto, Teléfono, Etiquetas, Creado el, Actualizado el, Estado y Acciones: Editar, **Iniciar conversación** (abre sus chats en la bandeja; desactivado si nunca escribió), Bloquear o Desbloquear y Eliminar.
+- **Selección:** barra con Agregar etiquetas, Quitar etiquetas y Eliminar para los contactos marcados.
+- **Más opciones:**
+  - **Importar contactos** ([`ImportContactsDialog.tsx`](src/components/contacts/ImportContactsDialog.tsx)): Subir archivo (.xlsx o .csv hasta 20 MB, leído en el navegador con [`spreadsheet.ts`](src/lib/spreadsheet.ts) y `read-excel-file`) → **Asignar columna** (campos existentes, también «Apellido» que se une al nombre; campos personalizados o crear uno con el nombre de la columna; Saltar columna; se adivinan por el encabezado) → Reescribir o Combinar etiquetas → Resumen → **Importar contactos** en lotes de 200 con barra de progreso. Al final muestra creados, actualizados y con error, y descarga un CSV con las filas que fallaron y el motivo.
+  - **Exportar todos los contactos** y **Exportar contactos con filtros asignados** (activo solo con algún filtro): descargan el CSV.
+  - **Administrar campos personalizados** ([`ContactFieldsDialog.tsx`](src/components/contacts/ContactFieldsDialog.tsx)): texto, número, fecha o lista de opciones.
+  - **Eliminar todos los contactos**: pide escribir ELIMINAR.
+- **Editar contacto** ([`ContactDialog.tsx`](src/components/contacts/ContactDialog.tsx)), con dos pestañas:
+  - **Detalles de contacto:** teléfono, nombre, correo, etiquetas, notas y los campos personalizados.
+  - **Asignación de asesores:** «Asigne un asesor al contacto por línea de teléfono para ser atendido.» Por cada línea, su nombre y número, el selector **Agente regular** y, si alguien atiende su chat ahora, «⇄ Atendiendo ahora: Nombre (temporal)». Se habilita después de crear el contacto.
+  - Cancelar y **Guardar** (verde) guardan las dos pestañas juntas.
+
 ## Bandeja de mensajes
 
 **Menú:** **Bandeja** es una entrada de primer nivel. La autoasignación está en **Configuración del módulo de chat** y las respuestas rápidas se abren desde el chat. La bandeja imita WhatsApp Web y wasapi:
@@ -238,7 +255,7 @@ src/
 - **Editor:** emojis, adjuntos con vista previa, notas de voz, **Firmar mensajes** (si la configuración deja elegir) y **respuestas rápidas**: el botón ⚡ o «/» al empezar el mensaje abren un panel sobre el chat para buscar (por título o contenido), **Enviar** (texto y archivos) o usar el texto; con `quick_replies.manage` también se crean, editan y eliminan ahí.
 - **Tarjetas:** en cada pestaña no se repite su estado («En espera» no aparece en las tarjetas de En espera).
 - **Cerrar chat:** con el mensaje al cerrar en «Preguntar para enviar», pregunta «¿Enviar el mensaje de cierre?».
-- **Panel del contacto:** «Agente regular» (con `contacts.write`), que usa la asignación «según el agente registrado».
+- **Panel del contacto:** **Editar contacto** (abre el mismo modal de Contactos), «Agente regular» de la línea del chat (con `contacts.write`; lo usa la asignación «según el agente registrado») y los campos personalizados con valor.
 - **Avisos:**
   - sonido y notificación de escritorio al llegar un mensaje, configurables en Configuración del módulo de chat;
   - «(N)» en el título de la pestaña.

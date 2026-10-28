@@ -1,6 +1,14 @@
 import type { CursorPage } from '../../../database/mongodb/pagination';
+import type { FieldType, FieldValue } from '../domain/contact-fields';
 
-export type ContactSource = 'manual' | 'whatsapp';
+export type ContactSource = 'manual' | 'whatsapp' | 'import';
+export type ContactStatus = 'ACTIVE' | 'BLOCKED';
+
+/** «Asignación de asesores»: the contact's regular agent on one line. */
+export interface LineAgent {
+  lineId: string;
+  membershipId: string;
+}
 
 export interface TagRecord {
   id: string;
@@ -25,8 +33,10 @@ export interface ContactRecord {
   blocked: boolean;
   blockedAt: Date | null;
   blockedBy: { userId: string; name: string } | null;
-  /** «Agente regular»: gets this contact's new chats (CONTACT_AGENT). */
-  agentMembershipId: string | null;
+  /** Regular agent per line: gets the new chats there (CONTACT_AGENT). */
+  lineAgents: LineAgent[];
+  /** Values of the custom fields, by field key. */
+  fields: Record<string, FieldValue>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,9 +45,12 @@ export interface ContactFilter {
   /** Part of the name, email or phone. */
   search?: string;
   tagId?: string;
+  status?: ContactStatus;
   cursor?: string;
   limit: number;
 }
+
+export type ContactQuery = Omit<ContactFilter, 'cursor' | 'limit'>;
 
 export interface ContactWrite {
   phone: string;
@@ -47,16 +60,64 @@ export interface ContactWrite {
   tagIds: string[];
   source: ContactSource;
   createdBy: string | null;
-  agentMembershipId?: string | null;
+  lineAgents?: LineAgent[];
+  fields?: Record<string, FieldValue>;
 }
 
-/** Members a contact can have as regular agent. */
+/** Changes of a contact. `fields` merges: a null value removes that field. */
+export type ContactUpdate = Partial<
+  Omit<ContactWrite, 'source' | 'createdBy' | 'fields'>
+> & { fields?: Record<string, FieldValue | null> };
+
+export interface LineOption {
+  lineId: string;
+  name: string;
+  displayPhone: string | null;
+  /** Active members who attend the line (its agents and view_all members). */
+  agents: { membershipId: string; name: string }[];
+}
+
+/** Lines of the workspace and who can be a contact's regular agent on each. */
 export abstract class ContactAgents {
-  /** True when it is an active member of the workspace. */
-  abstract isActiveMember(
+  /** Lines that are not disabled, by name. */
+  abstract lineOptions(workspaceId: string): Promise<LineOption[]>;
+}
+
+/** Who is attending the contact's chat on a line right now. */
+export interface Attendant {
+  lineId: string;
+  status: 'OPEN' | 'ON_HOLD' | 'CLOSED';
+  assignee: { membershipId: string; name: string } | null;
+}
+
+export interface ContactFieldRecord {
+  id: string;
+  key: string;
+  label: string;
+  type: FieldType;
+  options: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Definitions of the custom fields (MongoDB, `contact_fields`). */
+export abstract class ContactFieldsStore {
+  abstract list(workspaceId: string): Promise<ContactFieldRecord[]>;
+  abstract find(
     workspaceId: string,
-    membershipId: string,
-  ): Promise<boolean>;
+    fieldId: string,
+  ): Promise<ContactFieldRecord | null>;
+  /** 'key_taken' when another field has the same key. */
+  abstract create(
+    workspaceId: string,
+    data: Pick<ContactFieldRecord, 'key' | 'label' | 'type' | 'options'>,
+  ): Promise<ContactFieldRecord | 'key_taken'>;
+  abstract update(
+    workspaceId: string,
+    fieldId: string,
+    data: Partial<Pick<ContactFieldRecord, 'label' | 'options'>>,
+  ): Promise<ContactFieldRecord | null>;
+  abstract remove(workspaceId: string, fieldId: string): Promise<boolean>;
 }
 
 export interface TagWrite {
@@ -90,12 +151,38 @@ export abstract class ContactsStore {
   abstract updateContact(
     workspaceId: string,
     contactId: string,
-    data: Partial<Omit<ContactWrite, 'source' | 'createdBy'>>,
+    data: ContactUpdate,
   ): Promise<ContactRecord | 'phone_taken' | null>;
   abstract deleteContact(
     workspaceId: string,
     contactId: string,
   ): Promise<boolean>;
+  /** Deletes those contacts; returns the ids that existed. */
+  abstract deleteContacts(
+    workspaceId: string,
+    contactIds: readonly string[],
+  ): Promise<string[]>;
+  /** «Eliminar todos los contactos»: returns how many were deleted. */
+  abstract deleteAllContacts(workspaceId: string): Promise<number>;
+  /** Adds or removes tags on those contacts; returns how many changed. */
+  abstract bulkTags(
+    workspaceId: string,
+    contactIds: readonly string[],
+    tagIds: readonly string[],
+    mode: 'add' | 'remove',
+  ): Promise<number>;
+  /** Every contact matching the query, newest first, read in batches. */
+  abstract exportContacts(
+    workspaceId: string,
+    query: ContactQuery,
+  ): AsyncIterable<ContactRecord>;
+  /** The contact's chats per line, with their status and assignee. */
+  abstract attendants(
+    workspaceId: string,
+    contactId: string,
+  ): Promise<Attendant[]>;
+  /** Removes a deleted custom field from every contact. */
+  abstract unsetField(workspaceId: string, key: string): Promise<void>;
   /**
    * The contact of a WhatsApp sender: found by phone or created
    * (source "whatsapp"). Fills the name from the WhatsApp profile when the

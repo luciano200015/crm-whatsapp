@@ -1132,6 +1132,63 @@ describe('Inbox', () => {
     )
   })
 
+  it('sets the regular agent of the chat line and shows the custom fields', async () => {
+    permissions = ['messages.read', 'messages.send', 'contacts.read', 'contacts.write']
+    const agents: unknown[] = []
+    server.use(
+      http.get(api('/workspaces/w1/contacts/ct1'), () =>
+        HttpResponse.json({
+          id: 'ct1',
+          phone: '+59170000001',
+          name: 'Lucía Cliente',
+          email: null,
+          notes: null,
+          tags: [],
+          source: 'whatsapp',
+          lastMessageAt: null,
+          lineAgents: [],
+          fields: { empresa: 'Camsa' },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      ),
+      http.get(api('/workspaces/w1/contact-fields'), () =>
+        HttpResponse.json([
+          { id: 'f1', key: 'empresa', label: 'Empresa', type: 'TEXT', options: [] },
+        ]),
+      ),
+      http.get(api('/workspaces/w1/contacts/ct1/agents'), () =>
+        HttpResponse.json([
+          {
+            lineId: 'l1',
+            name: 'Ventas',
+            displayPhone: null,
+            agents: [{ membershipId: 'm2', name: 'Beto' }],
+            agentMembershipId: null,
+            attending: null,
+          },
+        ]),
+      ),
+      http.put(api('/workspaces/w1/contacts/ct1/agents'), async ({ request }) => {
+        agents.push(await request.json())
+        return HttpResponse.json({ id: 'ct1', tags: [], lineAgents: [] })
+      }),
+    )
+    renderAt()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Ver detalles' }))
+    const details = await screen.findByRole('complementary', { name: 'Detalles del contacto' })
+    expect(await within(details).findByText('Camsa')).toBeInTheDocument()
+    await user.click(await within(details).findByRole('combobox', { name: 'Agente regular' }))
+    await user.click(await screen.findByRole('option', { name: 'Beto' }))
+
+    await waitFor(() =>
+      expect(agents).toEqual([{ agents: [{ lineId: 'l1', membershipId: 'm2' }] }]),
+    )
+  })
+
   it('shows contact cards and the customer reopening the chat', async () => {
     history = [
       {

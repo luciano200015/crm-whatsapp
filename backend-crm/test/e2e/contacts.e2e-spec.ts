@@ -257,4 +257,259 @@ describe('Contacts and tags (e2e)', () => {
     await api(agent).get('/tags').expect(200);
     await api(agent).post('/tags', { name: 'X', color: '#000000' }).expect(403);
   });
+
+  it('keeps custom fields per contact', async () => {
+    const owner = await signUp();
+    const birthday = (
+      await api(owner)
+        .post('/contact-fields', { label: 'Fecha de nacimiento', type: 'DATE' })
+        .expect(201)
+    ).body as { id: string; key: string };
+    expect(birthday.key).toBe('fecha_de_nacimiento');
+    const city = (
+      await api(owner)
+        .post('/contact-fields', {
+          label: 'Ciudad',
+          type: 'SELECT',
+          options: ['La Paz', 'Santa Cruz', 'la paz'],
+        })
+        .expect(201)
+    ).body as { id: string; options: string[] };
+    expect(city.options).toEqual(['La Paz', 'Santa Cruz']);
+    await api(owner)
+      .post('/contact-fields', { label: 'ciudad', type: 'TEXT' })
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({ code: 'CONTACT_FIELD_TAKEN' }),
+      );
+    await api(owner)
+      .post('/contact-fields', { label: 'Plan', type: 'SELECT' })
+      .expect(400);
+
+    const contact = (
+      await api(owner)
+        .post('/contacts', {
+          phone: '+59170000101',
+          fields: { fecha_de_nacimiento: '5/3/1990', ciudad: 'santa cruz' },
+        })
+        .expect(201)
+    ).body as ContactBody & { fields: Record<string, unknown> };
+    expect(contact.fields).toEqual({
+      fecha_de_nacimiento: '1990-03-05',
+      ciudad: 'Santa Cruz',
+    });
+    await api(owner)
+      .patch(`/contacts/${contact.id}`, { fields: { ciudad: 'Oruro' } })
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({ code: 'CONTACT_FIELD_INVALID_VALUE' }),
+      );
+    await api(owner)
+      .patch(`/contacts/${contact.id}`, { fields: { otro: 'x' } })
+      .expect(404);
+    const cleared = await api(owner)
+      .patch(`/contacts/${contact.id}`, { fields: { ciudad: null } })
+      .expect(200);
+    expect(cleared.body).toMatchObject({
+      fields: { fecha_de_nacimiento: '1990-03-05' },
+    });
+
+    await api(owner).delete(`/contact-fields/${birthday.id}`).expect(204);
+    const after = await api(owner).get(`/contacts/${contact.id}`).expect(200);
+    expect(after.body).toMatchObject({ fields: {} });
+  });
+
+  it('filters by status and works on selected contacts', async () => {
+    const owner = await signUp();
+    const vip = (
+      await api(owner)
+        .post('/tags', { name: 'VIP', color: '#22c55e' })
+        .expect(201)
+    ).body as TagBody;
+    const ids: string[] = [];
+    for (const phone of ['+59170000201', '+59170000202', '+59170000203']) {
+      const created = await api(owner).post('/contacts', { phone }).expect(201);
+      ids.push((created.body as ContactBody).id);
+    }
+    await api(owner).post(`/contacts/${ids[0]}/block`, {}).expect(200);
+    const blocked = await api(owner)
+      .get('/contacts?status=BLOCKED')
+      .expect(200);
+    expect(
+      (blocked.body as { items: ContactBody[] }).items.map((c) => c.id),
+    ).toEqual([ids[0]]);
+    const active = await api(owner).get('/contacts?status=ACTIVE').expect(200);
+    expect((active.body as { items: unknown[] }).items).toHaveLength(2);
+
+    await api(owner)
+      .post('/contacts/bulk', {
+        contactIds: ids,
+        action: 'add_tags',
+        tagIds: [vip.id],
+      })
+      .expect(200)
+      .expect(({ body }) => expect(body).toEqual({ affected: 3 }));
+    const tagged = await api(owner)
+      .get(`/contacts?tagId=${vip.id}`)
+      .expect(200);
+    expect((tagged.body as { items: unknown[] }).items).toHaveLength(3);
+    await api(owner)
+      .post('/contacts/bulk', {
+        contactIds: [ids[1]],
+        action: 'remove_tags',
+        tagIds: [vip.id],
+      })
+      .expect(200);
+    await api(owner)
+      .post('/contacts/bulk', {
+        contactIds: [ids[2], ids[1]],
+        action: 'delete',
+      })
+      .expect(200)
+      .expect(({ body }) => expect(body).toEqual({ affected: 2 }));
+    const left = await api(owner).get('/contacts').expect(200);
+    expect(
+      (left.body as { items: ContactBody[] }).items.map((c) => c.id),
+    ).toEqual([ids[0]]);
+  });
+
+  it('imports, exports and deletes every contact', async () => {
+    const owner = await signUp();
+    const agent = await agentOf(owner);
+    await api(owner)
+      .post('/contact-fields', { label: 'Empresa', type: 'TEXT' })
+      .expect(201);
+    const old = (
+      await api(owner)
+        .post('/tags', { name: 'Antigua', color: '#000000' })
+        .expect(201)
+    ).body as TagBody;
+    const existing = (
+      await api(owner)
+        .post('/contacts', {
+          phone: '+59170000301',
+          name: 'Ana',
+          tagIds: [old.id],
+        })
+        .expect(201)
+    ).body as ContactBody;
+
+    const imported = await api(owner)
+      .post('/contacts/import', {
+        tagMode: 'MERGE',
+        rows: [
+          { phone: '59170000301', name: '', tags: ['Feria 2026'] },
+          {
+            phone: '+59170000302',
+            name: 'Beto',
+            email: 'BETO@x.com',
+            tags: ['feria 2026', 'VIP'],
+            fields: { empresa: 'Camsa' },
+          },
+          { phone: '123', name: 'Malo' },
+          { phone: '+59170000303', email: 'no-es-correo' },
+        ],
+      })
+      .expect(200);
+    expect(imported.body).toEqual({
+      created: 1,
+      updated: 1,
+      failed: [
+        { index: 2, phone: '123', code: 'INVALID_PHONE' },
+        { index: 3, phone: '+59170000303', code: 'INVALID_EMAIL' },
+      ],
+    });
+    const ana = (await api(owner).get(`/contacts/${existing.id}`).expect(200))
+      .body as ContactBody;
+    expect(ana.name).toBe('Ana');
+    expect(ana.tags.map((tag) => tag.name).sort()).toEqual([
+      'Antigua',
+      'Feria 2026',
+    ]);
+    const tags = (await api(owner).get('/tags').expect(200)).body as TagBody[];
+    expect(tags.map((tag) => tag.name).sort()).toEqual([
+      'Antigua',
+      'Feria 2026',
+      'VIP',
+    ]);
+
+    await api(owner)
+      .post('/contacts/import', {
+        tagMode: 'REPLACE',
+        rows: [{ phone: '+59170000301', tags: ['VIP'] }],
+      })
+      .expect(200);
+    const replaced = (
+      await api(owner).get(`/contacts/${existing.id}`).expect(200)
+    ).body as ContactBody;
+    expect(replaced.tags.map((tag) => tag.name)).toEqual(['VIP']);
+
+    const csv = await api(owner).get('/contacts/export.csv').expect(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(
+      csv.text.startsWith(
+        '\uFEFFNombre,Teléfono,Correo,Etiquetas,Estado,Origen,Notas,Último mensaje,Creado,Actualizado,Empresa\r\n',
+      ),
+    ).toBe(true);
+    expect(csv.text).toContain(
+      'Beto,+59170000302,beto@x.com,"Feria 2026, VIP",Activo,Importado,,,',
+    );
+    expect(csv.text).toContain(',Camsa\r\n');
+    const filtered = await api(owner)
+      .get('/contacts/export.csv?search=beto')
+      .expect(200);
+    expect(filtered.text.trim().split('\r\n')).toHaveLength(2);
+
+    // Agents work with contacts, but not with the whole base at once.
+    await api(agent).get('/contacts/export.csv').expect(403);
+    await api(agent)
+      .post('/contacts/import', {
+        tagMode: 'MERGE',
+        rows: [{ phone: '+59170000399' }],
+      })
+      .expect(403);
+    await api(agent)
+      .post('/contact-fields', { label: 'X', type: 'TEXT' })
+      .expect(403);
+    await api(agent)
+      .post('/contacts/delete-all', { confirmation: 'ELIMINAR' })
+      .expect(403);
+
+    await api(owner)
+      .post('/contacts/delete-all', { confirmation: 'eliminar' })
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({ code: 'CONFIRMATION_REQUIRED' }),
+      );
+    await api(owner)
+      .post('/contacts/delete-all', { confirmation: 'ELIMINAR' })
+      .expect(200)
+      .expect(({ body }) => expect(body).toEqual({ deleted: 2 }));
+    const none = await api(owner).get('/contacts').expect(200);
+    expect((none.body as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it('lists the lines for «Asignación de asesores»', async () => {
+    const owner = await signUp();
+    const contact = (
+      await api(owner).post('/contacts', { phone: '+59170000401' }).expect(201)
+    ).body as ContactBody;
+    await api(owner)
+      .get(`/contacts/${contact.id}/agents`)
+      .expect(200)
+      .expect(({ body }) => expect(body).toEqual([]));
+    await api(owner)
+      .put(`/contacts/${contact.id}/agents`, {
+        agents: [
+          {
+            lineId: '0190e7a0-0000-7000-8000-000000000000',
+            membershipId: '0190e7a0-0000-7000-8000-000000000001',
+          },
+        ],
+      })
+      .expect(404)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({ code: 'CONTACT_LINE_NOT_FOUND' }),
+      );
+  });
 });

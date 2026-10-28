@@ -5,6 +5,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import type { Subscription } from 'rxjs';
+import { ContactsEvents } from '../../contacts/application/contacts-events';
 import {
   InboxEvents,
   type InboxEvent,
@@ -19,7 +20,8 @@ const ARCHIVE_EVERY_MS = 15 * 60_000;
  * - a chat that changes status follows the rule of its line;
  * - a customer message keeps its leads active (and restores those archived
  *   for inactivity);
- * - every 15 minutes, idle leads of funnels with auto-archive are archived.
+ * - every 15 minutes, idle leads of funnels with auto-archive are archived;
+ * - deleted contacts leave every funnel.
  * Moving a lead never changes the chat status, so rules cannot loop. Work
  * runs in order per conversation.
  */
@@ -27,18 +29,25 @@ const ARCHIVE_EVERY_MS = 15 * 60_000;
 export class FunnelAutomation implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FunnelAutomation.name);
   private subscription: Subscription | null = null;
+  private contactsSubscription: Subscription | null = null;
   private timer: NodeJS.Timeout | null = null;
   private readonly running = new Map<string, Promise<void>>();
 
   constructor(
     private readonly events: InboxEvents,
     private readonly funnels: FunnelsService,
+    private readonly contacts: ContactsEvents,
   ) {}
 
   onModuleInit() {
     this.subscription = this.events.events$.subscribe((event) => {
       if (this.concerns(event))
         this.enqueue(event.conversation.id, () => this.handle(event));
+    });
+    this.contactsSubscription = this.contacts.removed$.subscribe((event) => {
+      this.enqueue(`contacts:${event.workspaceId}`, () =>
+        this.funnels.forgetContacts(event.workspaceId, event.contactIds),
+      );
     });
     this.timer = setInterval(() => {
       this.funnels
@@ -54,6 +63,7 @@ export class FunnelAutomation implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     this.subscription?.unsubscribe();
+    this.contactsSubscription?.unsubscribe();
     if (this.timer) clearInterval(this.timer);
   }
 

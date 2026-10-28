@@ -1,6 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { isValidObjectId, Types, type Model } from 'mongoose';
+import { isValidObjectId, Types, type QueryFilter, type Model } from 'mongoose';
 import {
   afterCursor,
   escapeRegex,
@@ -9,8 +9,11 @@ import {
 } from '../../../database/mongodb/pagination';
 import {
   ContactsStore,
+  type Attendant,
   type ContactFilter,
+  type ContactQuery,
   type ContactRecord,
+  type ContactUpdate,
   type ContactWrite,
   type TagRecord,
   type TagWrite,
@@ -24,6 +27,8 @@ import {
 } from './contact.schemas';
 
 const DUPLICATE_KEY = 11000;
+const CONVERSATIONS = 'conversations';
+const EXPORT_BATCH = 1000;
 
 function isDuplicateKey(error: unknown): boolean {
   return (
@@ -36,6 +41,34 @@ function isDuplicateKey(error: unknown): boolean {
 
 const objectId = (id: string): Types.ObjectId | null =>
   isValidObjectId(id) ? new Types.ObjectId(id) : null;
+
+const objectIds = (ids: readonly string[]): Types.ObjectId[] =>
+  ids.map(objectId).filter((id): id is Types.ObjectId => id !== null);
+
+/** The Mongo filter of a list or export; null when nothing can match. */
+function contactQuery(
+  workspaceId: string,
+  query: ContactQuery,
+): QueryFilter<ContactDocument> | null {
+  const search = query.search?.trim();
+  const tagId = query.tagId ? objectId(query.tagId) : undefined;
+  if (query.tagId && !tagId) return null;
+  const pattern = search ? new RegExp(escapeRegex(search), 'i') : null;
+  const digits = search?.replace(/\D/g, '');
+  return {
+    workspaceId,
+    ...(tagId && { tagIds: tagId }),
+    ...(query.status === 'BLOCKED' && { blocked: true }),
+    ...(query.status === 'ACTIVE' && { blocked: { $ne: true } }),
+    ...(pattern && {
+      $or: [
+        { name: pattern },
+        { email: pattern },
+        ...(digits ? [{ phone: new RegExp(escapeRegex(digits)) }] : []),
+      ],
+    }),
+  };
+}
 
 function toContact(doc: ContactDocument): ContactRecord {
   return {
@@ -50,7 +83,11 @@ function toContact(doc: ContactDocument): ContactRecord {
     blocked: doc.blocked ?? false,
     blockedAt: doc.blockedAt ?? null,
     blockedBy: doc.blockedBy ?? null,
-    agentMembershipId: doc.agentMembershipId ?? null,
+    lineAgents: (doc.lineAgents ?? []).map(({ lineId, membershipId }) => ({
+      lineId,
+      membershipId,
+    })),
+    fields: { ...(doc.fields ?? {}) },
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -91,25 +128,10 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
     workspaceId: string,
     filter: ContactFilter,
   ): Promise<CursorPage<ContactRecord>> {
-    const search = filter.search?.trim();
-    const tagId = filter.tagId ? objectId(filter.tagId) : undefined;
-    if (filter.tagId && !tagId) return { items: [], nextCursor: null };
-
-    const pattern = search ? new RegExp(escapeRegex(search), 'i') : null;
-    const digits = search?.replace(/\D/g, '');
+    const query = contactQuery(workspaceId, filter);
+    if (!query) return { items: [], nextCursor: null };
     const rows = await this.contacts
-      .find({
-        workspaceId,
-        ...afterCursor(filter.cursor),
-        ...(tagId && { tagIds: tagId }),
-        ...(pattern && {
-          $or: [
-            { name: pattern },
-            { email: pattern },
-            ...(digits ? [{ phone: new RegExp(escapeRegex(digits)) }] : []),
-          ],
-        }),
-      })
+      .find({ ...query, ...afterCursor(filter.cursor) })
       .sort({ _id: -1 })
       .limit(filter.limit + 1)
       .lean<ContactDocument[]>();
@@ -158,11 +180,14 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
   async updateContact(
     workspaceId: string,
     contactId: string,
-    data: Partial<Omit<ContactWrite, 'source' | 'createdBy'>>,
+    data: ContactUpdate,
   ): Promise<ContactRecord | 'phone_taken' | null> {
     const _id = objectId(contactId);
     if (!_id) return null;
-    const { tagIds, ...rest } = data;
+    const { tagIds, fields, ...rest } = data;
+    // Fields merge one by one: `fields.<key>` (keys are [a-z0-9_]).
+    const fieldEntries = Object.entries(fields ?? {});
+    const unset = fieldEntries.filter(([, value]) => value === null);
     try {
       const doc = await this.contacts
         .findOneAndUpdate(
@@ -173,7 +198,17 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
               ...(tagIds && {
                 tagIds: tagIds.map((id) => new Types.ObjectId(id)),
               }),
+              ...Object.fromEntries(
+                fieldEntries
+                  .filter(([, value]) => value !== null)
+                  .map(([key, value]) => [`fields.${key}`, value]),
+              ),
             },
+            ...(unset.length > 0 && {
+              $unset: Object.fromEntries(
+                unset.map(([key]) => [`fields.${key}`, '']),
+              ),
+            }),
           },
           { returnDocument: 'after' },
         )
@@ -196,6 +231,94 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
       _id,
     });
     return deletedCount === 1;
+  }
+
+  async deleteContacts(
+    workspaceId: string,
+    contactIds: readonly string[],
+  ): Promise<string[]> {
+    const ids = objectIds(contactIds);
+    if (ids.length === 0) return [];
+    const found = await this.contacts
+      .find({ workspaceId, _id: { $in: ids } }, { _id: 1 })
+      .lean<{ _id: Types.ObjectId }[]>();
+    const existing = found.map((doc) => doc._id);
+    await this.contacts.deleteMany({ workspaceId, _id: { $in: existing } });
+    return existing.map((id) => id.toHexString());
+  }
+
+  async deleteAllContacts(workspaceId: string): Promise<number> {
+    const { deletedCount } = await this.contacts.deleteMany({ workspaceId });
+    return deletedCount;
+  }
+
+  async bulkTags(
+    workspaceId: string,
+    contactIds: readonly string[],
+    tagIds: readonly string[],
+    mode: 'add' | 'remove',
+  ): Promise<number> {
+    const ids = objectIds(contactIds);
+    const tags = objectIds(tagIds);
+    if (ids.length === 0 || tags.length === 0) return 0;
+    const { modifiedCount } = await this.contacts.updateMany(
+      { workspaceId, _id: { $in: ids } },
+      mode === 'add'
+        ? { $addToSet: { tagIds: { $each: tags } } }
+        : { $pull: { tagIds: { $in: tags } } },
+    );
+    return modifiedCount;
+  }
+
+  async *exportContacts(
+    workspaceId: string,
+    query: ContactQuery,
+  ): AsyncIterable<ContactRecord> {
+    const filter = contactQuery(workspaceId, query);
+    if (!filter) return;
+    // Pages by _id, so a long export never holds a cursor open.
+    let last: Types.ObjectId | null = null;
+    for (;;) {
+      const rows: ContactDocument[] = await this.contacts
+        .find({ ...filter, ...(last && { _id: { $lt: last } }) })
+        .sort({ _id: -1 })
+        .limit(EXPORT_BATCH)
+        .lean<ContactDocument[]>();
+      for (const row of rows) yield toContact(row);
+      if (rows.length < EXPORT_BATCH) return;
+      last = rows[rows.length - 1]?._id ?? null;
+    }
+  }
+
+  async attendants(
+    workspaceId: string,
+    contactId: string,
+  ): Promise<Attendant[]> {
+    const rows = await this.contacts.db
+      .collection<{
+        lineId: string;
+        status: Attendant['status'];
+        assignee: { membershipId: string; name: string } | null;
+      }>(CONVERSATIONS)
+      .find(
+        { workspaceId, contactId },
+        { projection: { lineId: 1, status: 1, assignee: 1 } },
+      )
+      .toArray();
+    return rows.map((row) => ({
+      lineId: row.lineId,
+      status: row.status,
+      assignee: row.assignee
+        ? { membershipId: row.assignee.membershipId, name: row.assignee.name }
+        : null,
+    }));
+  }
+
+  async unsetField(workspaceId: string, key: string): Promise<void> {
+    await this.contacts.updateMany(
+      { workspaceId, [`fields.${key}`]: { $exists: true } },
+      { $unset: { [`fields.${key}`]: '' } },
+    );
   }
 
   async setBlocked(
