@@ -175,6 +175,13 @@ export function eventText(event: ConversationEvent): string {
         : `${event.by ? by : '🤖 El bot'} dejó el chat en la cola sin asignar${pauseText(event, true)}`
     case 'bot_tagged':
       return `${by} ${tagChanges(event.tags)}`
+    case 'funnel_stage': {
+      const funnel = event.funnel
+      if (!funnel) return `${by} cambió la etapa del contacto en un embudo`
+      return funnel.from
+        ? `${by} movió el contacto de «${funnel.from}» a «${funnel.to}» en el embudo ${funnel.name}`
+        : `${by} agregó el contacto al embudo ${funnel.name} en «${funnel.to}»`
+    }
   }
 }
 

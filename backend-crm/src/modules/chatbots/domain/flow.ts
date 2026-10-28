@@ -22,6 +22,7 @@ export const NODE_KINDS = [
   'condition',
   'hours',
   'tags',
+  'funnel',
   'transfer',
   'status',
   'end',
@@ -138,6 +139,8 @@ export interface NodeData {
   condition: { rules: ConditionRule[] };
   hours: { schedule: Schedule };
   tags: { add: string[]; remove: string[] };
+  /** «Establecer contacto en embudo»: puts the contact in that stage. */
+  funnel: { funnelId: string; stageId: string };
   transfer: {
     /** auto: in turns among the line's agents; unassigned: the queue. */
     to: 'auto' | 'unassigned' | 'member';
@@ -204,6 +207,7 @@ export function outputs(node: FlowNode): string[] {
     case 'message':
     case 'url':
     case 'tags':
+    case 'funnel':
       return ['next'];
     case 'question':
       return ['next', 'other'];
@@ -495,6 +499,15 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
         });
       return { add: ids('add'), remove: ids('remove') };
     }
+    case 'funnel': {
+      const id = (key: string) => {
+        const value = data[key];
+        return typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value)
+          ? value
+          : '';
+      };
+      return { funnelId: id('funnelId'), stageId: id('stageId') };
+    }
     case 'transfer': {
       const membershipId = data.membershipId;
       return {
@@ -767,6 +780,10 @@ export function flowIssues(
       case 'tags':
         if (node.data.add.length === 0 && node.data.remove.length === 0)
           error(id, 'Elige las etiquetas que agrega o quita');
+        break;
+      case 'funnel':
+        if (!node.data.funnelId || !node.data.stageId)
+          error(id, 'Elige el embudo y la etapa');
         break;
       case 'transfer':
         if (node.data.to === 'member' && !node.data.membershipId)

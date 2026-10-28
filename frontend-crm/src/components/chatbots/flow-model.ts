@@ -35,6 +35,7 @@ export const PALETTE: NodeKind[] = [
   'condition',
   'hours',
   'tags',
+  'funnel',
   'transfer',
   'status',
   'end',
@@ -51,6 +52,7 @@ export const NODE_COLORS: Record<NodeKind, string> = {
   condition: '#f59e0b',
   hours: '#f97316',
   tags: '#ec4899',
+  funnel: '#6366f1',
   transfer: '#ef4444',
   status: '#64748b',
   end: '#475569',
@@ -119,6 +121,8 @@ export function defaultData(kind: NodeKind): NodeData[NodeKind] {
       }
     case 'tags':
       return { add: [], remove: [] }
+    case 'funnel':
+      return { funnelId: '', stageId: '' }
     case 'transfer':
       return {
         to: 'auto',
@@ -139,6 +143,7 @@ export function outputsOf(kind: NodeKind, data: Record<string, unknown>) {
     case 'message':
     case 'url':
     case 'tags':
+    case 'funnel':
       return [{ id: 'next', label: labels.next }]
     case 'question':
       return [

@@ -51,6 +51,7 @@ export type BotMessage =
 export type BotAction =
   | { kind: 'send'; message: BotMessage }
   | { kind: 'tags'; add: string[]; remove: string[] }
+  | { kind: 'funnel'; funnelId: string; stageId: string }
   | {
       kind: 'transfer';
       to: 'auto' | 'unassigned' | 'member';
@@ -401,6 +402,14 @@ export function advance(
           });
           cursor = next(node, 'next');
           break;
+        case 'funnel':
+          actions.push({
+            kind: 'funnel',
+            funnelId: node.data.funnelId,
+            stageId: node.data.stageId,
+          });
+          cursor = next(node, 'next');
+          break;
         case 'status':
           actions.push({ kind: 'status', status: node.data.status });
           if (node.data.status === 'CLOSED') return null;
@@ -450,7 +459,10 @@ export function advance(
     if (
       !node ||
       waitsForAnswer(node) ||
-      (node.type !== 'message' && node.type !== 'url' && node.type !== 'tags')
+      (node.type !== 'message' &&
+        node.type !== 'url' &&
+        node.type !== 'tags' &&
+        node.type !== 'funnel')
     )
       break;
     home = next(node, 'next');

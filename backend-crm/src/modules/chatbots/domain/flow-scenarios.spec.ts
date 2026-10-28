@@ -40,6 +40,8 @@ function line(action: BotAction): string {
     switch (action.kind) {
       case 'tags':
         return `[etiquetas +${action.add.length} -${action.remove.length}]`;
+      case 'funnel':
+        return `[embudo ${action.funnelId.slice(0, 4)} → ${action.stageId.slice(0, 4)}]`;
       case 'transfer':
         return `[transferir: ${action.to}] ${action.message ?? ''}`.trim();
       case 'status':
@@ -573,5 +575,35 @@ describe('chatbot conversations', () => {
     expect(
       flowIssues(textMenu()).filter((issue) => issue.nodeId === 'prices'),
     ).toEqual([]);
+  });
+
+  it('Embudo: puts the contact in the stage and goes on to the next card', () => {
+    const FUNNEL = '0199a0b0-0000-7000-8000-000000000001';
+    const STAGE = '0199a0b0-0000-7000-8000-000000000002';
+    const flow = parseFlow({
+      nodes: [
+        node('start', 'start'),
+        node('lead', 'funnel', { funnelId: FUNNEL, stageId: STAGE }),
+        node('hello', 'message', { text: 'Ya te atendemos.' }),
+      ],
+      edges: [link('start', 'lead'), link('lead', 'hello')],
+    });
+    expect(errorsOf(flow)).toEqual([]);
+    expect(conversation(flow).send('hola')).toEqual([
+      '[embudo 0199 → 0199]',
+      'Ya te atendemos.',
+    ]);
+
+    // Without a funnel or a stage, the editor asks for them.
+    const empty = parseFlow({
+      nodes: [
+        node('start', 'start'),
+        node('lead', 'funnel', { funnelId: FUNNEL, stageId: 'nope' }),
+      ],
+      edges: [link('start', 'lead')],
+    });
+    expect(errorsOf(empty).map((issue) => issue.message)).toEqual([
+      'Elige el embudo y la etapa',
+    ]);
   });
 });

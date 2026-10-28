@@ -808,6 +808,8 @@ export const es = {
       transfer: (to: string, pause: string) =>
         `Transferiría el chat ${to} y el bot quedaría desactivado en ese chat ${pause}`,
       status: (status: string) => `Cambiaría el estado del chat a «${status}»`,
+      funnel: (funnel: string, stage: string) =>
+        `Pondría al contacto en el embudo «${funnel}», etapa «${stage}»`,
       file: (name: string) => `📎 ${name}`,
     },
     nodes: {
@@ -864,6 +866,12 @@ export const es = {
         help: 'Agrega o quita etiquetas al contacto.',
         guide:
           'Agrega o quita etiquetas en la ficha del contacto, sin enviarle nada al cliente. Sirve para segmentar (por ejemplo «Interesado en ventas») y filtrar después en la bandeja o en Contactos. Sigue por «Siguiente».',
+      },
+      funnel: {
+        label: 'Establecer contacto en embudo',
+        help: 'Pone al contacto en una etapa de un embudo.',
+        guide:
+          'Agrega al contacto al embudo en la etapa elegida o, si ya está, lo mueve a esa etapa. No le envía nada al cliente. Usa un embudo de la línea del bot: si el embudo es de otra línea o ya no existe, el bot no lo mueve y sigue con el flujo. Sigue por «Siguiente».',
       },
       transfer: {
         label: 'Transferir conversación',
@@ -981,6 +989,13 @@ export const es = {
       value: 'Valor',
       addTags: 'Agregar etiquetas',
       removeTags: 'Quitar etiquetas',
+      funnel: 'Embudo',
+      funnelStage: 'Etapa',
+      funnelOtherLine: 'Otras líneas',
+      funnelOtherLineWarning:
+        'Este embudo no es de una línea del bot: el bot no moverá al contacto.',
+      funnelsUnavailable: 'No se pudieron cargar los embudos (o tu plan no los incluye).',
+      noFunnels: 'Aún no hay embudos. Créalos en «Embudos».',
       transferTo: 'Transferir a',
       transferOptions: {
         auto: 'Agentes de la línea, por turnos',

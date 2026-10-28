@@ -46,6 +46,7 @@ Cada nodo tiene un `title` (≤ 60) que solo ve quien arma el flujo, y el editor
 | `condition` | Reglas sobre el último mensaje o una variable (del bot o del contacto): igual, contiene, empieza con, es número, está vacío, mayor que, menor que, es sí, es no | Una por regla y `else` |
 | `hours` | **No envía nada**: según la hora en su zona, sigue por «Dentro» o «Fuera del horario». Hay que conectar una respuesta en cada salida | `in` y `out` |
 | `tags` | Agrega y quita etiquetas del contacto | `next` |
+| `funnel` | «Establecer contacto en embudo»: crea o mueve el lead del contacto a `stageId` de `funnelId` (ver [funnels.md](funnels.md)). Si el embudo ya no existe, es de otra línea o el plan no incluye embudos, se registra un aviso y el flujo sigue | `next` |
 | `transfer` | A los agentes de la línea por turnos, a un agente o a la cola sin asignar. Luego envía `message` y apaga el bot en el chat (`pause: '24h' \| 'permanent'`) | Ninguna |
 | `status` | Abrir, poner en espera o cerrar | `next` (salvo al cerrar) |
 | `end` | Termina el flujo | Ninguna |
@@ -83,6 +84,7 @@ El editor inserta cualquiera con «Agregar variable». Una variable desconocida 
 4. **Avanza el flujo.** `advance()` devuelve las acciones:
    - `send` (texto, archivo o interactivo);
    - `tags`;
+   - `funnel`;
    - `transfer`;
    - `status`;
    - `contact` (nombre o email guardados por `question`).

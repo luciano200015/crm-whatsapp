@@ -8,6 +8,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { memo } from 'react'
 import { es } from '../../i18n/es'
 import type { NodeData } from '../../lib/api/chatbots'
+import { useFunnel } from '../funnels/useFunnels'
 import { useFlowEditor } from './flow-editor-context'
 import {
   NODE_COLORS,
@@ -238,6 +239,7 @@ function NodeBody({
       </Stack>
     )
   }
+  if (type === 'funnel') return <FunnelBody data={data as NodeData['funnel']} />
   if (type === 'transfer') {
     const transfer = data as NodeData['transfer']
     const message = transfer.message ?? es.chatbots.node.transferMessageDefault
@@ -377,3 +379,20 @@ function BotReply({ text }: { text: string }) {
 }
 
 export const FlowNodeCard = memo(FlowNodeCardBase)
+
+/** "Ventas → En atención". */
+function FunnelBody({ data }: { data: NodeData['funnel'] }) {
+  const funnel = useFunnel(data.funnelId)
+  if (!data.funnelId)
+    return (
+      <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+        {es.chatbots.node.empty}
+      </Typography>
+    )
+  const stage = funnel.data?.stages.find((item) => item.id === data.stageId)
+  return (
+    <Typography variant="caption" component="div">
+      {funnel.data?.name ?? '…'} → {stage?.name ?? '?'}
+    </Typography>
+  )
+}

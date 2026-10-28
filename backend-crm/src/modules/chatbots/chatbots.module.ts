@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingService } from '../billing/application/billing.service';
 import { BillingModule } from '../billing/billing.module';
 import { ChannelsModule } from '../channels/channels.module';
+import { FunnelsModule } from '../funnels/funnels.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { ChatbotRunner } from './application/chatbot-runner.service';
 import { ChatbotsService } from './application/chatbots.service';
@@ -18,7 +19,13 @@ import { ChatbotsController } from './presentation/chatbots.controller';
  * incoming messages and answers through the inbox.
  */
 @Module({
-  imports: [AuthModule, BillingModule, ChannelsModule, InboxModule],
+  imports: [
+    AuthModule,
+    BillingModule,
+    ChannelsModule,
+    FunnelsModule,
+    InboxModule,
+  ],
   controllers: [ChatbotsController],
   providers: [
     ChatbotsService,

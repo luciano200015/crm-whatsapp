@@ -14,6 +14,7 @@ import type {
   FlowGraph,
 } from '../lib/api/chatbots'
 import { API_BASE_URL } from '../lib/api/client'
+import type { FunnelSummary } from '../lib/api/funnels'
 import { tokenStore } from '../lib/api/token-store'
 import type { Me } from '../lib/api/types'
 import { createQueryClient } from '../lib/query-client'
@@ -70,7 +71,13 @@ const me: Me = {
       status: 'ACTIVE',
       membershipStatus: 'ACTIVE',
       roles: [{ id: 'r1', key: 'OWNER', name: 'Owner', system: true }],
-      permissions: ['chatbots.manage', 'members.read', 'contacts.read', 'channels.read'],
+      permissions: [
+        'chatbots.manage',
+        'members.read',
+        'contacts.read',
+        'channels.read',
+        'funnels.read',
+      ],
       plan: null,
     },
   ],
@@ -181,6 +188,19 @@ const chatbot = (graph = menuGraph(), variables: BotVariable[] = []): Chatbot =>
   issues: [],
 })
 
+const funnel = (id: string, name: string, lineId: string): FunnelSummary => ({
+  id,
+  name,
+  description: '',
+  lineId,
+  lineName: lineId === 'l1' ? 'Línea Ventas' : 'Línea Soporte',
+  isPrimary: false,
+  archiveAfterDays: null,
+  leads: 0,
+  createdAt: '2026-10-20T00:00:00.000Z',
+  updatedAt: '2026-10-20T00:00:00.000Z',
+})
+
 let bots: ChatbotSummary[]
 let patched: ChatbotChanges[]
 let created: string[]
@@ -218,6 +238,19 @@ const server = setupServer(
       ],
       total: 1,
       usage: { activeMembers: 2, limit: null },
+    }),
+  ),
+  http.get(api('/workspaces/w1/funnels'), () =>
+    HttpResponse.json([funnel('f1', 'Ventas', 'l1'), funnel('f2', 'Soporte', 'l2')]),
+  ),
+  http.get(api('/workspaces/w1/funnels/:id'), ({ params }) =>
+    HttpResponse.json({
+      ...funnel(params.id as string, params.id === 'f1' ? 'Ventas' : 'Soporte', 'l1'),
+      stages: [
+        { id: 's1', name: 'Nuevo', position: 0 },
+        { id: 's2', name: 'En atención', position: 1 },
+      ],
+      syncRules: [],
     }),
   ),
   http.get(api(BOTS), () => HttpResponse.json(bots)),
@@ -367,6 +400,49 @@ describe('Chatbots', () => {
     expect(added).toMatchObject({
       type: 'transfer',
       data: { to: 'auto', membershipId: null, message: 'Ya te atiende {{agente}}' },
+    })
+  })
+
+  it('puts the contact in a funnel stage, with the funnels of its lines first', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('button', {
+        name: new RegExp(`^${es.chatbots.nodes.funnel.label}`),
+        hidden: true,
+      }),
+    )
+    const editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    const pickFunnel = async (name: string) => {
+      await user.click(within(editor).getByRole('combobox', { name: es.chatbots.node.funnel }))
+      const listbox = await screen.findByRole('listbox')
+      return { listbox, pick: () => user.click(within(listbox).getByRole('option', { name })) }
+    }
+    const first = await pickFunnel('Soporte · Línea Soporte')
+    await waitFor(() =>
+      expect(
+        within(first.listbox)
+          .getAllByRole('option')
+          .map((o) => o.textContent),
+      ).toEqual([
+        'Ventas · Línea Ventas',
+        es.chatbots.node.funnelOtherLine,
+        'Soporte · Línea Soporte',
+      ]),
+    )
+    await first.pick()
+    expect(within(editor).getByText(es.chatbots.node.funnelOtherLineWarning)).toBeInTheDocument()
+
+    await (await pickFunnel('Ventas · Línea Ventas')).pick()
+    expect(within(editor).queryByText(es.chatbots.node.funnelOtherLineWarning)).toBeNull()
+    await user.click(within(editor).getByRole('combobox', { name: es.chatbots.node.funnelStage }))
+    await user.click(await screen.findByRole('option', { name: 'En atención' }))
+
+    await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]!.graph!.nodes.at(-1)).toMatchObject({
+      type: 'funnel',
+      data: { funnelId: 'f1', stageId: 's2' },
     })
   })
 

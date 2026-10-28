@@ -15,6 +15,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { es } from '../../i18n/es'
 import {
@@ -27,6 +28,7 @@ import {
   type SimulationSession,
 } from '../../lib/api/chatbots'
 import { errorMessage } from '../../lib/api/errors'
+import { funnelKeys, type Funnel } from '../../lib/api/funnels'
 import type { TagSummary } from '../../lib/api/types'
 import { useChatColors } from '../inbox/chat-colors'
 import type { Member } from './NodeEditor'
@@ -38,10 +40,20 @@ type Entry =
 
 const tt = es.chatbots.tester
 
-/** What the bot did, told in words (tags, transfer, status). */
-function describe(action: BotAction, tags: Map<string, TagSummary>, members: Member[]): string {
+/** What the bot did, told in words (tags, funnel, transfer, status). */
+function describe(
+  action: BotAction,
+  tags: Map<string, TagSummary>,
+  members: Member[],
+  funnelOf: (id: string) => Funnel | undefined,
+): string {
   const names = (ids: string[]) => ids.map((id) => tags.get(id)?.name ?? '?').join(', ')
   if (action.kind === 'tags') return tt.tags(names(action.add), names(action.remove))
+  if (action.kind === 'funnel') {
+    const funnel = funnelOf(action.funnelId)
+    const stage = funnel?.stages.find((item) => item.id === action.stageId)
+    return tt.funnel(funnel?.name ?? '?', stage?.name ?? '?')
+  }
   if (action.kind === 'transfer') {
     const member = members.find((m) => m.membershipId === action.membershipId)
     const to =
@@ -172,6 +184,9 @@ export function TestChat({
   const counter = useRef(0)
   const end = useRef<HTMLDivElement>(null)
   const tagsById = new Map(tags.map((tag) => [tag.id, tag]))
+  // The cards of the canvas already loaded the funnels their nodes use.
+  const client = useQueryClient()
+  const funnelOf = (id: string) => client.getQueryData<Funnel>(funnelKeys.detail(workspaceId, id))
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'nearest' })
   }, [entries.length])
@@ -203,7 +218,11 @@ export function TestChat({
           action.kind === 'send'
             ? [{ id: next(), from: 'bot', action }]
             : [
-                { id: next(), from: 'system', text: describe(action, tagsById, members) },
+                {
+                  id: next(),
+                  from: 'system',
+                  text: describe(action, tagsById, members, funnelOf),
+                },
                 // What the customer reads after the handover.
                 ...(action.kind === 'transfer' && action.message
                   ? [

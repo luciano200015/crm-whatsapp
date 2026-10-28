@@ -351,8 +351,9 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
       variables: current.variables,
       contactVariables: current.contactVariables,
       onOpenVariables: () => setVariablesOpen(true),
+      lineIds: current.lines.map((line) => line.id),
     }),
-    [byNode, tags.data, current.variables, current.contactVariables],
+    [byNode, tags.data, current.variables, current.contactVariables, current.lines],
   )
   // Settings, lines and variables are saved apart from the flow on the canvas.
   const keepGraph = (saved: Chatbot) => {

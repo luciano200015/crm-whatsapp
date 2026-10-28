@@ -26,7 +26,9 @@ import {
 import { useRef, type ReactNode } from 'react'
 import { es } from '../../i18n/es'
 import type { BotPause, NodeData, NodeKind, Operator, Validation } from '../../lib/api/chatbots'
+import type { FunnelSummary } from '../../lib/api/funnels'
 import type { TagSummary } from '../../lib/api/types'
+import { useFunnel, useFunnelList } from '../funnels/useFunnels'
 import { AttachmentsField } from './AttachmentsField'
 import { useFlowEditor } from './flow-editor-context'
 import { LIMITS, newId, titleOf, triggerOf, type EditorNode } from './flow-model'
@@ -469,6 +471,8 @@ function NodeForm({
       return (
         <TransferForm data={data as NodeData['transfer']} members={members} onChange={onChange} />
       )
+    case 'funnel':
+      return <FunnelForm data={data as NodeData['funnel']} onChange={onChange} />
     case 'status': {
       const value = data as NodeData['status']
       return (
@@ -599,6 +603,63 @@ function QuestionForm({
 }
 
 /** "Transferir conversación": to whom, what the customer is told and how long the bot stays off. */
+/** «Establecer contacto en embudo»: the funnels of the bot's lines first. */
+function FunnelForm({
+  data,
+  onChange,
+}: {
+  data: NodeData['funnel']
+  onChange: (changes: Record<string, unknown>) => void
+}) {
+  const { lineIds } = useFlowEditor()
+  const funnels = useFunnelList()
+  const funnel = useFunnel(data.funnelId)
+  if (funnels.isError) return <Alert severity="warning">{t.funnelsUnavailable}</Alert>
+  const list = funnels.data ?? []
+  if (funnels.isSuccess && list.length === 0) return <Alert severity="info">{t.noFunnels}</Alert>
+  const own = list.filter((item) => lineIds.includes(item.lineId))
+  const others = list.filter((item) => !lineIds.includes(item.lineId))
+  const chosen = list.find((item) => item.id === data.funnelId)
+  const stages = funnel.data?.stages ?? []
+  const option = (item: FunnelSummary) => (
+    <MenuItem key={item.id} value={item.id}>
+      {item.name} · {item.lineName}
+    </MenuItem>
+  )
+  return (
+    <>
+      <TextField
+        select
+        size="small"
+        label={t.funnel}
+        value={chosen ? chosen.id : ''}
+        onChange={(event) => onChange({ funnelId: event.target.value, stageId: '' })}
+      >
+        {own.map(option)}
+        {own.length > 0 && others.length > 0 && <ListSubheader>{t.funnelOtherLine}</ListSubheader>}
+        {others.map(option)}
+      </TextField>
+      {chosen && lineIds.length > 0 && !lineIds.includes(chosen.lineId) && (
+        <Alert severity="warning">{t.funnelOtherLineWarning}</Alert>
+      )}
+      <TextField
+        select
+        size="small"
+        label={t.funnelStage}
+        disabled={!chosen}
+        value={stages.some((stage) => stage.id === data.stageId) ? data.stageId : ''}
+        onChange={(event) => onChange({ stageId: event.target.value })}
+      >
+        {stages.map((stage) => (
+          <MenuItem key={stage.id} value={stage.id}>
+            {stage.name}
+          </MenuItem>
+        ))}
+      </TextField>
+    </>
+  )
+}
+
 function TransferForm({
   data: value,
   members,

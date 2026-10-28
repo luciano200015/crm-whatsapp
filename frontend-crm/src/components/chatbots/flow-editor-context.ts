@@ -13,6 +13,8 @@ export interface FlowEditorValue {
   contactVariables: string[]
   /** Opens the "Variables" dialog. */
   onOpenVariables: () => void
+  /** Lines of the bot: its funnel nodes should use funnels of these. */
+  lineIds: string[]
 }
 
 export const FlowEditorContext = createContext<FlowEditorValue>({
@@ -22,6 +24,7 @@ export const FlowEditorContext = createContext<FlowEditorValue>({
   variables: [],
   contactVariables: ['nombre', 'apellido', 'nombre_completo', 'email', 'telefono'],
   onOpenVariables: () => {},
+  lineIds: [],
 })
 
 export const useFlowEditor = () => useContext(FlowEditorContext)

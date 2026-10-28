@@ -22,6 +22,7 @@ import {
   type ConversationRecord,
 } from '../../inbox/application/ports';
 import { isBotPaused } from '../../inbox/domain/bot-pause';
+import { FunnelsService } from '../../funnels/application/funnels.service';
 import { FlowFormatError, parseFlow, type Flow } from '../domain/flow';
 import {
   advance,
@@ -68,6 +69,7 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
     private readonly lines: ChannelsStore,
     private readonly bots: ChatbotsStore,
     private readonly clock: Clock,
+    private readonly funnels: FunnelsService,
   ) {}
 
   onModuleInit() {
@@ -275,6 +277,18 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
         }
         case 'tags':
           await this.inbox.botTags(workspaceId, conversationId, bot, action);
+          return true;
+        case 'funnel':
+          // A funnel deleted, of another line or out of the plan: the
+          // contact is not placed, and the flow goes on.
+          await this.funnels
+            .setLeadStage({ conversation, bot, ...action })
+            .catch((error: unknown) => {
+              if (!(error instanceof HttpException)) throw error;
+              this.logger.warn(
+                `Chatbot ${bot.id} could not set the funnel stage in conversation ${conversationId}: ${error.message}`,
+              );
+            });
           return true;
         case 'transfer': {
           const assignee = await this.inbox.botTransfer(

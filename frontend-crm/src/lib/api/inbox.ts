@@ -65,6 +65,7 @@ export type ConversationEventKind =
   | 'bot_resumed'
   | 'bot_transferred'
   | 'bot_tagged'
+  | 'funnel_stage'
 
 export interface ConversationEvent {
   kind: ConversationEventKind
@@ -74,6 +75,8 @@ export interface ConversationEvent {
   to: { membershipId: string; name: string } | null
   /** bot_tagged: names of the tags added and removed. */
   tags?: { added: string[]; removed: string[] } | null
+  /** funnel_stage: the funnel and the stage names (from null: just added). */
+  funnel?: { name: string; from: string | null; to: string } | null
   /** bot_paused, bot_transferred: until when the bot is off (null: until someone turns it on). */
   pause?: { until: string | null } | null
 }

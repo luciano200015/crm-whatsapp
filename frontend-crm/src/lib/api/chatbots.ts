@@ -13,6 +13,7 @@ export type NodeKind =
   | 'condition'
   | 'hours'
   | 'tags'
+  | 'funnel'
   | 'transfer'
   | 'status'
   | 'end'
@@ -119,6 +120,8 @@ export interface NodeData {
   condition: { rules: ConditionRule[] }
   hours: { schedule: Schedule }
   tags: { add: string[]; remove: string[] }
+  /** «Establecer contacto en embudo». */
+  funnel: { funnelId: string; stageId: string }
   transfer: {
     to: 'auto' | 'unassigned' | 'member'
     membershipId: string | null
@@ -228,6 +231,7 @@ export type BotMessage =
 export type BotAction =
   | { kind: 'send'; message: BotMessage }
   | { kind: 'tags'; add: string[]; remove: string[] }
+  | { kind: 'funnel'; funnelId: string; stageId: string }
   | {
       kind: 'transfer'
       to: 'auto' | 'unassigned' | 'member'

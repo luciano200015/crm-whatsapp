@@ -10,6 +10,7 @@ import QuestionAnswerOutlined from '@mui/icons-material/QuestionAnswerOutlined'
 import SmartButtonRounded from '@mui/icons-material/SmartButtonRounded'
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded'
 import SyncAltRounded from '@mui/icons-material/SyncAltRounded'
+import ViewKanbanOutlined from '@mui/icons-material/ViewKanbanOutlined'
 import type { SvgIconProps } from '@mui/material'
 import type { NodeKind } from '../../lib/api/chatbots'
 
@@ -23,6 +24,7 @@ const ICONS: Record<NodeKind, typeof PlayArrowRounded> = {
   condition: AltRouteRounded,
   hours: AccessTimeRounded,
   tags: LocalOfferOutlined,
+  funnel: ViewKanbanOutlined,
   transfer: SupportAgentRounded,
   status: SyncAltRounded,
   end: FlagRounded,

@@ -776,6 +776,81 @@ describe('Chatbots (e2e)', () => {
     expect(invalid.body).toMatchObject({ code: 'VARIABLES_INVALID' });
   });
 
+  it('puts the contact in a funnel stage, and goes on when the funnel is of another line', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    const other = await newLine(owner);
+    const funnelOn = async (lineId: string) =>
+      (
+        await api(owner)
+          .post('/funnels', {
+            lineId,
+            name: `Ventas ${lineId.slice(-4)}`,
+            description: '',
+            isPrimary: false,
+            defaultStages: true,
+          })
+          .expect(201)
+      ).body as { id: string; stages: { id: string; name: string }[] };
+    const funnel = await funnelOn(line.id);
+    const foreign = await funnelOn(other.id);
+    const graph = (target: { id: string; stages: { id: string }[] }) => ({
+      nodes: [
+        { id: 'start', type: 'start', position: at, data: {} },
+        {
+          id: 'lead',
+          type: 'funnel',
+          position: at,
+          data: { funnelId: target.id, stageId: target.stages[1]?.id },
+        },
+        {
+          id: 'hello',
+          type: 'message',
+          position: at,
+          data: { text: 'Ya te atendemos' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', sourceHandle: 'next', target: 'lead' },
+        { id: 'e2', source: 'lead', sourceHandle: 'next', target: 'hello' },
+      ],
+    });
+    const columns = async (id: string) =>
+      (
+        (await api(owner).get(`/funnels/${id}/board`).expect(200)).body as {
+          columns: { stage: { name: string }; count: number }[];
+        }
+      ).columns.map((column) => [column.stage.name, column.count]);
+
+    const bot = await botOn(owner, line, graph(funnel));
+    await incoming(line, 'hola');
+    expect(await columns(funnel.id)).toEqual([
+      ['Nuevo', 0],
+      ['En atención', 1],
+      ['Esperando cliente', 0],
+      ['Cerrado', 0],
+    ]);
+    const chat = await chatOf(owner, line);
+    const messages = await messagesOf(owner, chat.id);
+    expect(messages.at(-2)?.event).toMatchObject({
+      kind: 'funnel_stage',
+      by: { name: 'Bot de ventas', kind: 'bot' },
+      funnel: { name: `Ventas ${line.id.slice(-4)}`, to: 'En atención' },
+    });
+    expect(messages.at(-1)?.text).toBe('Ya te atendemos');
+
+    // A funnel of another line: nobody is placed, and the bot still answers.
+    await api(owner)
+      .patch(`/chatbots/${bot.id}`, { graph: graph(foreign) })
+      .expect(200);
+    await incoming(line, 'menu');
+    expect((await columns(foreign.id)).every(([, count]) => count === 0)).toBe(
+      true,
+    );
+    const after = await messagesOf(owner, chat.id);
+    expect(after.at(-1)?.text).toBe('Ya te atendemos');
+  });
+
   it('is only for chatbots.manage', async () => {
     const owner = await signUp();
     const agent = await agentOf(owner, 'Beto Agente');
