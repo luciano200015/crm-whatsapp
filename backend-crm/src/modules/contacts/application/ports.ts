@@ -25,6 +25,8 @@ export interface ContactRecord {
   blocked: boolean;
   blockedAt: Date | null;
   blockedBy: { userId: string; name: string } | null;
+  /** «Agente regular»: gets this contact's new chats (CONTACT_AGENT). */
+  agentMembershipId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +47,16 @@ export interface ContactWrite {
   tagIds: string[];
   source: ContactSource;
   createdBy: string | null;
+  agentMembershipId?: string | null;
+}
+
+/** Members a contact can have as regular agent. */
+export abstract class ContactAgents {
+  /** True when it is an active member of the workspace. */
+  abstract isActiveMember(
+    workspaceId: string,
+    membershipId: string,
+  ): Promise<boolean>;
 }
 
 export interface TagWrite {

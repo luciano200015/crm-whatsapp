@@ -144,6 +144,8 @@ export interface InboxFilter {
 }
 
 export interface InboxOptions {
+  /** «Transferencia de chats» is on: the user may transfer their own chats. */
+  transfers?: boolean
   /** conversations.view_all: sees the chats of every line. */
   viewAll?: boolean
   /** Lines the user attends; without viewAll, the only chats they see. */
@@ -241,10 +243,20 @@ export const inboxApi = {
       { signal },
     )
   },
-  send(workspaceId: string, id: string, text: string, note: boolean, clientId?: string) {
+  send(
+    workspaceId: string,
+    id: string,
+    text: string,
+    note: boolean,
+    clientId?: string,
+    sign = false,
+  ) {
     return apiRequest<ChatMessage>(
       `${conversationPath(workspaceId, id)}/${note ? 'notes' : 'messages'}`,
-      { method: 'POST', body: { text, ...(clientId && { clientId }) } },
+      {
+        method: 'POST',
+        body: { text, ...(clientId && { clientId }), ...(sign && !note && { sign }) },
+      },
     )
   },
   sendMedia(
@@ -315,6 +327,16 @@ export const inboxApi = {
       method: 'POST',
       ...(action === 'assign' ? { body: { membershipId } } : {}),
     })
+  },
+  /**
+   * Closes the chat; with «Preguntar para enviar», sendMessage says whether
+   * the closing message goes first. closeMessageError: WhatsApp refused it.
+   */
+  close(workspaceId: string, id: string, sendMessage: boolean) {
+    return apiRequest<Conversation & { closeMessageError?: string }>(
+      `${conversationPath(workspaceId, id)}/close`,
+      { method: 'POST', body: { sendMessage } },
+    )
   },
   /** Turns the line's chatbot off (for 24 h or for good) or back on in this chat. */
   bot(

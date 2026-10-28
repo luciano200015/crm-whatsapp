@@ -295,6 +295,27 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     };
   }
 
+  async openChatsOf(
+    workspaceId: string,
+    membershipIds: string[],
+  ): Promise<Map<string, number>> {
+    if (membershipIds.length === 0) return new Map();
+    const rows = await this.conversations.aggregate<{
+      _id: string;
+      total: number;
+    }>([
+      {
+        $match: {
+          workspaceId,
+          status: 'OPEN',
+          'assignee.membershipId': { $in: membershipIds },
+        },
+      },
+      { $group: { _id: '$assignee.membershipId', total: { $sum: 1 } } },
+    ]);
+    return new Map(rows.map((row) => [row._id, row.total]));
+  }
+
   async counts(workspaceId: string, scope: InboxScope): Promise<InboxCounts> {
     const visible = scopeFilter(scope) ?? {};
     const open = { workspaceId, status: 'OPEN' as const };

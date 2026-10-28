@@ -22,6 +22,11 @@ export const ContactsErrors = {
         'Enter the phone number in international format, e.g. +59171234567',
       code: 'INVALID_PHONE',
     }),
+  agentNotFound: () =>
+    new NotFoundException({
+      message: 'The regular agent must be an active member of the workspace',
+      code: 'CONTACT_AGENT_NOT_FOUND',
+    }),
   tagNotFound: () =>
     new NotFoundException({ message: 'Tag not found', code: 'TAG_NOT_FOUND' }),
   tagNameTaken: () =>

@@ -2,6 +2,11 @@ import {
   Alert,
   Box,
   Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Drawer,
   LinearProgress,
   Stack,
@@ -16,7 +21,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useSnackbar } from 'notistack'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useWhenVisible } from '../../hooks/useWhenVisible'
+import { useMe } from '../../auth/useMe'
 import { usePermissions } from '../../auth/usePermissions'
+import { useChatSettings } from '../../lib/api/chat-settings'
 import { ApiError, errorMessage } from '../../lib/api/errors'
 import BlockRounded from '@mui/icons-material/BlockRounded'
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
@@ -28,7 +35,9 @@ import { ChatHeader, type ChatAction } from './ChatHeader'
 import { ChatTagChips, ChatTagPopover } from './ChatTags'
 import { useCanTagChat } from './useCanTagChat'
 import { useChatColors } from './chat-colors'
-import { Composer, type ComposerMode } from './Composer'
+import { Composer, type ComposerHandle, type ComposerMode } from './Composer'
+import { QuickRepliesPanel } from './QuickRepliesPanel'
+import { useSignPreference } from './sign-preference'
 import { ContactPanel } from './ContactPanel'
 import { contactName, dayLabel, sameDay } from './inbox-format'
 import { DaySeparator, MessageBubble } from './MessageBubble'
@@ -93,21 +102,50 @@ export function ConversationPanel({
 
   const action = useMutation({
     mutationFn: (chosen: ChatAction) =>
-      inboxApi.action(
-        workspaceId,
-        id,
-        chosen.name,
-        chosen.name === 'assign' ? chosen.membershipId : undefined,
-      ),
-    onSuccess: (_, chosen) => {
+      chosen.name === 'close'
+        ? inboxApi.close(workspaceId, id, chosen.sendMessage ?? false)
+        : inboxApi.action(
+            workspaceId,
+            id,
+            chosen.name,
+            chosen.name === 'assign' ? chosen.membershipId : undefined,
+          ),
+    onSuccess: (result, chosen) => {
       if (chosen.name === 'unread') {
         enqueueSnackbar('Chat marcado como no leído', { variant: 'info' })
         onBack()
+      }
+      if ('closeMessageError' in result && result.closeMessageError) {
+        enqueueSnackbar(
+          result.closeMessageError === 'WINDOW_CLOSED'
+            ? 'El chat se cerró, pero el mensaje de cierre no se envió: la ventana de 24 horas terminó.'
+            : 'El chat se cerró, pero WhatsApp no aceptó el mensaje de cierre.',
+          { variant: 'warning' },
+        )
       }
       void refresh()
     },
     onError: fail,
   })
+  const settings = useChatSettings(workspaceId)
+  const meId = useMe().data?.id
+  const [sign, setSign] = useSignPreference()
+  const [quickReplies, setQuickReplies] = useState(false)
+  const [askClose, setAskClose] = useState(false)
+  const composer = useRef<ComposerHandle>(null)
+  const closeMessage = settings.data?.closeMessage
+  const runAction = (chosen: ChatAction) => {
+    // «Preguntar para enviar»: the agent decides before closing.
+    if (chosen.name === 'close' && closeMessage?.mode === 'ASK' && closeMessage.text) {
+      setAskClose(true)
+      return
+    }
+    action.mutate(chosen)
+  }
+  const closeWith = (sendMessage: boolean) => {
+    setAskClose(false)
+    action.mutate({ name: 'close', sendMessage })
+  }
   const bot = useMutation({
     mutationFn: (chosen: '24h' | 'permanent' | 'resume') =>
       chosen === 'resume'
@@ -237,6 +275,12 @@ export function ConversationPanel({
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <ChatHeader
           conversation={conversation}
+          // «Transferencia de chats»: agents pass on their own chats; admins any.
+          canTransfer={
+            has('conversations.assign') ||
+            (!!options.data?.transfers && conversation.assignee?.userId === meId)
+          }
+          canUnassign={has('conversations.assign')}
           // Only who attends the line of the chat (or sees every line) can receive it.
           members={(options.data?.members ?? []).filter(
             (member) =>
@@ -257,7 +301,7 @@ export function ConversationPanel({
           }
           lineColor={lineColor}
           busy={action.isPending}
-          onAction={(chosen) => action.mutate(chosen)}
+          onAction={runAction}
           onBack={onBack}
           detailsOpen={detailsOpen}
           onToggleDetails={() => onDetailsChange(!detailsOpen)}
@@ -307,85 +351,129 @@ export function ConversationPanel({
           contact={blockTarget}
           onClose={() => setBlockTarget(null)}
         />
-        <Stack
-          spacing={0.75}
-          ref={scroller}
-          aria-label="Historial de mensajes"
+        <Dialog open={askClose} onClose={() => setAskClose(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>¿Enviar el mensaje de cierre?</DialogTitle>
+          <DialogContent>
+            <DialogContentText sx={{ whiteSpace: 'pre-wrap' }}>
+              {closeMessage?.text}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => closeWith(false)}>Cerrar sin enviar</Button>
+            <Button variant="contained" color="success" onClick={() => closeWith(true)}>
+              Enviar y cerrar
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Box
           sx={{
+            position: 'relative',
             flex: 1,
-            overflowY: 'auto',
-            px: { xs: 1.5, md: 6 },
-            py: 2,
-            bgcolor: colors.wallpaper,
-            backgroundImage: `radial-gradient(${colors.pattern} 1px, transparent 1px)`,
-            backgroundSize: '18px 18px',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          <Box ref={older} sx={{ minHeight: 1 }} />
-          {messages.isFetchingNextPage && (
-            <LinearProgress sx={{ alignSelf: 'center', width: 120, borderRadius: 1 }} />
+          {quickReplies && (
+            <QuickRepliesPanel
+              workspaceId={workspaceId}
+              conversationId={id}
+              sendBlockedReason={replyBlockedReason}
+              sign={settings.data?.signature === 'AGENT_CHOICE' && sign}
+              onUse={(text) => composer.current?.useText(text)}
+              onClose={() => setQuickReplies(false)}
+            />
           )}
-          {messages.isPending && <LinearProgress />}
-          {messages.error && <Alert severity="error">{errorMessage(messages.error)}</Alert>}
-          {!messages.isPending && !messages.error && history.length === 0 && (
-            <Typography color="text.secondary" sx={{ alignSelf: 'center' }}>
-              Aún no hay mensajes.
-            </Typography>
+          <Stack
+            spacing={0.75}
+            ref={scroller}
+            aria-label="Historial de mensajes"
+            sx={{
+              flex: 1,
+              overflowY: 'auto',
+              px: { xs: 1.5, md: 6 },
+              py: 2,
+              bgcolor: colors.wallpaper,
+              backgroundImage: `radial-gradient(${colors.pattern} 1px, transparent 1px)`,
+              backgroundSize: '18px 18px',
+            }}
+          >
+            <Box ref={older} sx={{ minHeight: 1 }} />
+            {messages.isFetchingNextPage && (
+              <LinearProgress sx={{ alignSelf: 'center', width: 120, borderRadius: 1 }} />
+            )}
+            {messages.isPending && <LinearProgress />}
+            {messages.error && <Alert severity="error">{errorMessage(messages.error)}</Alert>}
+            {!messages.isPending && !messages.error && history.length === 0 && (
+              <Typography color="text.secondary" sx={{ alignSelf: 'center' }}>
+                Aún no hay mensajes.
+              </Typography>
+            )}
+            {history.map((message, index) => {
+              const previous = history[index - 1]
+              return (
+                <Fragment key={message.id}>
+                  {(!previous || !sameDay(previous.createdAt, message.createdAt)) && (
+                    <DaySeparator label={dayLabel(message.createdAt)} />
+                  )}
+                  {message.id.startsWith('local-') ? (
+                    <MessageBubble
+                      message={message}
+                      onRetry={() => queue.retry(message.clientId ?? '')}
+                      onDiscard={() => queue.discard(message.clientId ?? '')}
+                    />
+                  ) : (
+                    <MessageBubble
+                      message={message}
+                      onRetry={
+                        message.direction === 'OUT' &&
+                        message.status === 'failed' &&
+                        has('messages.send') &&
+                        conversation?.status !== 'CLOSED'
+                          ? () => retry.mutate(message.id)
+                          : undefined
+                      }
+                      retrying={retry.isPending && retry.variables === message.id}
+                    />
+                  )}
+                </Fragment>
+              )
+            })}
+            <div ref={end} />
+          </Stack>
+          {has('messages.send') ? (
+            <Composer
+              ref={composer}
+              replyBlockedReason={replyBlockedReason}
+              onOpenQuickReplies={() => setQuickReplies(true)}
+              signature={settings.data?.signature}
+              sign={sign}
+              onSignChange={setSign}
+              onSend={(text, mode: ComposerMode) => {
+                queue.send({
+                  kind: 'text',
+                  text,
+                  note: mode === 'note',
+                  sign: mode === 'reply' && settings.data?.signature === 'AGENT_CHOICE' && sign,
+                })
+                return Promise.resolve(true)
+              }}
+              onSendFile={(file, caption) => {
+                queue.send({ kind: 'media', file, caption })
+                return Promise.resolve(true)
+              }}
+              onSendContacts={(contacts) => {
+                queue.send({ kind: 'contacts', contacts })
+                return Promise.resolve(true)
+              }}
+              onError={(message) => enqueueSnackbar(message, { variant: 'warning' })}
+            />
+          ) : (
+            <Alert severity="info" sx={{ borderRadius: 0 }}>
+              Solo tienes permiso para consultar mensajes.
+            </Alert>
           )}
-          {history.map((message, index) => {
-            const previous = history[index - 1]
-            return (
-              <Fragment key={message.id}>
-                {(!previous || !sameDay(previous.createdAt, message.createdAt)) && (
-                  <DaySeparator label={dayLabel(message.createdAt)} />
-                )}
-                {message.id.startsWith('local-') ? (
-                  <MessageBubble
-                    message={message}
-                    onRetry={() => queue.retry(message.clientId ?? '')}
-                    onDiscard={() => queue.discard(message.clientId ?? '')}
-                  />
-                ) : (
-                  <MessageBubble
-                    message={message}
-                    onRetry={
-                      message.direction === 'OUT' &&
-                      message.status === 'failed' &&
-                      has('messages.send') &&
-                      conversation?.status !== 'CLOSED'
-                        ? () => retry.mutate(message.id)
-                        : undefined
-                    }
-                    retrying={retry.isPending && retry.variables === message.id}
-                  />
-                )}
-              </Fragment>
-            )
-          })}
-          <div ref={end} />
-        </Stack>
-        {has('messages.send') ? (
-          <Composer
-            replyBlockedReason={replyBlockedReason}
-            onSend={(text, mode: ComposerMode) => {
-              queue.send({ kind: 'text', text, note: mode === 'note' })
-              return Promise.resolve(true)
-            }}
-            onSendFile={(file, caption) => {
-              queue.send({ kind: 'media', file, caption })
-              return Promise.resolve(true)
-            }}
-            onSendContacts={(contacts) => {
-              queue.send({ kind: 'contacts', contacts })
-              return Promise.resolve(true)
-            }}
-            onError={(message) => enqueueSnackbar(message, { variant: 'warning' })}
-          />
-        ) : (
-          <Alert severity="info" sx={{ borderRadius: 0 }}>
-            Solo tienes permiso para consultar mensajes.
-          </Alert>
-        )}
+        </Box>
       </Box>
       {wide ? (
         detailsOpen && (

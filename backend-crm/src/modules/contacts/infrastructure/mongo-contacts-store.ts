@@ -50,6 +50,7 @@ function toContact(doc: ContactDocument): ContactRecord {
     blocked: doc.blocked ?? false,
     blockedAt: doc.blockedAt ?? null,
     blockedBy: doc.blockedBy ?? null,
+    agentMembershipId: doc.agentMembershipId ?? null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

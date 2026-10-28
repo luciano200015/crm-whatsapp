@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ContactsService } from './application/contacts.service';
-import { ContactsStore } from './application/ports';
+import { ContactAgents, ContactsStore } from './application/ports';
+import { PrismaContactAgents } from './infrastructure/prisma-contact-agents';
 import {
   CONTACT_MODEL,
   ContactSchema,
@@ -26,6 +27,7 @@ import {
   providers: [
     ContactsService,
     { provide: ContactsStore, useClass: MongoContactsStore },
+    { provide: ContactAgents, useClass: PrismaContactAgents },
   ],
   exports: [ContactsService, ContactsStore],
 })

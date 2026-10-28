@@ -12,6 +12,7 @@ import { ContactsStore } from '../../contacts/application/ports';
 import { normalizePhone } from '../../contacts/domain/phone';
 import { withinSchedule, type Schedule } from '../../chatbots/domain/schedule';
 import { nextStatus } from '../domain/inbox-rules';
+import { AutoAssigner } from './auto-assigner';
 import { ConversationTimeline } from './conversation-timeline';
 import { InboxMediaService } from './inbox-media.service';
 import { InboxEvents } from './inbox-events';
@@ -32,6 +33,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
     private readonly events: InboxEvents,
     private readonly timeline: ConversationTimeline,
     private readonly media: InboxMediaService,
+    private readonly autoAssigner: AutoAssigner,
   ) {
     super();
   }
@@ -119,8 +121,15 @@ export class InboxIngestService extends WhatsAppEventsSink {
     // auto-assignment when it hands the chat over.
     const botAttends = await this.botAttends(line, updated, inbound.timestamp);
     let autoAssigned = false;
-    if (created && line.autoAssign && !updated.assignee && !botAttends) {
-      const agent = await this.assignments.nextAgent(line.id);
+    if ((created || reopened) && !updated.assignee && !botAttends) {
+      const agent = await this.autoAssigner.pick({
+        workspaceId,
+        lineId: line.id,
+        contactId: contact.id,
+        trigger: 'arrival',
+        reopened,
+        lineAutoAssign: line.autoAssign,
+      });
       const assigned = agent
         ? await this.store.setAssignee(workspaceId, conversation.id, agent, {
             onlyIfUnassigned: true,

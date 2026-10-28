@@ -1,4 +1,6 @@
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded'
+import BoltRounded from '@mui/icons-material/BoltRounded'
+import DrawOutlined from '@mui/icons-material/DrawOutlined'
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded'
 import ContactPhoneOutlined from '@mui/icons-material/ContactPhoneOutlined'
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined'
@@ -13,13 +15,10 @@ import {
   CircularProgress,
   IconButton,
   InputBase,
-  List,
-  ListItemButton,
   ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
-  Paper,
   Popover,
   Stack,
   ToggleButton,
@@ -27,11 +26,17 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { useQuery } from '@tanstack/react-query'
-import { lazy, Suspense, useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { usePermissions } from '../../auth/usePermissions'
-import { quickRepliesApi, quickReplyKeys, type QuickReply } from '../../lib/api/quick-replies'
-import { useActiveWorkspace } from '../../workspace/active-workspace-context'
+import {
+  lazy,
+  Suspense,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type Ref,
+} from 'react'
+import type { SignatureMode } from '../../lib/api/chat-settings'
 import { AttachmentDialog } from './AttachmentDialog'
 import { SendContactDialog, type OutgoingContact } from './SendContactDialog'
 import { useChatColors } from './chat-colors'
@@ -41,6 +46,11 @@ import { useVoiceRecorder } from './useVoiceRecorder'
 const EmojiPanel = lazy(() => import('./EmojiPanel'))
 
 export type ComposerMode = 'reply' | 'note'
+
+/** What the chat can do to the editor from outside (a quick reply's «Usar»). */
+export interface ComposerHandle {
+  useText: (text: string) => void
+}
 
 const clock = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
@@ -88,12 +98,18 @@ function RoundButton({
  * "note" mode the text stays inside the team.
  */
 export function Composer({
+  ref,
   replyBlockedReason,
   onSend,
   onSendFile,
   onSendContacts,
   onError,
+  onOpenQuickReplies,
+  signature = 'NEVER',
+  sign = false,
+  onSignChange,
 }: {
+  ref?: Ref<ComposerHandle>
   /** Why WhatsApp replies are not possible now (closed chat, 24 h window); notes still work. */
   replyBlockedReason: string | null
   /** Resolves true when it was queued, so the text can be cleared. */
@@ -101,6 +117,12 @@ export function Composer({
   onSendFile: (file: File, caption: string | null) => Promise<boolean>
   onSendContacts: (contacts: OutgoingContact[]) => Promise<boolean>
   onError: (message: string) => void
+  /** The quick replies panel; "/" at the start of the message opens it too. */
+  onOpenQuickReplies?: () => void
+  /** «Firma de mensajes» of the workspace: AGENT_CHOICE shows the switch. */
+  signature?: SignatureMode
+  sign?: boolean
+  onSignChange?: (sign: boolean) => void
 }) {
   const colors = useChatColors()
   const [mode, setMode] = useState<ComposerMode>('reply')
@@ -114,30 +136,13 @@ export function Composer({
   const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null)
   const voice = useVoiceRecorder()
 
-  // Quick replies: "/" + part of a shortcut lists the matching ones.
-  const workspaceId = useActiveWorkspace().active?.id ?? ''
-  const { has } = usePermissions()
-  const replies = useQuery({
-    queryKey: quickReplyKeys.all(workspaceId),
-    queryFn: ({ signal }) => quickRepliesApi.list(workspaceId, signal),
-    enabled: !!workspaceId && has('messages.send'),
-    staleTime: 60_000,
-  })
-  const [dismissed, setDismissed] = useState(false)
-  const [highlight, setHighlight] = useState(0)
-  const slash = /^\/(\S*)$/.exec(text)
-  const suggestions =
-    slash && !dismissed
-      ? (replies.data ?? [])
-          .filter((reply) => reply.shortcut.includes((slash[1] ?? '').toLowerCase()))
-          .slice(0, 8)
-      : []
-  const active = Math.min(highlight, Math.max(suggestions.length - 1, 0))
-  const applyReply = (reply: QuickReply) => {
-    setText(reply.text)
-    setHighlight(0)
-    input.current?.focus()
-  }
+  useImperativeHandle(ref, () => ({
+    useText: (value: string) => {
+      setMode('reply')
+      setText(value)
+      requestAnimationFrame(() => input.current?.focus())
+    },
+  }))
   const insertEmoji = (emoji: string) => {
     const element = input.current
     const start = element?.selectionStart ?? text.length
@@ -232,43 +237,6 @@ export function Composer({
         </Stack>
       ) : (
         <Box sx={{ position: 'relative' }}>
-          {suggestions.length > 0 && (
-            <Paper
-              elevation={6}
-              sx={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: '100%',
-                mb: 1,
-                maxHeight: 280,
-                overflowY: 'auto',
-                zIndex: 2,
-              }}
-            >
-              <List dense role="listbox" aria-label="Respuestas rápidas">
-                {suggestions.map((reply, index) => (
-                  <ListItemButton
-                    key={reply.id}
-                    role="option"
-                    aria-selected={index === active}
-                    selected={index === active}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => applyReply(reply)}
-                  >
-                    <ListItemText
-                      primary={`/${reply.shortcut}`}
-                      secondary={reply.text}
-                      slotProps={{
-                        primary: { sx: { fontWeight: 600 } },
-                        secondary: { noWrap: true },
-                      }}
-                    />
-                  </ListItemButton>
-                ))}
-              </List>
-            </Paper>
-          )}
           <Stack
             component="form"
             direction="row"
@@ -303,6 +271,23 @@ export function Composer({
                 <EmojiPanel dark={colors.dark} onPick={insertEmoji} />
               </Suspense>
             </Popover>
+            {!note && onOpenQuickReplies && (
+              <RoundButton label="Respuestas rápidas" onClick={onOpenQuickReplies}>
+                <BoltRounded />
+              </RoundButton>
+            )}
+            {!note && signature === 'AGENT_CHOICE' && (
+              <Tooltip title={sign ? 'Firmando con tu nombre' : 'Firmar con tu nombre'}>
+                <IconButton
+                  aria-label="Firmar mensajes"
+                  aria-pressed={sign}
+                  onClick={() => onSignChange?.(!sign)}
+                  color={sign ? 'primary' : 'default'}
+                >
+                  <DrawOutlined />
+                </IconButton>
+              </Tooltip>
+            )}
             {!note && (
               <>
                 <RoundButton
@@ -363,29 +348,14 @@ export function Composer({
               value={text}
               inputRef={input}
               onChange={(event) => {
+                // "/" on an empty message opens the quick replies, as in wasapi.
+                if (!note && onOpenQuickReplies && !text && event.target.value === '/') {
+                  onOpenQuickReplies()
+                  return
+                }
                 setText(event.target.value)
-                setDismissed(false)
-                setHighlight(0)
               }}
               onKeyDown={(event) => {
-                if (suggestions.length > 0) {
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    const step = event.key === 'ArrowDown' ? 1 : -1
-                    setHighlight((active + step + suggestions.length) % suggestions.length)
-                    return
-                  }
-                  if (event.key === 'Enter' || event.key === 'Tab') {
-                    event.preventDefault()
-                    const chosen = suggestions[active]
-                    if (chosen) applyReply(chosen)
-                    return
-                  }
-                  if (event.key === 'Escape') {
-                    setDismissed(true)
-                    return
-                  }
-                }
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   submit()

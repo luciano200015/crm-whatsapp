@@ -5,7 +5,7 @@ Estado con autenticación, planes, equipo, contactos, canales y bandeja de mensa
 ## No implementado todavía
 
 - **Workspaces**: crear workspaces adicionales, editarlos, abandonarlos y transferir la propiedad. Las **invitaciones por enlace** tampoco existen: hoy los agentes se dan de alta con contraseña temporal ([team.md](team.md)).
-- **Equipo**: las líneas asignadas y la autoasignación están disponibles. La contraseña temporal no caduca hasta que se cambia o se reenvía. Los correos del equipo están en inglés.
+- **Equipo**: las líneas asignadas y la autoasignación están disponibles. La autoasignación por conectados y el turno de los empates viven en memoria del proceso: con varias instancias de la API, cada una ve solo las bandejas abiertas contra ella. La contraseña temporal no caduca hasta que se cambia o se reenvía. Los correos del equipo están en inglés.
 - **Autorización por workspace**: `WorkspaceAccessGuard`, `@RequirePermissions()` y `@CurrentWorkspace()` protegen billing y equipo. No hay caché de permisos: se consultan en cada petición.
 - **Rate limiting distribuido**: el actual (`@nestjs/throttler`) guarda los contadores en memoria, por proceso. Con varias instancias hay que pasarlo a Redis (Fase 7).
 - **Bloqueo por cuenta**: 5 fallos seguidos bloquean la cuenta 15 minutos. Esto permite que un tercero bloquee temporalmente una cuenta ajena; el throttling por IP lo limita. Pendiente valorar CAPTCHA o bloqueo progresivo.

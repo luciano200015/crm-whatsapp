@@ -8,7 +8,9 @@ import { AppProviders } from '../AppProviders'
 import { API_BASE_URL } from '../lib/api/client'
 import { tokenStore } from '../lib/api/token-store'
 import type { Me } from '../lib/api/types'
+import type { ChatSettingsView } from '../lib/api/chat-settings'
 import { inboxApi, type ChatMessage, type Conversation } from '../lib/api/inbox'
+import type { QuickReply } from '../lib/api/quick-replies'
 import { outbox } from '../components/inbox/outbox'
 import { createQueryClient } from '../lib/query-client'
 import { routes } from '../router'
@@ -22,7 +24,9 @@ let actions: { name: string; body: unknown }[]
 let streamCount: number
 let listQueries: string[]
 let listUrls: URL[]
-let quickReplies: { id: string; shortcut: string; text: string }[]
+let quickReplies: QuickReply[]
+let chatSettings: ChatSettingsView
+let transfers: boolean
 let myLines: string[]
 
 const me = (): Me => ({
@@ -82,6 +86,7 @@ const server = setupServer(
   ),
   http.get(api(`${base}/options`), () =>
     HttpResponse.json({
+      transfers,
       viewAll: permissions.includes('conversations.view_all'),
       myLineIds: myLines,
       lines: [
@@ -93,25 +98,26 @@ const server = setupServer(
           color: '#303f9f',
         },
       ].filter((line) => myLines.includes(line.id)),
-      members: permissions.includes('conversations.assign')
-        ? [
-            {
-              membershipId: 'm2',
-              userId: 'u2',
-              name: 'Ana Agente',
-              lineIds: ['l1'],
-              viewAll: false,
-            },
-            // Beto attends another line: chats of Ventas cannot go to him.
-            {
-              membershipId: 'm3',
-              userId: 'u3',
-              name: 'Beto Otro',
-              lineIds: ['l9'],
-              viewAll: false,
-            },
-          ]
-        : [],
+      members:
+        permissions.includes('conversations.assign') || transfers
+          ? [
+              {
+                membershipId: 'm2',
+                userId: 'u2',
+                name: 'Ana Agente',
+                lineIds: ['l1'],
+                viewAll: false,
+              },
+              // Beto attends another line: chats of Ventas cannot go to him.
+              {
+                membershipId: 'm3',
+                userId: 'u3',
+                name: 'Beto Otro',
+                lineIds: ['l9'],
+                viewAll: false,
+              },
+            ]
+          : [],
     }),
   ),
   http.get(api(base), ({ request }) => {
@@ -157,6 +163,26 @@ const server = setupServer(
     return HttpResponse.json(chat)
   }),
   http.get(api('/workspaces/w1/quick-replies'), () => HttpResponse.json(quickReplies)),
+  http.post(api('/workspaces/w1/quick-replies/attachments'), () =>
+    HttpResponse.json(
+      { fileId: 'f1', filename: 'catalogo.pdf', mimeType: 'application/pdf', size: 2048 },
+      { status: 201 },
+    ),
+  ),
+  http.post(api(`${base}/c1/quick-replies/:replyId`), async ({ params, request }) => {
+    actions.push({
+      name: `send-quick-reply:${String(params.replyId)}`,
+      body: await request.json(),
+    })
+    return HttpResponse.json([], { status: 201 })
+  }),
+  http.get(api('/workspaces/w1/chat-settings'), () => HttpResponse.json(chatSettings)),
+  http.put(api('/workspaces/w1/chat-settings'), async ({ request }) => {
+    const body = (await request.json()) as Omit<ChatSettingsView, 'legacyAssignment'>
+    actions.push({ name: 'chat-settings', body })
+    chatSettings = { ...body, legacyAssignment: false }
+    return HttpResponse.json(chatSettings)
+  }),
   http.get(api('/workspaces/w1/tags'), () =>
     HttpResponse.json([
       { id: 't1', name: 'VENTAS', color: '#1565c0', description: null, contactCount: 1 },
@@ -164,9 +190,12 @@ const server = setupServer(
     ]),
   ),
   http.post(api('/workspaces/w1/quick-replies'), async ({ request }) => {
-    const body = (await request.json()) as { shortcut: string; text: string }
+    const body = (await request.json()) as { title: string; text: string }
     actions.push({ name: 'quick-reply', body })
-    return HttpResponse.json({ id: 'qr9', ...body, createdBy: null }, { status: 201 })
+    return HttpResponse.json(
+      { id: 'qr9', shortcut: 'x', attachments: [], ...body, createdBy: null },
+      { status: 201 },
+    )
   }),
   http.get(api('/workspaces/w1/channels/auto-assignment'), () =>
     HttpResponse.json({
@@ -194,6 +223,14 @@ beforeEach(() => {
   listQueries = []
   listUrls = []
   quickReplies = []
+  transfers = false
+  chatSettings = {
+    assignment: { mode: 'NONE', includeAdmins: false },
+    transfers: false,
+    signature: 'AGENT_CHOICE',
+    closeMessage: { mode: 'NEVER', text: '' },
+    legacyAssignment: true,
+  }
   myLines = ['l1']
   streamCount = 0
   chat = {
@@ -240,6 +277,22 @@ afterEach(() => {
   document.cookie = 'crm_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
 })
 afterAll(() => server.close())
+
+const quickReply = (
+  id: string,
+  title: string,
+  text: string,
+  attachments: QuickReply['attachments'] = [],
+): QuickReply => ({
+  id,
+  title,
+  shortcut: title.toLowerCase(),
+  text,
+  attachments,
+  createdBy: null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+})
 
 function renderAt(path = '/inbox?conversation=c1') {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
@@ -330,21 +383,61 @@ describe('Inbox', () => {
     expect(screen.queryByRole('button', { name: 'Tomar chat' })).not.toBeInTheDocument()
   })
 
-  it('configures auto-assignment with channels.manage alone', async () => {
-    permissions = ['channels.manage']
-    renderAt('/inbox/auto-assignment')
+  it('configures the chat module from its settings modal', async () => {
+    permissions = ['messages.read', 'channels.manage']
+    renderAt('/inbox')
     const user = userEvent.setup()
-    expect(await screen.findByText(/Sin agentes activos/)).toBeInTheDocument()
-    await user.click(screen.getByLabelText('Asignar automáticamente nuevos chats'))
-    await user.click(screen.getByLabelText('Agentes de la línea'))
+    await user.click(
+      await screen.findByRole('button', { name: 'Configuración del módulo de chat' }),
+    )
+    const dialog = await screen.findByRole('dialog', { name: 'Configuración del módulo de chat' })
+    // Never saved: the lines still use their own switch.
+    expect(await within(dialog).findByText(/cada línea usa su propio interruptor/)).toBeVisible()
+
+    await user.click(within(dialog).getByRole('radio', { name: /Autoasignar conversación/ }))
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'Incluir a los administradores de la cuenta en la asignación de chats',
+      }),
+    )
+    await user.click(within(dialog).getByLabelText('Ventas'))
     await user.click(await screen.findByRole('option', { name: 'Ana Agente' }))
-    await user.click(screen.getByRole('button', { name: 'Guardar configuración' }))
+    await user.click(within(dialog).getByRole('switch', { name: 'Activar transferencia de chats' }))
+    await user.click(
+      within(dialog).getByRole('radio', { name: 'Siempre firmar todos los mensajes enviados' }),
+    )
+    await user.click(within(dialog).getByRole('radio', { name: /Preguntar para enviar/ }))
+    // The message is required when it may be sent.
+    expect(within(dialog).getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    await user.type(within(dialog).getByLabelText('Mensaje al cerrar'), '¡Gracias!')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+
     await waitFor(() =>
       expect(actions).toEqual([
         { name: 'agents', body: { membershipIds: ['m2'] } },
-        { name: 'line', body: { autoAssign: true } },
+        {
+          name: 'chat-settings',
+          body: {
+            assignment: { mode: 'LEAST_BUSY', includeAdmins: true },
+            transfers: true,
+            signature: 'ALWAYS',
+            closeMessage: { mode: 'ASK', text: '¡Gracias!' },
+          },
+        },
       ]),
     )
+    await waitFor(() => expect(dialog).not.toBeInTheDocument())
+  })
+
+  it('shows only the alerts to agents in the settings modal', async () => {
+    renderAt('/inbox')
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('button', { name: 'Configuración del módulo de chat' }),
+    )
+    const dialog = await screen.findByRole('dialog', { name: 'Configuración del módulo de chat' })
+    expect(within(dialog).getByRole('switch', { name: 'Sonido' })).toBeInTheDocument()
+    expect(within(dialog).queryByText('Auto-asignación de chats')).not.toBeInTheDocument()
   })
 
   it('removes chat content after server denies further access', async () => {
@@ -398,14 +491,20 @@ describe('Inbox', () => {
     expect(screen.queryByLabelText('Escribir respuesta')).not.toBeInTheDocument()
   })
   it('shows the chat list with status filters and the menu entries at the top level', async () => {
-    permissions = ['messages.read', 'messages.send', 'channels.manage']
+    permissions = ['messages.read', 'messages.send', 'channels.read', 'channels.manage']
     renderAt('/inbox')
     const user = userEvent.setup()
 
     const menu = await screen.findByRole('navigation', { name: 'menu' })
     expect(within(menu).getByRole('link', { name: /Bandeja/ })).toBeInTheDocument()
-    expect(within(menu).getByRole('link', { name: /Autoasignación/ })).toBeInTheDocument()
+    // Auto-assignment is in the chat settings; quick replies open from the chat.
+    expect(within(menu).queryByRole('link', { name: /Autoasignación/ })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole('link', { name: /Respuestas rápidas/ })).not.toBeInTheDocument()
     expect(within(menu).queryByText('Mensajes')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Más opciones de la bandeja' }))
+    expect(screen.queryByRole('menuitem', { name: 'Autoasignación' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Líneas de WhatsApp' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
 
     expect(
       await screen.findByRole('button', { name: 'Chat con Lucía Cliente' }),
@@ -808,21 +907,37 @@ describe('Inbox', () => {
     ).toBeInTheDocument()
     expect(await screen.findAllByText('Bloqueado')).not.toHaveLength(0)
   })
-  it('inserts a quick reply typing "/" and its shortcut', async () => {
+  it('opens the quick replies with "/" to search, send or use one', async () => {
     quickReplies = [
-      { id: 'qr1', shortcut: 'saludo', text: '¡Hola! Gracias por escribirnos.' },
-      { id: 'qr2', shortcut: 'horario', text: 'Atendemos de 8 a 18.' },
+      quickReply('qr1', 'Saludo', '¡Hola! Gracias por escribirnos.'),
+      quickReply('qr2', 'Lavadoras monstruosas', 'Llegaron las lavadoras de 17 kilos.', [
+        { fileId: 'f1', filename: 'catalogo.pdf', mimeType: 'application/pdf', size: 2048 },
+      ]),
     ]
     renderAt()
     const user = userEvent.setup()
     const editor = await screen.findByLabelText('Escribir respuesta')
 
-    await user.type(editor, '/sal')
-    const options = await screen.findByRole('listbox', { name: 'Respuestas rápidas' })
-    expect(within(options).getAllByRole('option')).toHaveLength(1)
-    await user.keyboard('{Enter}')
+    await user.type(editor, '/')
+    const panel = await screen.findByRole('dialog', { name: 'Respuestas rápidas' })
+    expect(editor).toHaveValue('')
+    // By title or content, without accents.
+    await user.type(within(panel).getByLabelText('Buscar respuesta rápida'), 'kilos')
+    expect(within(panel).getAllByRole('article')).toHaveLength(1)
+    expect(within(panel).getByText('catalogo.pdf (2 KB)')).toBeInTheDocument()
+    expect(
+      within(panel).queryByRole('button', { name: 'Nueva respuesta rápida' }),
+    ).not.toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Enviar «Lavadoras monstruosas»' }))
+    await waitFor(() =>
+      expect(actions).toContainEqual({ name: 'send-quick-reply:qr2', body: { sign: false } }),
+    )
+    await waitFor(() => expect(panel).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Respuestas rápidas' }))
+    await user.click(await screen.findByRole('button', { name: 'Usar «Saludo» en el mensaje' }))
     expect(editor).toHaveValue('¡Hola! Gracias por escribirnos.')
-    expect(actions).toEqual([{ name: 'read', body: null }])
+    expect(screen.queryByRole('dialog', { name: 'Respuestas rápidas' })).not.toBeInTheDocument()
   })
 
   it('opens the emoji picker in Spanish', async () => {
@@ -834,24 +949,106 @@ describe('Inbox', () => {
     expect(await screen.findByPlaceholderText('Buscar emoji')).toBeInTheDocument()
   })
 
-  it('creates quick replies on their page', async () => {
+  it('creates quick replies with a file from the chat', async () => {
     permissions = ['messages.read', 'messages.send', 'quick_replies.manage']
-    renderAt('/quick-replies')
+    renderAt()
     const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Respuestas rápidas' }))
+    const panel = await screen.findByRole('dialog', { name: 'Respuestas rápidas' })
+    expect(within(panel).getByText(/Crea la primera con «\+»/)).toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Nueva respuesta rápida' }))
 
-    const menu = await screen.findByRole('navigation', { name: 'menu' })
-    expect(within(menu).getByRole('link', { name: /Respuestas rápidas/ })).toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: 'Nueva respuesta rápida' }))
-    const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByLabelText(/Atajo/), 'gracias')
-    await user.type(within(dialog).getByLabelText(/Mensaje/), '¡Gracias por tu compra!')
-    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+    const editor = await screen.findByRole('dialog', { name: 'Edición de respuesta rápida' })
+    expect(within(editor).getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    await user.type(within(editor).getByLabelText('Título'), 'Gracias')
+    await user.type(within(editor).getByLabelText('Contenido'), '¡Gracias por tu compra!')
+    await user.upload(
+      within(editor).getByLabelText('Elegir archivo para adjuntar'),
+      new File(['%PDF'], 'catalogo.pdf', { type: 'application/pdf' }),
+    )
+    expect(await within(editor).findByText('catalogo.pdf (2 KB)')).toBeInTheDocument()
+    await user.click(within(editor).getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() =>
       expect(actions).toContainEqual({
         name: 'quick-reply',
-        body: { shortcut: 'gracias', text: '¡Gracias por tu compra!' },
+        body: { title: 'Gracias', text: '¡Gracias por tu compra!', attachmentIds: ['f1'] },
       }),
+    )
+    expect(await screen.findByRole('dialog', { name: 'Respuestas rápidas' })).toBeInTheDocument()
+  })
+
+  it('asks whether to send the closing message, and signs when the agent chooses', async () => {
+    chatSettings = {
+      ...chatSettings,
+      closeMessage: { mode: 'ASK', text: '¡Gracias por escribirnos!' },
+    }
+    renderAt()
+    const user = userEvent.setup()
+    const editor = await screen.findByLabelText('Escribir respuesta')
+
+    const sign = await screen.findByRole('button', { name: 'Firmar mensajes' })
+    await user.click(sign)
+    expect(sign).toHaveAttribute('aria-pressed', 'true')
+    await user.type(editor, 'Hola{Enter}')
+    await waitFor(() =>
+      expect(actions).toContainEqual({
+        name: 'messages',
+        body: expect.objectContaining({ text: 'Hola', sign: true }) as unknown,
+      }),
+    )
+    await user.click(sign)
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar chat' }))
+    const ask = await screen.findByRole('dialog', { name: '¿Enviar el mensaje de cierre?' })
+    expect(within(ask).getByText('¡Gracias por escribirnos!')).toBeInTheDocument()
+    await user.click(within(ask).getByRole('button', { name: 'Enviar y cerrar' }))
+    await waitFor(() =>
+      expect(actions).toContainEqual({ name: 'close', body: { sendMessage: true } }),
+    )
+  })
+
+  it('lets agents transfer their own chats when transfers are on', async () => {
+    transfers = true
+    chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
+    renderAt()
+    const user = userEvent.setup()
+    await screen.findByLabelText('Escribir respuesta')
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Transferir' }))
+    const to = await screen.findByRole('menu', { name: 'Transferir chat a' })
+    // Only admins leave a chat unassigned.
+    expect(within(to).queryByText('Dejar sin asignar')).not.toBeInTheDocument()
+    await user.click(within(to).getByRole('menuitem', { name: 'Ana Agente' }))
+    await waitFor(() =>
+      expect(actions).toContainEqual({ name: 'assign', body: { membershipId: 'm2' } }),
+    )
+  })
+
+  it('does not offer transfers to agents while they are off', async () => {
+    chat = { ...chat, assignee: { membershipId: 'm1', userId: 'u1', name: 'Uma' } }
+    renderAt()
+    const user = userEvent.setup()
+    await screen.findByLabelText('Escribir respuesta')
+    await user.click(screen.getByRole('button', { name: 'Más opciones' }))
+    expect(await screen.findByRole('menuitem', { name: /Marcar como no leído/ })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Transferir' })).not.toBeInTheDocument()
+  })
+
+  it('does not repeat «En espera» on the cards of that tab', async () => {
+    chat = { ...chat, status: 'ON_HOLD' }
+    renderAt('/inbox')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: /En espera/ }))
+    const card = await screen.findByRole('button', { name: 'Chat con Lucía Cliente' })
+    expect(within(card).queryByText('En espera')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /Abierto/ }))
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('button', { name: 'Chat con Lucía Cliente' })).getByText(
+          'En espera',
+        ),
+      ).toBeInTheDocument(),
     )
   })
   it('chimes and shows the unread count in the title when a customer writes', async () => {

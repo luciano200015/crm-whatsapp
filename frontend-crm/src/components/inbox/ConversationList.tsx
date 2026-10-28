@@ -147,6 +147,7 @@ export function ConversationListItem({
   lineColor,
   onAccept,
   accepting,
+  listStatus = 'OPEN',
 }: {
   conversation: Conversation
   selected: boolean
@@ -159,6 +160,8 @@ export function ConversationListItem({
   lineColor?: string | null
   /** «Aceptar» on a chat on hold: it becomes mine and goes back to Abierto. */
   onAccept?: () => void
+  /** Status of the tab the list shows: no need to repeat it on each card. */
+  listStatus?: Conversation['status']
   accepting?: boolean
 }) {
   const colors = useChatColors()
@@ -303,7 +306,7 @@ export function ConversationListItem({
                 sx={{ height: 20, fontSize: 11 }}
               />
             )}
-            {conversation.status !== 'OPEN' && (
+            {conversation.status !== listStatus && (
               <Typography
                 variant="caption"
                 noWrap

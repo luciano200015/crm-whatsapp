@@ -1,19 +1,5 @@
-import NotificationsActiveOutlined from '@mui/icons-material/NotificationsActiveOutlined'
-import NotificationsOffOutlined from '@mui/icons-material/NotificationsOffOutlined'
-import {
-  Box,
-  Button,
-  FormControlLabel,
-  IconButton,
-  Popover,
-  Stack,
-  Switch,
-  Tooltip,
-  Typography,
-  type SxProps,
-  type Theme,
-} from '@mui/material'
-import { useState, type ReactNode } from 'react'
+import { Box, Button, FormControlLabel, Stack, Switch, Typography } from '@mui/material'
+import { useState } from 'react'
 import {
   desktopSupported,
   enableDesktopAlerts,
@@ -22,84 +8,53 @@ import {
   useAlertPreferences,
 } from './notifications'
 
-/** Settings of the inbox: sound and desktop notifications for new messages (per browser). */
-export function AlertSettings({
-  label = 'Avisos de mensajes nuevos',
-  icon,
-  buttonSx,
-}: {
-  label?: string
-  /** Replaces the bell (which shows whether alerts are on). */
-  icon?: ReactNode
-  buttonSx?: SxProps<Theme>
-}) {
+/** Sound and desktop notifications for new messages (per browser). */
+export function AlertPreferences() {
   const preferences = useAlertPreferences()
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [denied, setDenied] = useState(
     () => desktopSupported() && Notification.permission === 'denied',
   )
-  const on = preferences.sound || preferences.desktop
   return (
-    <>
-      <Tooltip title={label}>
-        <IconButton
-          aria-label={label}
-          onClick={(event) => setAnchor(event.currentTarget)}
-          sx={buttonSx}
-        >
-          {icon ?? (on ? <NotificationsActiveOutlined /> : <NotificationsOffOutlined />)}
-        </IconButton>
-      </Tooltip>
-      <Popover
-        open={!!anchor}
-        anchorEl={anchor}
-        onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Stack spacing={1} sx={{ p: 2, width: 300 }}>
-          <Typography variant="subtitle2">Avisos de mensajes nuevos</Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={preferences.sound}
-                onChange={(event) => setAlertPreferences({ sound: event.target.checked })}
-              />
-            }
-            label="Sonido"
+    <Stack spacing={1}>
+      <FormControlLabel
+        control={
+          <Switch
+            checked={preferences.sound}
+            onChange={(event) => setAlertPreferences({ sound: event.target.checked })}
           />
-          <FormControlLabel
-            control={
-              <Switch
-                checked={preferences.desktop}
-                disabled={!desktopSupported()}
-                onChange={(event) => {
-                  if (!event.target.checked) {
-                    setAlertPreferences({ desktop: false })
-                    return
-                  }
-                  void enableDesktopAlerts().then((granted) => setDenied(!granted))
-                }}
-              />
-            }
-            label="Notificaciones de escritorio"
+        }
+        label="Sonido"
+      />
+      <FormControlLabel
+        control={
+          <Switch
+            checked={preferences.desktop}
+            disabled={!desktopSupported()}
+            onChange={(event) => {
+              if (!event.target.checked) {
+                setAlertPreferences({ desktop: false })
+                return
+              }
+              void enableDesktopAlerts().then((granted) => setDenied(!granted))
+            }}
           />
-          {denied && (
-            <Typography variant="caption" color="warning.main">
-              El navegador bloqueó las notificaciones de este sitio. Permítelas en la configuración
-              del sitio (icono junto a la dirección) y vuelve a activarlas.
-            </Typography>
-          )}
-          <Typography variant="caption" color="text.secondary">
-            Se guardan en este navegador. No suenan por el chat que tienes abierto.
-          </Typography>
-          <Box>
-            <Button size="small" onClick={playChime}>
-              Probar sonido
-            </Button>
-          </Box>
-        </Stack>
-      </Popover>
-    </>
+        }
+        label="Notificaciones de escritorio"
+      />
+      {denied && (
+        <Typography variant="caption" color="warning.main">
+          El navegador bloqueó las notificaciones de este sitio. Permítelas en la configuración del
+          sitio (icono junto a la dirección) y vuelve a activarlas.
+        </Typography>
+      )}
+      <Typography variant="caption" color="text.secondary">
+        Se guardan en este navegador. No suenan por el chat que tienes abierto.
+      </Typography>
+      <Box>
+        <Button size="small" onClick={playChime}>
+          Probar sonido
+        </Button>
+      </Box>
+    </Stack>
   )
 }

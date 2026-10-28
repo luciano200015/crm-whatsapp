@@ -1,7 +1,9 @@
 import { Injectable, type MessageEvent } from '@nestjs/common';
 import {
   concatMap,
+  defer,
   filter,
+  finalize,
   from,
   timer,
   map,
@@ -18,6 +20,7 @@ import {
   type InboxEvent,
   type WorkspaceSignal,
 } from './inbox-events';
+import { InboxPresence } from './inbox-presence';
 import { InboxService, toMessageView, type InboxActor } from './inbox.service';
 
 const PING_MS = 25_000;
@@ -35,6 +38,7 @@ export class InboxStreamService {
     private readonly inbox: InboxService,
     private readonly authorization: AuthorizationService,
     private readonly auth: AuthService,
+    private readonly presence: InboxPresence,
   ) {}
 
   stream(actor: InboxActor, token: string): Observable<MessageEvent> {
@@ -62,32 +66,37 @@ export class InboxStreamService {
       return allowed;
     };
 
-    return merge(
-      this.events.events$.pipe(
-        filter((event) => event.workspaceId === workspaceId),
-      ),
-      this.events.signals$.pipe(
-        filter((signal) => signal.workspaceId === workspaceId),
-        map((signal) => ({ signal })),
-      ),
-      timer(0, PING_MS).pipe(map(() => null)),
-    ).pipe(
-      concatMap((event) =>
-        from(
-          (async () => {
-            await refreshScope();
-            if (!allowed) return false as const;
-            if (!event) return { type: 'ping', data: {} };
-            return 'signal' in event
-              ? signalMessage(event.signal)
-              : this.toMessage(event, scope);
-          })(),
+    return defer(() => {
+      // Connected while the stream is open (auto-assignment by load).
+      const leave = this.presence.connect(workspaceId, actor.userId);
+      return merge(
+        this.events.events$.pipe(
+          filter((event) => event.workspaceId === workspaceId),
         ),
-      ),
-      takeWhile((message) => message !== false),
-      filter((message): message is MessageEvent => message !== null),
-      takeUntil(timer(expiryDelay(token))),
-    );
+        this.events.signals$.pipe(
+          filter((signal) => signal.workspaceId === workspaceId),
+          map((signal) => ({ signal })),
+        ),
+        timer(0, PING_MS).pipe(map(() => null)),
+      ).pipe(
+        concatMap((event) =>
+          from(
+            (async () => {
+              await refreshScope();
+              if (!allowed) return false as const;
+              if (!event) return { type: 'ping', data: {} };
+              return 'signal' in event
+                ? signalMessage(event.signal)
+                : this.toMessage(event, scope);
+            })(),
+          ),
+        ),
+        takeWhile((message) => message !== false),
+        filter((message): message is MessageEvent => message !== null),
+        takeUntil(timer(expiryDelay(token))),
+        finalize(leave),
+      );
+    });
   }
 
   private async toMessage(

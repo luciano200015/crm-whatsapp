@@ -54,6 +54,12 @@ export const InboxErrors = {
       message: 'Another agent already took this conversation',
       code: 'ALREADY_ASSIGNED',
     }),
+  transferForbidden: () =>
+    new ForbiddenException({
+      message:
+        'Only your own chats can be transferred, and only while «Transferencia de chats» is on; otherwise it needs conversations.assign',
+      code: 'TRANSFER_FORBIDDEN',
+    }),
   agentNotOnLine: () =>
     new ConflictException({
       message:

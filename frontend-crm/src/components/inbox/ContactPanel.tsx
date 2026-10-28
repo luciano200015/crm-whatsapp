@@ -15,9 +15,11 @@ import { useSnackbar } from 'notistack'
 import type { ReactNode } from 'react'
 import { usePermissions } from '../../auth/usePermissions'
 import { es } from '../../i18n/es'
+import { useChatSettings } from '../../lib/api/chat-settings'
 import { contactsApi, contactKeys } from '../../lib/api/contacts'
 import { errorMessage } from '../../lib/api/errors'
 import { inboxApi, inboxKeys, type Conversation } from '../../lib/api/inbox'
+import { teamApi, teamKeys } from '../../lib/api/team'
 import { TagChip } from '../contacts/TagChip'
 import { ContactFunnels } from '../funnels/ContactFunnels'
 import { useContactFunnels } from '../funnels/useFunnels'
@@ -64,6 +66,24 @@ export function ContactPanel({
     enabled: has('contacts.read') && has('contacts.write'),
   })
   const funnels = useContactFunnels(workspaceId, conversation.contactId, conversation.lineId)
+  const settings = useChatSettings(workspaceId)
+  const canSetAgent = has('contacts.write') && has('members.read')
+  const members = useQuery({
+    queryKey: teamKeys.members(workspaceId, { status: 'ACTIVE' }),
+    queryFn: () => teamApi.members(workspaceId, { status: 'ACTIVE' }),
+    enabled: canSetAgent,
+  })
+  const setAgent = useMutation({
+    mutationFn: (agentMembershipId: string | null) =>
+      contactsApi.update(workspaceId, conversation.contactId, { agentMembershipId }),
+    onSuccess: (updated) => {
+      client.setQueryData(key, updated)
+      enqueueSnackbar('Agente regular guardado.', { variant: 'success' })
+    },
+    onError: (error) => enqueueSnackbar(errorMessage(error), { variant: 'error' }),
+  })
+  const regularId = contact.data?.agentMembershipId ?? null
+  const regular = members.data?.items.find((member) => member.id === regularId) ?? null
   const save = useMutation({
     // Through the chat, so the list and the header show the new tags at once.
     mutationFn: (tagIds: string[]) => inboxApi.setTags(workspaceId, conversation.id, tagIds),
@@ -138,6 +158,36 @@ export function ContactPanel({
         <Typography>{conversation.assignee?.name ?? 'Sin asignar'}</Typography>
       </Section>
       <Divider />
+      {canSetAgent && contact.data && (
+        <>
+          <Section title="Agente regular">
+            <Autocomplete
+              size="small"
+              options={members.data?.items ?? []}
+              loading={members.isPending}
+              value={regular}
+              getOptionLabel={(member) => member.displayName}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              onChange={(_, member) => setAgent.mutate(member?.id ?? null)}
+              disabled={setAgent.isPending}
+              renderInput={(props) => (
+                <TextField
+                  {...props}
+                  placeholder="Sin agente regular"
+                  aria-label="Agente regular"
+                />
+              )}
+              sx={{ mt: 0.5 }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              {settings.data?.assignment.mode === 'CONTACT_AGENT'
+                ? 'Recibe los chats nuevos de este contacto.'
+                : 'Recibe sus chats nuevos con «Asignar según el agente registrado».'}
+            </Typography>
+          </Section>
+          <Divider />
+        </>
+      )}
       <Section title="Etiquetas">
         {contact.data && has('contacts.write') && has('contacts.read') ? (
           <Autocomplete

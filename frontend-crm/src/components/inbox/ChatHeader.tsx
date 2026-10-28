@@ -31,7 +31,9 @@ import { ContactAvatar } from './ConversationList'
 import { contactName } from './inbox-format'
 
 export type ChatAction =
-  | { name: 'take' | 'hold' | 'close' | 'reopen' | 'unread' }
+  | { name: 'take' | 'hold' | 'reopen' | 'unread' }
+  /** sendMessage: the closing message goes first («Preguntar para enviar»). */
+  | { name: 'close'; sendMessage?: boolean }
   | { name: 'assign'; membershipId: string | null }
 
 function HeaderAction({
@@ -65,6 +67,8 @@ function HeaderAction({
 export function ChatHeader({
   conversation,
   members,
+  canTransfer = false,
+  canUnassign = false,
   busy,
   onAction,
   onBack,
@@ -78,6 +82,10 @@ export function ChatHeader({
 }: {
   conversation: Conversation
   members: Assignee[]
+  /** conversations.assign, or an own chat while «Transferencia de chats» is on. */
+  canTransfer?: boolean
+  /** Only conversations.assign leaves a chat unassigned. */
+  canUnassign?: boolean
   busy: boolean
   onAction: (action: ChatAction) => void
   onBack: () => void
@@ -243,7 +251,7 @@ export function ChatHeader({
             <ListItemText>Etiquetar chat</ListItemText>
           </MenuItem>
         )}
-        {has('conversations.assign') && (
+        {canTransfer && (
           <MenuItem
             disabled={busy}
             aria-haspopup="menu"
@@ -293,7 +301,7 @@ export function ChatHeader({
         </MenuItem>
         {extraMenuItems?.(() => setMenuOpen(false))}
       </Menu>
-      {has('conversations.assign') && (
+      {canTransfer && (
         <Menu
           anchorEl={more}
           open={transferOpen}
@@ -312,13 +320,15 @@ export function ChatHeader({
               <ListItemText>{member.name}</ListItemText>
             </MenuItem>
           ))}
-          <Divider />
-          <MenuItem
-            disabled={!assigneeId}
-            onClick={() => run({ name: 'assign', membershipId: null })}
-          >
-            <ListItemText inset>Dejar sin asignar</ListItemText>
-          </MenuItem>
+          {canUnassign && <Divider />}
+          {canUnassign && (
+            <MenuItem
+              disabled={!assigneeId}
+              onClick={() => run({ name: 'assign', membershipId: null })}
+            >
+              <ListItemText inset>Dejar sin asignar</ListItemText>
+            </MenuItem>
+          )}
         </Menu>
       )}
       {renderTagPopover?.(tagsOpen ? more : null, () => setTagsOpen(false))}

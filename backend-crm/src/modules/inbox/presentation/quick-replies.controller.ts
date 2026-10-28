@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,11 +9,16 @@ import {
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
+  ApiConsumes,
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiOkResponse,
@@ -23,7 +29,14 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, Length } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsOptional,
+  IsString,
+  Length,
+  ValidateIf,
+} from 'class-validator';
 import { ErrorResponseDto } from '../../../shared/http/error-response.dto';
 import { SWAGGER_BEARER } from '../../../shared/http/swagger';
 import type { AuthContext } from '../../auth/application/auth.service';
@@ -35,21 +48,46 @@ import {
 } from '../../authorization/presentation/workspace-access.decorators';
 import { WorkspaceAccessGuard } from '../../authorization/presentation/workspace-access.guard';
 import { AssignmentStore } from '../application/ports';
-import { QuickRepliesService } from '../application/quick-replies';
+import { MAX_MEDIA_BYTES } from '../application/media';
+import {
+  MAX_QUICK_REPLY_ATTACHMENTS,
+  QuickRepliesService,
+} from '../application/quick-replies';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
 export class CreateQuickReplyDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
+    example: 'Lavadoras monstruosas',
+    description: 'What agents search for; unique per workspace.',
+  })
+  @ValidateIf((dto: CreateQuickReplyDto) => dto.shortcut === undefined)
+  @Transform(trim)
+  @IsString()
+  @Length(1, 80)
+  title?: string;
+
+  @ApiPropertyOptional({
     example: 'saludo',
     description:
-      'Typed after "/" in the chat. Letters, numbers, "-" and "_" (up to 32).',
+      'Older clients: letters, numbers, "-" and "_" (up to 32), also used as title.',
   })
+  @IsOptional()
   @Transform(trim)
   @IsString()
   @Length(1, 33)
-  shortcut: string;
+  shortcut?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: `Files uploaded with POST …/quick-replies/attachments (up to ${MAX_QUICK_REPLY_ATTACHMENTS}), sent after the text.`,
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_QUICK_REPLY_ATTACHMENTS)
+  @IsString({ each: true })
+  attachmentIds?: string[];
 
   @ApiProperty({
     example: '¡Hola! Gracias por escribirnos. ¿En qué te ayudamos?',
@@ -65,8 +103,22 @@ export class UpdateQuickReplyDto {
   @IsOptional()
   @Transform(trim)
   @IsString()
+  @Length(1, 80)
+  title?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
   @Length(1, 33)
   shortcut?: string;
+
+  @ApiPropertyOptional({ type: [String], description: 'Replaces the files.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_QUICK_REPLY_ATTACHMENTS)
+  @IsString({ each: true })
+  attachmentIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -84,15 +136,35 @@ class QuickReplyAuthorDto {
   name: string;
 }
 
+export class QuickReplyAttachmentDto {
+  @ApiProperty()
+  fileId: string;
+
+  @ApiProperty({ example: 'lavadora-17kg.jpg' })
+  filename: string;
+
+  @ApiProperty({ example: 'image/jpeg' })
+  mimeType: string;
+
+  @ApiProperty({ description: 'Bytes' })
+  size: number;
+}
+
 export class QuickReplyDto {
   @ApiProperty()
   id: string;
 
-  @ApiProperty({ example: 'saludo' })
+  @ApiProperty({ example: 'Lavadoras monstruosas' })
+  title: string;
+
+  @ApiProperty({ example: 'lavadoras-monstruosas' })
   shortcut: string;
 
   @ApiProperty()
   text: string;
+
+  @ApiProperty({ type: [QuickReplyAttachmentDto] })
+  attachments: QuickReplyAttachmentDto[];
 
   @ApiProperty({ type: QuickReplyAuthorDto, nullable: true })
   createdBy: QuickReplyAuthorDto | null;
@@ -123,6 +195,46 @@ export class QuickRepliesController {
   @ApiOkResponse({ type: [QuickReplyDto] })
   list(@CurrentWorkspace() workspace: WorkspaceAccess) {
     return this.replies.list(workspace);
+  }
+
+  @Post('attachments')
+  @RequirePermissions('quick_replies.manage')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_MEDIA_BYTES, files: 1 },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary: 'Upload a file to attach to a quick reply',
+    description:
+      'Same types and sizes as sending a file in the chat (415 UNSUPPORTED_MEDIA_TYPE, 413 MEDIA_TOO_LARGE). Pass its fileId in attachmentIds.',
+  })
+  @ApiCreatedResponse({ type: QuickReplyAttachmentDto })
+  upload(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException({
+        message: 'Attach the file in the "file" field',
+        code: 'FILE_REQUIRED',
+      });
+    }
+    return this.replies.upload(workspace.workspaceId, {
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      // Browsers send UTF-8 names; busboy (multer) decodes them as latin1.
+      filename: Buffer.from(file.originalname, 'latin1').toString('utf8'),
+      size: file.size,
+    });
   }
 
   @Post()

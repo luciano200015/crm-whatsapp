@@ -17,6 +17,8 @@ export interface ContactDocument {
   blocked?: boolean;
   blockedAt?: Date | null;
   blockedBy?: { userId: string; name: string } | null;
+  /** Membership id of the contact's regular agent (auto-assignment). */
+  agentMembershipId?: string | null;
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -55,6 +57,7 @@ export const ContactSchema = new Schema<ContactDocument>(
       ),
       default: null,
     },
+    agentMembershipId: { type: String, default: null },
     createdBy: { type: String, default: null },
   },
   { collection: 'contacts', timestamps: true, versionKey: false },

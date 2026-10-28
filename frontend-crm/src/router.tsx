@@ -62,30 +62,9 @@ export const routes = [
                   },
                 ],
               },
-              {
-                element: <RequirePermission anyOf={['channels.manage']} />,
-                children: [
-                  {
-                    path: '/inbox/auto-assignment',
-                    lazy: async () => ({
-                      Component: (await import('./pages/app/inbox/AutoAssignmentPage'))
-                        .AutoAssignmentPage,
-                    }),
-                  },
-                ],
-              },
-              {
-                element: <RequirePermission anyOf={['quick_replies.manage']} />,
-                children: [
-                  {
-                    path: '/quick-replies',
-                    lazy: async () => ({
-                      Component: (await import('./pages/app/inbox/QuickRepliesPage'))
-                        .QuickRepliesPage,
-                    }),
-                  },
-                ],
-              },
+              // Now in the inbox: «Configuración del módulo de chat» and the chat's quick replies.
+              { path: '/inbox/auto-assignment', element: <Navigate to="/inbox" replace /> },
+              { path: '/quick-replies', element: <Navigate to="/inbox" replace /> },
               {
                 element: <RequirePermission anyOf={['funnels.read']} />,
                 children: [

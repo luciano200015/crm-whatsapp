@@ -2,6 +2,7 @@ import {
   canSee,
   isWindowOpen,
   nextStatus,
+  pickLeastBusy,
   pickNextAgent,
   startOfMonth,
   type InboxScope,
@@ -72,5 +73,19 @@ describe('inbox rules', () => {
     expect(nextStatus('delivered', 'failed')).toBe('failed');
     expect(nextStatus('failed', 'read')).toBe('failed');
     expect(nextStatus('received', 'read')).toBe('received');
+  });
+
+  it('gives the chat to the agent with the fewest open chats, in turns when tied', () => {
+    const load = new Map([
+      ['a', 3],
+      ['b', 1],
+      ['c', 1],
+    ]);
+    expect(pickLeastBusy(['a', 'b', 'c'], load, null)).toBe('b');
+    expect(pickLeastBusy(['a', 'b', 'c'], load, 'b')).toBe('c');
+    expect(pickLeastBusy(['a', 'b', 'c'], load, 'c')).toBe('b');
+    // Nobody has chats yet: everyone is tied.
+    expect(pickLeastBusy(['a', 'b'], new Map(), 'a')).toBe('b');
+    expect(pickLeastBusy([], load, null)).toBeNull();
   });
 });

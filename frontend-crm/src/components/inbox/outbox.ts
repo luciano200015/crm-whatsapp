@@ -3,7 +3,7 @@ import type { ChatMessage, SharedContact } from '../../lib/api/inbox'
 
 /** What the agent sent, kept until the server answers. */
 export type OutgoingPayload =
-  | { kind: 'text'; text: string; note: boolean }
+  | { kind: 'text'; text: string; note: boolean; sign?: boolean }
   | { kind: 'media'; file: File; caption: string | null }
   | { kind: 'contacts'; contacts: { name: string; phone: string }[] }
 

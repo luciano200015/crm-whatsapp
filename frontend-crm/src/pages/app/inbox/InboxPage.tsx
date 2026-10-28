@@ -233,6 +233,7 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
         }}
       >
         <InboxToolbar
+          workspaceId={workspaceId}
           options={options.data}
           teamView={teamView}
           onTeamViewChange={(value) => {
@@ -362,6 +363,7 @@ function WorkspaceInbox({ workspaceId }: { workspaceId: string }) {
                     canAccept(conversation) ? () => accept.mutate(conversation.id) : undefined
                   }
                   accepting={accept.isPending && accept.variables === conversation.id}
+                  listStatus={status}
                 />
               ))}
               {noLines ? (

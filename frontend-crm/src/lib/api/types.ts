@@ -276,6 +276,8 @@ export interface Contact {
   blocked?: boolean
   blockedAt?: string | null
   blockedBy?: { userId: string; name: string } | null
+  /** «Agente regular»: gets the contact's new chats when assignment follows it. */
+  agentMembershipId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -298,6 +300,7 @@ export interface ContactRequest {
   email?: string | null
   notes?: string | null
   tagIds?: string[]
+  agentMembershipId?: string | null
 }
 
 export interface TagRequest {

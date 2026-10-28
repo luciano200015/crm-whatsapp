@@ -25,7 +25,7 @@ import { useState, type MouseEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { usePermissions } from '../../auth/usePermissions'
 import type { InboxOptions } from '../../lib/api/inbox'
-import { AlertSettings } from './AlertSettings'
+import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { ProfileButton } from './ProfileButton'
 import { useChatColors } from './chat-colors'
 
@@ -69,6 +69,7 @@ function ToolButton({
  * full screen, "mine + my agents" view, sync and more options.
  */
 export function InboxToolbar({
+  workspaceId,
   options,
   teamView,
   onTeamViewChange,
@@ -77,6 +78,7 @@ export function InboxToolbar({
   syncing,
   onSync,
 }: {
+  workspaceId: string
   options: InboxOptions | undefined
   teamView: boolean
   onTeamViewChange: (value: boolean) => void
@@ -87,10 +89,10 @@ export function InboxToolbar({
 }) {
   const { has } = usePermissions()
   const [help, setHelp] = useState(false)
+  const [settings, setSettings] = useState(false)
   const [menu, setMenu] = useState<HTMLElement | null>(null)
+  // Auto-assignment lives in the settings; quick replies open from the chat.
   const links = [
-    { to: '/quick-replies', label: 'Respuestas rápidas', allowed: has('quick_replies.manage') },
-    { to: '/inbox/auto-assignment', label: 'Autoasignación', allowed: has('channels.manage') },
     { to: '/funnels', label: 'Embudos', allowed: has('funnels.read') },
     { to: '/channels/lines', label: 'Líneas de WhatsApp', allowed: has('channels.read') },
   ].filter((link) => link.allowed)
@@ -105,11 +107,9 @@ export function InboxToolbar({
       <ToolButton label="Ayuda" onClick={() => setHelp(true)}>
         <HelpOutlineRounded fontSize="small" />
       </ToolButton>
-      <AlertSettings
-        label="Configuración"
-        icon={<SettingsOutlined fontSize="small" />}
-        buttonSx={{ width: 38, height: 38, bgcolor: 'action.hover', color: 'text.secondary' }}
-      />
+      <ToolButton label="Configuración del módulo de chat" onClick={() => setSettings(true)}>
+        <SettingsOutlined fontSize="small" />
+      </ToolButton>
       <ToolButton
         label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
         onClick={onToggleFullscreen}
@@ -160,6 +160,11 @@ export function InboxToolbar({
         </>
       )}
       <HelpDialog open={help} onClose={() => setHelp(false)} />
+      <ChatSettingsDialog
+        workspaceId={workspaceId}
+        open={settings}
+        onClose={() => setSettings(false)}
+      />
     </Stack>
   )
 }
@@ -168,11 +173,14 @@ function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const rows: [string, string][] = [
     ['Enter', 'Enviar el mensaje'],
     ['Shift + Enter', 'Salto de línea'],
-    ['/ y el atajo', 'Insertar una respuesta rápida'],
+    ['/ al inicio del mensaje', 'Abre las respuestas rápidas para buscarlas y enviarlas'],
     ['✓ · ✓✓ · ✓✓ azul', 'Enviado · entregado · leído'],
     ['⚠ No entregado', 'WhatsApp lo rechazó: el chat explica por qué y permite reintentar'],
     ['Abierto', 'Chats que se están atendiendo (incluye los sin asignar)'],
-    ['En espera', 'Puestos en espera por el agente; siguen en espera aunque el cliente escriba'],
+    [
+      'En espera',
+      'Puestos en espera; siguen ahí aunque el cliente escriba. «Aceptar» te los asigna y los abre',
+    ],
     ['Cerrado', 'Atención terminada; si el cliente vuelve a escribir, se reabre sin asignar'],
     [
       'Botón de agentes',

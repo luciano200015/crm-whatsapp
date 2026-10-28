@@ -4,7 +4,9 @@ import { isValidObjectId, Schema, Types, type Model } from 'mongoose';
 import { workspaceScoped } from '../../../database/mongodb/workspace-scoped.plugin';
 import {
   QuickRepliesStore,
+  type QuickReplyAttachment,
   type QuickReplyRecord,
+  type QuickReplyWrite,
 } from '../application/quick-replies';
 
 export const QUICK_REPLY_MODEL = 'QuickReply';
@@ -12,8 +14,11 @@ export const QUICK_REPLY_MODEL = 'QuickReply';
 interface QuickReplyDocument {
   _id: Types.ObjectId;
   workspaceId: string;
+  /** Missing on replies made before titles: the shortcut stands in. */
+  title?: string | null;
   shortcut: string;
   text: string;
+  attachments?: QuickReplyAttachment[];
   createdBy: { userId: string; name: string } | null;
   createdAt: Date;
   updatedAt: Date;
@@ -21,8 +26,23 @@ interface QuickReplyDocument {
 
 export const QuickReplySchema = new Schema<QuickReplyDocument>(
   {
+    title: { type: String, default: null },
     shortcut: { type: String, required: true },
     text: { type: String, required: true },
+    attachments: {
+      type: [
+        new Schema<QuickReplyAttachment>(
+          {
+            fileId: { type: String, required: true },
+            filename: { type: String, required: true },
+            mimeType: { type: String, required: true },
+            size: { type: Number, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     createdBy: {
       type: new Schema(
         {
@@ -49,8 +69,10 @@ const isDuplicateKey = (error: unknown) =>
 function toRecord(doc: QuickReplyDocument): QuickReplyRecord {
   return {
     id: doc._id.toHexString(),
+    title: doc.title ?? doc.shortcut,
     shortcut: doc.shortcut,
     text: doc.text,
+    attachments: doc.attachments ?? [],
     createdBy: doc.createdBy,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -81,13 +103,20 @@ export class MongoQuickRepliesStore
     return rows.map(toRecord);
   }
 
+  async find(
+    workspaceId: string,
+    id: string,
+  ): Promise<QuickReplyRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const doc = await this.replies
+      .findOne({ workspaceId, _id: new Types.ObjectId(id) })
+      .lean<QuickReplyDocument>();
+    return doc ? toRecord(doc) : null;
+  }
+
   async create(
     workspaceId: string,
-    data: {
-      shortcut: string;
-      text: string;
-      createdBy: { userId: string; name: string };
-    },
+    data: QuickReplyWrite & { createdBy: { userId: string; name: string } },
   ): Promise<QuickReplyRecord | 'shortcut_taken'> {
     try {
       const doc = await this.replies.create({ workspaceId, ...data });
@@ -101,7 +130,7 @@ export class MongoQuickRepliesStore
   async update(
     workspaceId: string,
     id: string,
-    data: { shortcut?: string; text?: string },
+    data: Partial<QuickReplyWrite>,
   ): Promise<QuickReplyRecord | 'shortcut_taken' | null> {
     if (!isValidObjectId(id)) return null;
     try {

@@ -1,7 +1,5 @@
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
-import BoltOutlined from '@mui/icons-material/BoltOutlined'
 import ChatOutlined from '@mui/icons-material/ChatOutlined'
-import AltRouteOutlined from '@mui/icons-material/AltRouteOutlined'
 import ContactsOutlined from '@mui/icons-material/ContactsOutlined'
 import HubOutlined from '@mui/icons-material/HubOutlined'
 import WhatsApp from '@mui/icons-material/WhatsApp'
@@ -57,22 +55,10 @@ export const NAVIGATION: NavEntry[] = [
     anyOf: ['messages.read'],
   }),
   link({
-    to: '/inbox/auto-assignment',
-    label: 'Autoasignación',
-    icon: AltRouteOutlined,
-    anyOf: ['channels.manage'],
-  }),
-  link({
     to: '/funnels',
     label: es.app.nav.funnels,
     icon: ViewKanbanOutlined,
     anyOf: ['funnels.read'],
-  }),
-  link({
-    to: '/quick-replies',
-    label: 'Respuestas rápidas',
-    icon: BoltOutlined,
-    anyOf: ['quick_replies.manage'],
   }),
   {
     kind: 'group',

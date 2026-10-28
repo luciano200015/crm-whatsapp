@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDate,
   IsIn,
   IsInt,
@@ -20,6 +21,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { BOT_PAUSES, type BotPause } from '../domain/bot-pause';
+import {
+  ASSIGNMENT_MODES,
+  CLOSE_MESSAGE_MODES,
+  SIGNATURE_MODES,
+  type AssignmentMode,
+  type CloseMessageMode,
+  type SignatureMode,
+} from '../application/chat-settings';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -194,6 +203,88 @@ export class SendTextDto {
   @IsOptional()
   @IsUUID()
   clientId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Sign with the agent's name when «Firma de mensajes» lets the agent choose (ALWAYS and NEVER ignore it).",
+  })
+  @IsOptional()
+  @IsBoolean()
+  sign?: boolean;
+}
+
+export class SendQuickReplyDto {
+  @ApiPropertyOptional({
+    description: 'Sign the text, as in a reply.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  sign?: boolean;
+}
+
+export class CloseConversationDto {
+  @ApiPropertyOptional({
+    description:
+      '«Mensaje al cerrar» in ASK mode: true sends it before closing. ALWAYS sends it anyway; NEVER ignores it.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  sendMessage?: boolean;
+}
+
+export class AssignmentSettingsDto {
+  @ApiProperty({ enum: ASSIGNMENT_MODES })
+  @IsIn(ASSIGNMENT_MODES)
+  mode: AssignmentMode;
+
+  @ApiProperty({
+    description:
+      'Admins (conversations.view_all) with the inbox open get chats when no agent of the line has it open.',
+  })
+  @IsBoolean()
+  includeAdmins: boolean;
+}
+
+export class CloseMessageSettingsDto {
+  @ApiProperty({ enum: CLOSE_MESSAGE_MODES })
+  @IsIn(CLOSE_MESSAGE_MODES)
+  mode: CloseMessageMode;
+
+  @ApiProperty({ maxLength: 1024 })
+  @IsString()
+  @MaxLength(1024)
+  text: string;
+}
+
+export class ChatSettingsDto {
+  @ApiProperty({ type: AssignmentSettingsDto })
+  @ValidateNested()
+  @Type(() => AssignmentSettingsDto)
+  assignment: AssignmentSettingsDto;
+
+  @ApiProperty({
+    description:
+      'Agents transfer their own chats to others; off, only conversations.assign transfers.',
+  })
+  @IsBoolean()
+  transfers: boolean;
+
+  @ApiProperty({ enum: SIGNATURE_MODES })
+  @IsIn(SIGNATURE_MODES)
+  signature: SignatureMode;
+
+  @ApiProperty({ type: CloseMessageSettingsDto })
+  @ValidateNested()
+  @Type(() => CloseMessageSettingsDto)
+  closeMessage: CloseMessageSettingsDto;
+}
+
+export class ChatSettingsViewDto extends ChatSettingsDto {
+  @ApiProperty({
+    description:
+      'Never saved: each line still uses its own auto-assignment switch (round-robin).',
+  })
+  legacyAssignment: boolean;
 }
 
 export class OutgoingContactDto {
@@ -306,6 +397,12 @@ export class MemberReachDto extends AssigneeDto {
 }
 
 export class InboxOptionsDto {
+  @ApiProperty({
+    description:
+      '«Transferencia de chats» is on and the member can reply: they may transfer their own chats.',
+  })
+  transfers: boolean;
+
   @ApiProperty({
     description: 'conversations.view_all: the member sees every line.',
   })

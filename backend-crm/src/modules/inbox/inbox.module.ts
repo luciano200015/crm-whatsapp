@@ -7,7 +7,14 @@ import { BillingModule } from '../billing/billing.module';
 import { BillingService } from '../billing/application/billing.service';
 import { ChannelsModule } from '../channels/channels.module';
 import { ContactsModule } from '../contacts/contacts.module';
+import { AutoAssigner } from './application/auto-assigner';
+import {
+  ChatSettingsService,
+  ChatSettingsStore,
+} from './application/chat-settings';
 import { ContactBlockService } from './application/contact-block.service';
+import { InboxPresence } from './application/inbox-presence';
+import { PrismaChatSettingsStore } from './infrastructure/prisma-chat-settings-store';
 import { ConversationTimeline } from './application/conversation-timeline';
 import { InboxEvents } from './application/inbox-events';
 import { InboxMediaService } from './application/inbox-media.service';
@@ -39,6 +46,7 @@ import { MongoInboxStore } from './infrastructure/mongo-inbox-store';
 import { PrismaAssignmentStore } from './infrastructure/prisma-assignment-store';
 import {
   AutoAssignmentController,
+  ChatSettingsController,
   ContactBlockController,
   ConversationsController,
 } from './presentation/inbox.controller';
@@ -63,6 +71,7 @@ import {
   controllers: [
     ConversationsController,
     AutoAssignmentController,
+    ChatSettingsController,
     ContactBlockController,
     QuickRepliesController,
   ],
@@ -75,6 +84,10 @@ import {
     InboxMediaService,
     ContactBlockService,
     QuickRepliesService,
+    ChatSettingsService,
+    InboxPresence,
+    AutoAssigner,
+    { provide: ChatSettingsStore, useClass: PrismaChatSettingsStore },
     { provide: QuickRepliesStore, useClass: MongoQuickRepliesStore },
     { provide: MediaStore, useClass: GridFsMediaStore },
     { provide: ContactQuota, useClass: PrismaContactQuota },

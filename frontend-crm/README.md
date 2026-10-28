@@ -94,8 +94,7 @@ Los mensajes de la API se muestran en español. Los `401` de login siempre muest
 | `/account/profile` | autenticado | Perfil (nombre, idioma, zona horaria) |
 | `/account/security` | autenticado | Cambiar contraseña y gestionar sesiones |
 | `/inbox` | `messages.read` | Bandeja de mensajes (`?conversation=` abre un chat, `?contactId=` filtra por contacto) |
-| `/inbox/auto-assignment` | `channels.manage` | Autoasignación |
-| `/quick-replies` | `quick_replies.manage` | Respuestas rápidas |
+| `/inbox/auto-assignment`, `/quick-replies` | — | Llevan a la bandeja (ahora son el modal de configuración y el panel del chat) |
 | `/funnels`, `/funnels/:funnelId` | `funnels.read` | Embudos: tablero Kanban (`/funnels` abre el último embudo usado o el primero) |
 | `/team/agents` | `members.read` | Equipo → Agentes (`/team/members` redirige aquí) |
 | `/team/roles` | `roles.read` | Equipo → Roles |
@@ -205,9 +204,9 @@ src/
 - Pago real: la pantalla de facturación está lista para un checkout cuando el backend tenga una pasarela.
 ## Bandeja de mensajes
 
-**Menú:** **Bandeja**, **Autoasignación** y **Respuestas rápidas** son entradas de primer nivel, cada una con su permiso. La bandeja imita WhatsApp Web y wasapi:
+**Menú:** **Bandeja** es una entrada de primer nivel. La autoasignación está en **Configuración del módulo de chat** y las respuestas rápidas se abren desde el chat. La bandeja imita WhatsApp Web y wasapi:
 
-- **Barra de la lista** (como wasapi): tu avatar (al pulsarlo, **Mi perfil** con tu rol y **tus líneas**: nombre, número y estado), Ayuda, Configuración (sonido y notificaciones), Pantalla completa, botón de agentes (encendido: tus chats, los de tus agentes y los sin asignar; apagado: solo los tuyos; se recuerda por navegador), Sincronizar y ⋮ con accesos a Respuestas rápidas, Autoasignación y Líneas.
+- **Barra de la lista** (como wasapi): tu avatar (al pulsarlo, **Mi perfil** con tu rol y **tus líneas**: nombre, número y estado), Ayuda, **Configuración del módulo de chat** (modal: auto-asignación, agentes de cada línea, transferencia de chats, firma de mensajes, mensaje al cerrar y avisos; todo menos los avisos pide `channels.manage`), Pantalla completa, botón de agentes (encendido: tus chats, los de tus agentes y los sin asignar; apagado: solo los tuyos; se recuerda por navegador), Sincronizar y ⋮ con accesos a Embudos y Líneas.
 - **Filtros:** el embudo junto al buscador abre «Filtros de conversaciones» (etiquetas, agentes, línea, rango de fechas y orden). Se aplican con «Aplicar filtros» y se quitan con «Limpiar filtros».
 - **Pestañas** Abierto (contador rojo) / En espera / Cerrado. Los chats sin asignar están dentro de Abierto, no en una pestaña aparte.
 - **Líneas por agente:** un agente sin «ver todo» solo recibe los chats de sus líneas; sin líneas, la lista muestra un aviso para que pida una. Transferir solo ofrece a quien atiende la línea del chat.
@@ -236,9 +235,12 @@ src/
   - lo que hizo el bot (etiquetas, delegar a un agente, cambiar estado) como aviso en el historial.
 - **Envío inmediato:** como en WhatsApp, el mensaje (texto, archivo, nota de voz, contacto o nota) aparece al instante con 🕒 y pasa a ✓, ✓✓ y ✓✓ azul; el editor nunca se bloquea y los envíos de un chat salen en orden. La cola vive en [`outbox.ts`](src/components/inbox/outbox.ts) y [`useSendQueue.ts`](src/components/inbox/useSendQueue.ts): cada envío lleva un `clientId` y el mensaje del servidor con ese id reemplaza la burbuja local. Si la petición falla queda «No enviado» con **Reintentar** y **Descartar**.
 - **No entregado:** explica el error de Meta en palabras simples y ofrece **Reintentar**.
-- **Editor:** emojis, adjuntos con vista previa, notas de voz y respuestas rápidas con «/».
+- **Editor:** emojis, adjuntos con vista previa, notas de voz, **Firmar mensajes** (si la configuración deja elegir) y **respuestas rápidas**: el botón ⚡ o «/» al empezar el mensaje abren un panel sobre el chat para buscar (por título o contenido), **Enviar** (texto y archivos) o usar el texto; con `quick_replies.manage` también se crean, editan y eliminan ahí.
+- **Tarjetas:** en cada pestaña no se repite su estado («En espera» no aparece en las tarjetas de En espera).
+- **Cerrar chat:** con el mensaje al cerrar en «Preguntar para enviar», pregunta «¿Enviar el mensaje de cierre?».
+- **Panel del contacto:** «Agente regular» (con `contacts.write`), que usa la asignación «según el agente registrado».
 - **Avisos:**
-  - sonido y notificación de escritorio al llegar un mensaje, configurables con la campanita;
+  - sonido y notificación de escritorio al llegar un mensaje, configurables en Configuración del módulo de chat;
   - «(N)» en el título de la pestaña.
 
 | Pieza | Dónde |

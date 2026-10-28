@@ -642,6 +642,213 @@ describe('Inbox (e2e)', () => {
     expect(await conversations(owner, '?view=all')).toHaveLength(1);
   });
 
+  it('applies the chat module settings: assignment, transfers, signature and closing message', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana Agente');
+    const beto = await agentOf(owner, 'Beto Agente');
+    const line = await lineWithAgents(owner, [ana, beto], false);
+
+    const defaults = await api(ana).get('/chat-settings').expect(200);
+    expect(defaults.body).toMatchObject({
+      assignment: { mode: 'NONE', includeAdmins: false },
+      transfers: false,
+      signature: 'AGENT_CHOICE',
+      closeMessage: { mode: 'NEVER', text: '' },
+      legacyAssignment: true,
+    });
+    const settings = {
+      assignment: { mode: 'LEAST_BUSY', includeAdmins: false },
+      transfers: false,
+      signature: 'NEVER',
+      closeMessage: { mode: 'ASK', text: '¡Gracias por escribirnos!' },
+    };
+    await api(ana).put('/chat-settings', settings).expect(403);
+    await api(owner)
+      .put('/chat-settings', { ...settings, signature: 'SOMETIMES' })
+      .expect(400);
+    await api(owner).put('/chat-settings', settings).expect(200);
+
+    // Nobody has the inbox open: the chat waits unassigned.
+    await incoming(line, '59170000201', 'Hola');
+    const [waiting] = await conversations(owner, '?view=all');
+    expect(waiting?.assignee).toBeNull();
+
+    // Ana opens the inbox: new chats go to her, Beto is away.
+    const server = t.app.getHttpServer() as unknown as Server;
+    if (!server.listening)
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+    const { port } = server.address() as AddressInfo;
+    const controller = new AbortController();
+    await fetch(
+      `http://127.0.0.1:${port}/api/v1/workspaces/${owner.workspaceId}/conversations/events`,
+      {
+        headers: { Authorization: `Bearer ${ana.token}` },
+        signal: controller.signal,
+      },
+    );
+    try {
+      await incoming(line, '59170000202', 'Buenas');
+      await incoming(line, '59170000203', 'Consulta');
+      const assigned = (await conversations(owner, '?view=all'))
+        .filter((chat) => chat.id !== waiting?.id)
+        .map((chat) => chat.assignee?.name);
+      expect(assigned).toEqual(['Ana Agente', 'Ana Agente']);
+
+      // «Asignar según el agente registrado»: Beto gets his contact even away.
+      await api(owner)
+        .put('/chat-settings', {
+          ...settings,
+          assignment: { mode: 'CONTACT_AGENT', includeAdmins: false },
+        })
+        .expect(200);
+      await api(owner)
+        .patch(`/contacts/${waiting?.contactId}`, {
+          agentMembershipId: '0190e7a0-0000-7000-8000-000000000000',
+        })
+        .expect(404);
+      const contact = await api(owner)
+        .patch(`/contacts/${waiting?.contactId}`, {
+          agentMembershipId: beto.membershipId,
+        })
+        .expect(200);
+      expect(contact.body).toMatchObject({
+        agentMembershipId: beto.membershipId,
+      });
+      await api(owner).post(`/conversations/${waiting?.id}/close`).expect(200);
+      await incoming(line, '59170000201', 'Volví');
+      const reopened = (await conversations(owner, '?view=all')).find(
+        (chat) => chat.id === waiting?.id,
+      );
+      expect(reopened?.assignee?.name).toBe('Beto Agente');
+    } finally {
+      controller.abort();
+    }
+
+    // Transfers: off, agents cannot pass on their chats; on, only their own.
+    const [anas] = await conversations(ana);
+    await api(ana)
+      .post(`/conversations/${anas?.id}/assign`, {
+        membershipId: beto.membershipId,
+      })
+      .expect(403);
+    await api(owner)
+      .put('/chat-settings', { ...settings, transfers: true })
+      .expect(200);
+    const options = (await api(ana).get('/conversations/options').expect(200))
+      .body as { transfers: boolean; members: unknown[] };
+    expect(options.transfers).toBe(true);
+    expect(options.members.length).toBeGreaterThan(0);
+    await api(ana)
+      .post(`/conversations/${anas?.id}/assign`, { membershipId: null })
+      .expect(403);
+    await api(ana)
+      .post(`/conversations/${anas?.id}/assign`, {
+        membershipId: beto.membershipId,
+      })
+      .expect(200);
+
+    // Signature: ALWAYS signs with the agent's name, NEVER ignores the choice.
+    const unsigned = await api(beto)
+      .post(`/conversations/${anas?.id}/messages`, { text: 'Hola', sign: true })
+      .expect(201);
+    expect((unsigned.body as { text: string }).text).toBe('Hola');
+    await api(owner)
+      .put('/chat-settings', { ...settings, signature: 'ALWAYS' })
+      .expect(200);
+    const signedReply = await api(beto)
+      .post(`/conversations/${anas?.id}/messages`, { text: 'Te ayudo' })
+      .expect(201);
+    expect((signedReply.body as { text: string }).text).toBe(
+      '*Beto Agente*:\nTe ayudo',
+    );
+
+    // Closing message (ASK): only when the agent says so.
+    await api(beto).post(`/conversations/${anas?.id}/close`).expect(200);
+    let history = (
+      await api(owner).get(`/conversations/${anas?.id}/messages`).expect(200)
+    ).body as { items: { text: string | null }[] };
+    expect(history.items.map((item) => item.text)).not.toContain(
+      '*Beto Agente*:\n¡Gracias por escribirnos!',
+    );
+    await api(beto).post(`/conversations/${anas?.id}/reopen`).expect(200);
+    await api(beto)
+      .post(`/conversations/${anas?.id}/close`, { sendMessage: true })
+      .expect(200);
+    history = (
+      await api(owner).get(`/conversations/${anas?.id}/messages`).expect(200)
+    ).body as { items: { text: string | null }[] };
+    expect(history.items.map((item) => item.text)).toContain(
+      '*Beto Agente*:\n¡Gracias por escribirnos!',
+    );
+  });
+
+  it('quick replies have a title and files, and send everything at once', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    const upload = await http()
+      .post(`/api/v1/workspaces/${owner.workspaceId}/quick-replies/attachments`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .attach('file', Buffer.from('%PDF-1.4 catálogo'), {
+        filename: 'catálogo.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+    const file = upload.body as { fileId: string; filename: string };
+    expect(file.filename).toBe('catálogo.pdf');
+    await http()
+      .post(`/api/v1/workspaces/${owner.workspaceId}/quick-replies/attachments`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .attach('file', Buffer.from('MZ'), {
+        filename: 'virus.exe',
+        contentType: 'application/x-msdownload',
+      })
+      .expect(415);
+
+    const created = await api(owner)
+      .post('/quick-replies', {
+        title: 'Lavadoras Monstruosas 🎃',
+        text: '¡Llegaron los Ahorros Monstruosos!',
+        attachmentIds: [file.fileId],
+      })
+      .expect(201);
+    expect(created.body).toMatchObject({
+      title: 'Lavadoras Monstruosas 🎃',
+      shortcut: 'lavadoras-monstruosas',
+      attachments: [
+        {
+          fileId: file.fileId,
+          filename: 'catálogo.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
+    });
+    await api(owner)
+      .post('/quick-replies', { title: 'lavadoras monstruosas', text: 'x' })
+      .expect(409);
+    await api(owner)
+      .post('/quick-replies', {
+        title: 'Otra',
+        text: 'x',
+        attachmentIds: ['6716f0c2a1b2c3d4e5f60718'],
+      })
+      .expect(422);
+
+    await incoming(line, '59170000301', 'Hola');
+    const [chat] = await conversations(owner, '?view=all');
+    const sent = await api(owner)
+      .post(
+        `/conversations/${chat?.id}/quick-replies/${(created.body as { id: string }).id}`,
+      )
+      .expect(201);
+    expect(sent.body).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: '¡Llegaron los Ahorros Monstruosos!',
+      }),
+      expect.objectContaining({ type: 'document' }),
+    ]);
+  });
+
   it('counts unread messages by status and «Aceptar» takes a chat on hold', async () => {
     const owner = await signUp();
     const ana = await agentOf(owner, 'Ana Agente');

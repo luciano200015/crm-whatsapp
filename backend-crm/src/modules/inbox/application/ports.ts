@@ -230,6 +230,11 @@ export abstract class InboxStore {
     query: ConversationQuery,
   ): Promise<CursorPage<ConversationRecord>>;
   abstract counts(workspaceId: string, scope: InboxScope): Promise<InboxCounts>;
+  /** Open chats of each of these members (auto-assignment by load). */
+  abstract openChatsOf(
+    workspaceId: string,
+    membershipIds: string[],
+  ): Promise<Map<string, number>>;
   abstract findConversation(
     workspaceId: string,
     conversationId: string,

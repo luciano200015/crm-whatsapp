@@ -13,6 +13,7 @@ import {
   Max,
   MaxLength,
   Min,
+  IsUUID,
   ValidateIf,
 } from 'class-validator';
 import {
@@ -134,6 +135,17 @@ export class UpdateContactDto {
   @ArrayMaxSize(MAX_TAGS_PER_CONTACT)
   @IsMongoId({ each: true })
   tagIds?: string[];
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description:
+      'Membership id of the regular agent: gets the new chats of the contact when auto-assignment is «Asignar según el agente registrado». null removes it.',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  agentMembershipId?: string | null;
 }
 
 export class SetContactTagsDto {
@@ -239,6 +251,14 @@ export class ContactDto {
 
   @ApiProperty({ type: BlockedByDto, nullable: true })
   blockedBy: BlockedByDto | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'uuid',
+    description: 'Membership id of the regular agent.',
+  })
+  agentMembershipId: string | null;
 
   @ApiProperty()
   createdAt: Date;

@@ -25,6 +25,36 @@ export function pickNextAgent(
   return agentIds[(index + 1) % agentIds.length] ?? null;
 }
 
+/**
+ * The agent with the fewest open chats. Ties go round the list, starting
+ * after the last one who got a chat.
+ */
+export function pickLeastBusy(
+  agentIds: readonly string[],
+  openChats: ReadonlyMap<string, number>,
+  last: string | null,
+): string | null {
+  if (agentIds.length === 0) return null;
+  const load = (id: string) => openChats.get(id) ?? 0;
+  const fewest = Math.min(...agentIds.map(load));
+  const tied = agentIds.filter((id) => load(id) === fewest);
+  return nextAfter(agentIds, tied, last);
+}
+
+/** The first tied agent after `last` in the full order (wrapping around). */
+function nextAfter(
+  agentIds: readonly string[],
+  tied: readonly string[],
+  last: string | null,
+): string | null {
+  const start = last ? agentIds.indexOf(last) : -1;
+  for (let step = 1; step <= agentIds.length; step++) {
+    const id = agentIds[(start + step) % agentIds.length];
+    if (id && tied.includes(id)) return id;
+  }
+  return tied[0] ?? null;
+}
+
 /** What a member may see in the inbox. */
 export interface InboxScope {
   membershipId: string;

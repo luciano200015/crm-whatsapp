@@ -47,7 +47,9 @@ import {
 } from '../../authorization/presentation/workspace-access.decorators';
 import { WorkspaceAccessGuard } from '../../authorization/presentation/workspace-access.guard';
 import { SetContactTagsDto } from '../../contacts/presentation/contacts.dto';
+import { ChatSettingsService } from '../application/chat-settings';
 import { ContactBlockService } from '../application/contact-block.service';
+import { QuickRepliesService } from '../application/quick-replies';
 import { InboxMediaService } from '../application/inbox-media.service';
 import { InboxService, type InboxActor } from '../application/inbox.service';
 import { MAX_MEDIA_BYTES, mediaHeaders } from '../application/media';
@@ -55,6 +57,10 @@ import { InboxStreamService } from '../application/inbox-stream.service';
 import {
   AssignConversationDto,
   BlockResultDto,
+  ChatSettingsDto,
+  ChatSettingsViewDto,
+  CloseConversationDto,
+  SendQuickReplyDto,
   InboxOptionsDto,
   AutoAssignmentOptionsDto,
   ConversationDto,
@@ -95,6 +101,7 @@ export class ConversationsController {
     private readonly inbox: InboxService,
     private readonly stream: InboxStreamService,
     private readonly media: InboxMediaService,
+    private readonly quickReplies: QuickRepliesService,
   ) {}
 
   @Get('options')
@@ -212,6 +219,31 @@ export class ConversationsController {
       conversationId,
       dto.text,
       dto.clientId ?? null,
+      dto.sign ?? false,
+    );
+  }
+
+  @Post(':conversationId/quick-replies/:quickReplyId')
+  @RequirePermissions('messages.send')
+  @ApiOperation({
+    summary: 'Send a quick reply: its text, then each attached file',
+    description:
+      'Same rules as a reply (24 h window, plan, line). Returns the messages sent.',
+  })
+  @ApiCreatedResponse({ type: [MessageDto] })
+  async sendQuickReply(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @Param('quickReplyId') quickReplyId: string,
+    @Body() dto: SendQuickReplyDto,
+  ): Promise<MessageDto[]> {
+    const reply = await this.quickReplies.get(workspace, quickReplyId);
+    return this.inbox.sendQuickReply(
+      actor(auth, workspace),
+      conversationId,
+      reply,
+      dto.sign ?? false,
     );
   }
 
@@ -358,9 +390,11 @@ export class ConversationsController {
 
   @Post(':conversationId/assign')
   @HttpCode(HttpStatus.OK)
-  @RequirePermissions('conversations.assign')
+  @RequirePermissions('messages.send')
   @ApiOperation({
     summary: 'Assign or transfer to an active member, or unassign',
+    description:
+      'Needs conversations.assign. Without it, only your own chat to someone else while «Transferencia de chats» is on (403 TRANSFER_FORBIDDEN).',
   })
   @ApiOkResponse({ type: ConversationDto })
   assign(
@@ -417,17 +451,22 @@ export class ConversationsController {
   @Post(':conversationId/close')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('messages.send')
-  @ApiOperation({ summary: 'Close the conversation' })
+  @ApiOperation({
+    summary: 'Close the conversation',
+    description:
+      'Sends «Mensaje al cerrar» first when the settings say so. If WhatsApp refuses it the chat closes anyway and `closeMessageError` has the code (e.g. WINDOW_CLOSED).',
+  })
   @ApiOkResponse({ type: ConversationDto })
   close(
     @CurrentWorkspace() workspace: WorkspaceAccess,
     @CurrentUser() auth: AuthContext,
     @Param('conversationId') conversationId: string,
+    @Body() dto: CloseConversationDto,
   ): Promise<ConversationDto> {
-    return this.inbox.setStatus(
+    return this.inbox.close(
       actor(auth, workspace),
       conversationId,
-      'CLOSED',
+      dto.sendMessage ?? false,
     );
   }
 
@@ -571,6 +610,37 @@ export class AutoAssignmentController {
   })
   options(@CurrentWorkspace() workspace: WorkspaceAccess) {
     return this.inbox.autoAssignmentOptions(workspace.workspaceId);
+  }
+}
+
+@ApiTags('inbox')
+@ApiBearerAuth(SWAGGER_BEARER)
+@ApiParam({ name: 'workspaceId', format: 'uuid' })
+@UseGuards(WorkspaceAccessGuard)
+@Controller({ path: 'workspaces/:workspaceId/chat-settings', version: '1' })
+export class ChatSettingsController {
+  constructor(private readonly settings: ChatSettingsService) {}
+
+  @Get()
+  @RequirePermissions('messages.read')
+  @ApiOperation({
+    summary: '«Configuración del módulo de chat»',
+    description:
+      'Auto-assignment, transfers, signature and the message on closing.',
+  })
+  @ApiOkResponse({ type: ChatSettingsViewDto })
+  get(@CurrentWorkspace() workspace: WorkspaceAccess) {
+    return this.settings.get(workspace.workspaceId);
+  }
+
+  @Put()
+  @RequirePermissions('channels.manage')
+  @ApiOkResponse({ type: ChatSettingsViewDto })
+  update(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @Body() dto: ChatSettingsDto,
+  ) {
+    return this.settings.update(workspace.workspaceId, dto);
   }
 }
 

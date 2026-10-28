@@ -590,6 +590,12 @@ export const es = {
     WINDOW_CLOSED: 'La ventana de respuesta terminó. Espera un nuevo mensaje del cliente.',
     LINE_UNAVAILABLE: 'La línea está desactivada o ya no existe.',
     ALREADY_ASSIGNED: 'Otro agente ya tomó esta conversación.',
+    TRANSFER_FORBIDDEN:
+      'Solo puedes transferir tus propios chats, y solo con la transferencia de chats activada.',
+    CONTACT_AGENT_NOT_FOUND: 'El agente regular debe ser un miembro activo del equipo.',
+    QUICK_REPLY_SHORTCUT_TAKEN: 'Ya existe una respuesta rápida con ese título.',
+    QUICK_REPLY_INVALID_TITLE: 'El título necesita al menos una letra o número.',
+    QUICK_REPLY_ATTACHMENT_NOT_FOUND: 'Un archivo adjunto ya no existe: vuelve a subirlo.',
     CONTACT_LIMIT_REACHED: 'Alcanzaste el límite mensual de contactos activos de tu plan.',
     PLAN_UNAVAILABLE: 'Ese plan no está disponible.',
     NO_SUBSCRIPTION: 'Este espacio de trabajo todavía no tiene un plan.',

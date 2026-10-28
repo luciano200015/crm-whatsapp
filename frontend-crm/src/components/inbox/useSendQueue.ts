@@ -33,7 +33,14 @@ export function useSendQueue(workspaceId: string, conversationId: string) {
   const deliver = ({ clientId, payload }: OutboxItem) => {
     switch (payload.kind) {
       case 'text':
-        return inboxApi.send(workspaceId, conversationId, payload.text, payload.note, clientId)
+        return inboxApi.send(
+          workspaceId,
+          conversationId,
+          payload.text,
+          payload.note,
+          clientId,
+          payload.sign,
+        )
       case 'media':
         return inboxApi.sendMedia(
           workspaceId,

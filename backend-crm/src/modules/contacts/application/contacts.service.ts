@@ -5,6 +5,7 @@ import { AuditService } from '../../audit/audit.service';
 import { normalizePhone } from '../domain/phone';
 import { ContactsErrors } from './contacts-errors';
 import {
+  ContactAgents,
   ContactsStore,
   type ContactFilter,
   type ContactRecord,
@@ -31,6 +32,7 @@ export interface ContactInput {
   email?: string | null;
   notes?: string | null;
   tagIds?: string[];
+  agentMembershipId?: string | null;
 }
 
 export interface TagInput {
@@ -50,6 +52,7 @@ export class ContactsService {
   constructor(
     private readonly store: ContactsStore,
     private readonly audit: AuditService,
+    private readonly agents: ContactAgents,
   ) {}
 
   // ─────────────────────────── Contacts ───────────────────────────
@@ -106,6 +109,12 @@ export class ContactsService {
       ...(input.notes !== undefined && { notes: clean(input.notes) }),
       ...(input.tagIds !== undefined && {
         tagIds: await this.validTagIds(workspaceId, input.tagIds),
+      }),
+      ...(input.agentMembershipId !== undefined && {
+        agentMembershipId: await this.validAgent(
+          workspaceId,
+          input.agentMembershipId,
+        ),
       }),
     });
     if (updated === 'phone_taken') throw ContactsErrors.phoneTaken();
@@ -210,6 +219,18 @@ export class ContactsService {
   }
 
   /** Tags must belong to the workspace: a foreign or unknown id is an error. */
+  /** null clears it; otherwise an active member of the workspace. */
+  private async validAgent(
+    workspaceId: string,
+    membershipId: string | null,
+  ): Promise<string | null> {
+    if (!membershipId) return null;
+    if (!(await this.agents.isActiveMember(workspaceId, membershipId))) {
+      throw ContactsErrors.agentNotFound();
+    }
+    return membershipId;
+  }
+
   private async validTagIds(
     workspaceId: string,
     tagIds: string[],

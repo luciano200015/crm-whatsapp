@@ -23,7 +23,7 @@ En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones
   - menú ⋮ con **Marcar como no leído**, **Ver contacto** y **Bloquear contacto**.
 - **Etiquetar chat** (🏷 en la cabecera, con `contacts.write`): se marcan y desmarcan etiquetas con buscador y se aplican al instante; se ven bajo el nombre del chat. Son las **etiquetas del contacto**, así que coinciden con la fila de la lista, el filtro por etiquetas y Contactos. Quien tiene `tags.manage` ve el enlace «Administrar etiquetas».
 - **Panel del contacto** (plegable): datos, etiquetas editables, agente, estado y ventana de 24 h.
-- **Editor:** emojis, adjuntar fotos, videos, documentos o **contactos**, grabar notas de voz, respuestas rápidas con «/» y modo **Nota interna**.
+- **Editor:** emojis, adjuntar fotos, videos, documentos o **contactos**, grabar notas de voz, **respuestas rápidas** (botón ⚡ o «/» al empezar el mensaje), **Firmar mensajes** (si la configuración deja elegir) y modo **Nota interna**.
 
 ## Estados y un chat por contacto
 
@@ -35,7 +35,7 @@ En la aplicación, **Bandeja** (menú de primer nivel) reúne las conversaciones
 
 **Un único chat por contacto y línea:**
 - índice único `(workspaceId, lineId, contactId)`: nunca se crean chats duplicados;
-- **Cerrado + el cliente vuelve a escribir:** se reabre **el mismo chat**, **sin asignar**, con el aviso «El cliente volvió a escribir: chat reabierto». La autoasignación solo reparte los chats nuevos;
+- **Cerrado + el cliente vuelve a escribir:** se reabre **el mismo chat**, **sin asignar**, con el aviso «El cliente volvió a escribir: chat reabierto». Con la configuración del chat guardada, la autoasignación también reparte estos chats reabiertos; antes de guardarla, solo los nuevos;
 - **En espera + el cliente escribe:** el chat **sigue en espera**. El mensaje suma no leídos y suena igual;
 - en espera **se puede responder**; un chat cerrado hay que reabrirlo primero (`409 CONVERSATION_CLOSED`).
 
@@ -46,7 +46,30 @@ npm run inbox:merge-conversations              # solo muestra qué haría
 npm run inbox:merge-conversations -- --apply   # los une
 ```
 
-**Autoasignación** y **Respuestas rápidas** también están en el primer nivel del menú.
+## Configuración del módulo de chat
+
+El engranaje de la barra de la bandeja abre **Configuración del módulo de chat**, como en wasapi. Se guarda en `workspaces.settings.chat` (PostgreSQL, sin migraciones). Todos ven los **avisos**; el resto lo edita quien tiene `channels.manage`.
+
+**Auto-asignación de chats** (`assignment.mode`):
+
+| Modo | Qué hace |
+| --- | --- |
+| **No habilitado** (`NONE`) | Los chats nuevos quedan sin asignar y los agentes los toman. |
+| **Autoasignar conversación** (`LEAST_BUSY`) | Al agente de la línea con **menos chats abiertos** entre los **conectados** (con la bandeja abierta, es decir, con el stream de eventos activo). Los empates se turnan. Si nadie está conectado, el chat espera sin asignar. |
+| **Asignar según el agente registrado** (`CONTACT_AGENT`) | Al **agente regular** del contacto, aunque no esté conectado, si atiende la línea. Sin agente regular, como `LEAST_BUSY`. |
+
+- **Incluir a los administradores** (`includeAdmins`): si ningún agente de la línea está conectado, también reciben chats los conectados con `conversations.view_all`.
+- **Agente regular:** se elige en el panel del contacto del chat («Agente regular», con `contacts.write`) o con `PATCH /contacts/:id { agentMembershipId }`.
+- **Agentes de cada línea:** en el mismo modal (antes era la página Autoasignación).
+- **Antes de guardar la configuración** (`legacyAssignment: true`) sigue el comportamiento anterior: el interruptor de cada línea y el reparto por turnos entre todos sus agentes.
+- El nodo **Transferir → Autoasignación** de los chatbots usa el mismo modo.
+
+**Otras opciones:**
+- **Transferencia de chats** (`transfers`): encendida, quien responde (`messages.send`) puede transferir **sus propios** chats a otro agente; apagada, solo quien tiene `conversations.assign`. Dejar un chat sin asignar siempre exige `conversations.assign` (`403 TRANSFER_FORBIDDEN`).
+- **Firma de mensajes** (`signature`): `AGENT_CHOICE` (botón «Firmar mensajes» en el editor, recordado por navegador), `NEVER` o `ALWAYS`. La firma es `*Nombre del agente*:` en la primera línea; se aplica a las respuestas de texto y al texto de las respuestas rápidas.
+- **Mensaje al cerrar conversaciones** (`closeMessage`): `NEVER`, `ALWAYS` o `ASK` (al cerrar se pregunta «¿Enviar el mensaje de cierre?»). Se envía antes de cerrar; si WhatsApp no lo acepta (por ejemplo, fuera de la ventana de 24 h), el chat se cierra igual y la respuesta trae `closeMessageError`.
+
+**Menú:** la Autoasignación y las Respuestas rápidas ya no están en el menú lateral ni en ⋮; las rutas antiguas llevan a la bandeja.
 
 ## Permisos
 
@@ -157,10 +180,11 @@ Lo que hace un chatbot va firmado con `by: { userId: 'bot:<id>', name, kind: 'bo
 
 ## Respuestas rápidas
 
-- **Dónde se guardan:** colección `quick_replies`, con un `shortcut` único por workspace (letras, números, `-` y `_`, sin tildes) y el `text`.
-- **API:** `GET/POST/PATCH/DELETE /quick-replies`. Para administrarlas hace falta `quick_replies.manage`; para listarlas basta `messages.send`.
-- **Página:** **Respuestas rápidas** (menú de primer nivel).
-- **En el editor:** «/» y parte del atajo muestran las coincidencias. Se elige con las flechas y Enter o Tab, o con un clic; Escape cierra la lista.
+- **Dónde se guardan:** colección `quick_replies`, con `title`, `text` y hasta 5 `attachments` (`fileId`, `filename`, `mimeType`, `size`; los archivos van a GridFS como los del chat). El `shortcut` es la clave única derivada del título (sin tildes ni emojis), así que dos títulos iguales dan `409 QUICK_REPLY_SHORTCUT_TAKEN`. Las respuestas anteriores usan su atajo como título.
+- **API:** `GET/POST/PATCH/DELETE /quick-replies` (`{ title, text, attachmentIds }`; `shortcut` se sigue aceptando) y `POST /quick-replies/attachments` (multipart, mismos tipos y tamaños que enviar un archivo). Para administrarlas hace falta `quick_replies.manage`; para listarlas y enviarlas basta `messages.send`.
+- **Enviar:** `POST /conversations/:id/quick-replies/:quickReplyId` (`{ sign }`) envía el texto y luego cada archivo, con las mismas reglas que una respuesta.
+- **En el chat:** el botón ⚡ del editor, o «/» al empezar el mensaje, abre el panel **Respuestas rápidas** sobre el chat: buscador por título o contenido, **Enviar** (texto y archivos) y **Usar el texto en el mensaje**. Quien tiene `quick_replies.manage` crea («+»), edita y elimina desde el mismo panel («Edición de respuesta rápida»: Título, Contenido con emojis y archivos opcionales).
+- Al cambiar o borrar una respuesta, sus archivos anteriores quedan en GridFS (no se borran).
 
 ## Avisos de mensajes nuevos
 
@@ -172,7 +196,7 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 - el menú **Bandeja** muestra los no leídos;
 - la pestaña del navegador muestra «(N) …» en cualquier página.
 
-**Preferencias:** con la campanita de la bandeja. Se guardan por navegador (`localStorage`), y el permiso del navegador se pide solo al pulsar el interruptor.
+**Preferencias:** en Configuración del módulo de chat (engranaje de la bandeja), sección «Avisos de mensajes nuevos». Se guardan por navegador (`localStorage`), y el permiso del navegador se pide solo al pulsar el interruptor.
 
 ## Respuestas y eventos
 
@@ -200,11 +224,13 @@ Con cada mensaje **entrante** que puedes ver (por SSE), salvo el del chat que ti
 Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/api/v1/workspaces/:workspaceId`.
 
 - `GET /conversations`: `view` (`mine|all`; `unassigned` se mantiene para clientes anteriores), `status` (`OPEN|ON_HOLD|CLOSED|ALL`), `lineId`, `contactId`, `search`, `tagIds`, `assigneeIds` (ids de membresía o `none`; solo con `conversations.view_all`, si no `403 AGENT_FILTER_FORBIDDEN`), `from`, `to`, `sort` (`recent|oldest`), `cursor` y `limit`. Cada chat trae `contactTagIds` y `lastMessage.status`.
-- `GET /conversations/options`: `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `mineClosedUnread`, `unassigned`, `all`, `onHold`, `closed`, `closedUnread`, `unread`, y los mensajes no leídos por estado: `unreadByStatus` de los chats visibles y `mineUnreadByStatus` de los propios, cada uno `{ OPEN, ON_HOLD, CLOSED }`, que son los contadores de las pestañas) · `GET /conversations/events`.
+- `GET /conversations/options`: `transfers` (puede transferir sus propios chats), `viewAll`, `myLineIds`, las líneas visibles (`id`, `name`, `displayPhone`, `status`) y, con `conversations.assign` o `transfers`, los miembros con sus `lineIds` y `viewAll` · `GET /conversations/counts` (`mine`, `mineOnHold`, `mineClosed`, `mineClosedUnread`, `unassigned`, `all`, `onHold`, `closed`, `closedUnread`, `unread`, y los mensajes no leídos por estado: `unreadByStatus` de los chats visibles y `mineUnreadByStatus` de los propios, cada uno `{ OPEN, ON_HOLD, CLOSED }`, que son los contadores de las pestañas) · `GET /conversations/events`.
 - `GET /conversations/:id` · `GET /conversations/:id/messages` · `GET /conversations/:id/messages/:messageId/media`.
-- `POST /conversations/:id/messages` y `/notes` (`{ "text": "...", "clientId": "uuid opcional" }`) · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
+- `POST /conversations/:id/messages` y `/notes` (`{ "text": "...", "clientId": "uuid opcional", "sign": true }`; `sign` solo cuenta en mensajes y con firma `AGENT_CHOICE`) · `POST /conversations/:id/quick-replies/:quickReplyId` · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/accept` («Aceptar» en En espera: se asigna a quien acepta, o con `conversations.assign` si era de otro agente, y vuelve a Abierto) · `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen` · `POST /conversations/:id/bot/pause` (`{ duration }`) y `/bot/resume`.
-- `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`.
+- `POST /conversations/:id/close`: `{ "sendMessage": true }` con el mensaje al cerrar en modo `ASK`.
+- `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`. Con `conversations.assign`, o con la transferencia de chats activada para tus propios chats.
+- `GET /chat-settings` (`messages.read`) y `PUT /chat-settings` (`channels.manage`): `{ assignment: { mode, includeAdmins }, transfers, signature, closeMessage: { mode, text } }`; la lectura agrega `legacyAssignment`.
 - `PUT /conversations/:id/tags`: `{ "tagIds": [...] }` (`contacts.write`). Reemplaza las etiquetas del contacto del chat, devuelve el chat con `contactTagIds` y emite `conversation.updated`. Una etiqueta desconocida da `404 TAG_NOT_FOUND`.
 - `POST /contacts/:id/block` y `/unblock`.
 - `GET/POST/PATCH/DELETE /quick-replies`.

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import { buffer } from 'node:stream/consumers';
 import type { CursorPage } from '../../../database/mongodb/pagination';
 import {
@@ -31,6 +31,8 @@ import {
   windowExpiresAt,
   type InboxScope,
 } from '../domain/inbox-rules';
+import { AutoAssigner } from './auto-assigner';
+import { ChatSettingsService, signed } from './chat-settings';
 import { InboxErrors } from './inbox-errors';
 import { ContactQuota } from './contact-quota';
 import { ConversationTimeline } from './conversation-timeline';
@@ -41,6 +43,7 @@ import {
   sanitizeFilename,
 } from './media';
 import { InboxEvents } from './inbox-events';
+import type { QuickReplyAttachment } from './quick-replies';
 import {
   AssignmentStore,
   InboxStore,
@@ -188,6 +191,8 @@ export class InboxService {
     private readonly timeline: ConversationTimeline,
     private readonly mediaStore: MediaStore,
     private readonly contactTags: ContactsService,
+    private readonly chatSettings: ChatSettingsService,
+    private readonly autoAssigner: AutoAssigner,
   ) {}
 
   async scope(actor: InboxActor): Promise<InboxScope> {
@@ -205,14 +210,18 @@ export class InboxService {
    */
   async options(actor: InboxActor) {
     const { workspaceId, permissions } = actor.access;
+    const settings = await this.chatSettings.get(workspaceId);
+    // With «Transferencia de chats» on, agents transfer their own chats.
+    const transfers = settings.transfers && permissions.has('messages.send');
     const [scope, lines, members] = await Promise.all([
       this.scope(actor),
       this.lines.listLines(workspaceId),
-      permissions.has('conversations.assign')
+      permissions.has('conversations.assign') || transfers
         ? this.assignments.membersReach(workspaceId)
         : [],
     ]);
     return {
+      transfers,
       viewAll: scope.viewAll,
       myLineIds: [...scope.lineIds],
       lines: lines
@@ -317,13 +326,70 @@ export class InboxService {
     conversationId: string,
     text: string,
     clientId: string | null = null,
+    sign = false,
   ): Promise<MessageView> {
+    const body = await this.withSignature(actor, text, sign);
     return this.deliver(actor, conversationId, {
       type: 'text',
-      text,
+      text: body,
       clientId,
-      send: (credentials, to) => this.whatsapp.sendText(credentials, to, text),
+      send: (credentials, to) => this.whatsapp.sendText(credentials, to, body),
     });
+  }
+
+  /**
+   * «Firma de mensajes»: always, never, or what the agent chose in the
+   * composer.
+   */
+  private async withSignature(
+    actor: InboxActor,
+    text: string,
+    sign: boolean,
+  ): Promise<string> {
+    const { signature } = await this.chatSettings.get(actor.access.workspaceId);
+    const yes =
+      signature === 'ALWAYS' || (signature === 'AGENT_CHOICE' && sign);
+    return yes ? signed((await this.me(actor)).name, text) : text;
+  }
+
+  /**
+   * Sends a quick reply: its text, then each attached file, with the same
+   * rules as a reply.
+   */
+  async sendQuickReply(
+    actor: InboxActor,
+    conversationId: string,
+    reply: { text: string; attachments: QuickReplyAttachment[] },
+    sign = false,
+  ): Promise<MessageView[]> {
+    const sent: MessageView[] = [];
+    if (reply.text.trim()) {
+      sent.push(
+        await this.reply(actor, conversationId, reply.text, null, sign),
+      );
+    }
+    for (const attachment of reply.attachments) {
+      const file = await this.mediaStore.open(
+        actor.access.workspaceId,
+        attachment.fileId,
+      );
+      if (!file) continue;
+      const body = await buffer(file.stream);
+      sent.push(
+        await this.sendMedia(
+          actor,
+          conversationId,
+          {
+            buffer: body,
+            mimeType: attachment.mimeType,
+            filename: attachment.filename,
+            size: body.length,
+          },
+          null,
+        ),
+      );
+    }
+    return sent;
   }
 
   /**
@@ -763,7 +829,14 @@ export class InboxService {
     if (!conversation) return null;
     let assignee: Assignee | null = null;
     if (target.to === 'auto') {
-      assignee = await this.assignments.nextAgent(conversation.lineId);
+      const line = await this.lines.findLine(workspaceId, conversation.lineId);
+      assignee = await this.autoAssigner.pick({
+        workspaceId,
+        lineId: conversation.lineId,
+        contactId: conversation.contactId,
+        trigger: 'bot',
+        lineAutoAssign: line?.autoAssign ?? false,
+      });
     } else if (target.to === 'member' && target.membershipId) {
       const members = await this.assignments.membersReach(workspaceId);
       const member = members.find(
@@ -1019,8 +1092,17 @@ export class InboxService {
     conversationId: string,
     membershipId: string | null,
   ): Promise<ConversationView> {
-    const { workspaceId } = actor.access;
+    const { workspaceId, permissions } = actor.access;
     const conversation = await this.requireVisible(actor, conversationId);
+    if (!permissions.has('conversations.assign')) {
+      // «Transferencia de chats»: an agent passes on a chat of their own.
+      const { transfers } = await this.chatSettings.get(workspaceId);
+      const own =
+        conversation.assignee?.membershipId === actor.access.membershipId;
+      if (!transfers || !own || !membershipId) {
+        throw InboxErrors.transferForbidden();
+      }
+    }
     let assignee: Assignee | null = null;
     if (membershipId) {
       const members = await this.assignments.membersReach(workspaceId);
@@ -1108,6 +1190,40 @@ export class InboxService {
       else throw InboxErrors.alreadyAssigned();
     }
     return this.setStatus(actor, conversationId, 'OPEN');
+  }
+
+  /**
+   * Closes the chat. «Mensaje al cerrar conversaciones»: sent always, or when
+   * the agent says so (ASK). If WhatsApp cannot take it (e.g. the 24 h window
+   * is over), the chat closes anyway and the reason comes back.
+   */
+  async close(
+    actor: InboxActor,
+    conversationId: string,
+    sendMessage: boolean,
+  ): Promise<ConversationView & { closeMessageError?: string }> {
+    const conversation = await this.requireVisible(actor, conversationId);
+    const { closeMessage } = await this.chatSettings.get(
+      actor.access.workspaceId,
+    );
+    const wanted =
+      closeMessage.mode === 'ALWAYS' ||
+      (closeMessage.mode === 'ASK' && sendMessage);
+    let closeMessageError: string | undefined;
+    if (wanted && closeMessage.text && conversation.status !== 'CLOSED') {
+      try {
+        await this.reply(actor, conversationId, closeMessage.text);
+      } catch (error: unknown) {
+        if (!(error instanceof HttpException)) throw error;
+        const response = error.getResponse();
+        closeMessageError =
+          typeof response === 'object' && response && 'code' in response
+            ? String(response.code)
+            : 'CLOSE_MESSAGE_FAILED';
+      }
+    }
+    const closed = await this.setStatus(actor, conversationId, 'CLOSED');
+    return closeMessageError ? { ...closed, closeMessageError } : closed;
   }
 
   async setStatus(
