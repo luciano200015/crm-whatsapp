@@ -11,6 +11,8 @@ import {
   sanitizeFilename,
   type StoredMedia,
 } from '../../inbox/application/media';
+import { InboxService } from '../../inbox/application/inbox.service';
+import { buildRequest, valueAt, type BotResponse } from '../domain/bot-request';
 import {
   flowIssues,
   FlowFormatError,
@@ -19,9 +21,10 @@ import {
   type BotMedia,
   type Flow,
   type FlowIssue,
+  type NodeData,
 } from '../domain/flow';
 import {
-  advance,
+  interpolate,
   type BotAction,
   type EngineSession,
 } from '../domain/flow-engine';
@@ -32,12 +35,19 @@ import {
   storedVariables,
   type BotVariable,
 } from '../domain/variables';
+import { runTurn } from './bot-turn';
 import { ChatbotsErrors } from './chatbots-errors';
 import {
+  BotHttpClient,
   ChatbotsStore,
   type ChatbotChanges,
   type ChatbotRecord,
 } from './ports';
+
+/** «Probar conexión» calls per user and minute at most. */
+const TESTS_PER_MINUTE = 10;
+/** Text of a test answer shown in the editor. */
+const TEST_BODY_CHARS = 2000;
 
 export interface ChatbotSummary {
   id: string;
@@ -109,7 +119,12 @@ export class ChatbotsService {
     private readonly media: MediaStore,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    private readonly http: BotHttpClient,
+    private readonly inbox: InboxService,
   ) {}
+
+  /** «Probar conexión» calls of each user in the current minute. */
+  private readonly tests = new Map<string, { minute: number; count: number }>();
 
   async list(workspaceId: string): Promise<ChatbotSummary[]> {
     const bots = await this.store.list(workspaceId);
@@ -340,18 +355,22 @@ export class ChatbotsService {
 
   /**
    * "Probar chatbot": runs the flow being edited for a pretend customer.
-   * Nothing is sent or changed; the actions come back to show them.
+   * Nothing is sent or changed; the actions come back to show them. A
+   * «Consulta API» does call its service, so the test is real.
    */
-  simulate(input: {
-    graph: unknown;
-    session: unknown;
-    text: string | null;
-    replyId: string | null;
-    contactName: string | null;
-    fallbackText: string;
-    restartKeywords: string[];
-    variables: unknown;
-  }): { actions: BotAction[]; session: EngineSession | null } {
+  async simulate(
+    workspaceId: string,
+    input: {
+      graph: unknown;
+      session: unknown;
+      text: string | null;
+      replyId: string | null;
+      contactName: string | null;
+      fallbackText: string;
+      restartKeywords: string[];
+      variables: unknown;
+    },
+  ): Promise<{ actions: BotAction[]; session: EngineSession | null }> {
     const flow = this.parse(input.graph);
     const session = testSession(input.session);
     const waiting =
@@ -360,7 +379,7 @@ export class ChatbotsService {
         flow.nodes.some((node) => node.id === session.nodeId))
         ? session
         : null;
-    return advance(
+    return runTurn(
       flow,
       waiting,
       { text: input.text, replyId: input.replyId },
@@ -376,8 +395,75 @@ export class ChatbotsService {
           restartKeywords: this.keywords(input.restartKeywords),
         },
         variables: storedVariables(input.variables),
+        contactFields: await this.inbox.botContactFields(workspaceId),
       },
+      (request) => this.http.send(request),
     );
+  }
+
+  /**
+   * «Probar conexión» of a «Consulta API»: calls the service with test
+   * values for its {{variables}} and shows what it answered and what each
+   * variable would hold.
+   */
+  async testRequest(
+    userId: string,
+    api: unknown,
+    sample: Record<string, string>,
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    error: string | null;
+    body: string;
+    values: { variable: string; value: string }[];
+  }> {
+    const minute = Math.floor(this.clock.now().getTime() / 60_000);
+    const used = this.tests.get(userId);
+    const count = used?.minute === minute ? used.count : 0;
+    if (count >= TESTS_PER_MINUTE) throw ChatbotsErrors.tooManyRequests();
+    this.tests.set(userId, { minute, count: count + 1 });
+    if (this.tests.size > 1000)
+      for (const [key, value] of this.tests)
+        if (value.minute !== minute) this.tests.delete(key);
+
+    const flow = this.parse({
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: {} },
+        { id: 'api', type: 'api', position: { x: 0, y: 0 }, data: api },
+      ],
+      edges: [],
+    });
+    const node = flow.nodes.find((item) => item.type === 'api');
+    const data = node?.data as NodeData['api'];
+    const vars = Object.fromEntries(
+      Object.entries(sample)
+        .slice(0, 50)
+        .map(([key, value]) => [key.slice(0, 50), String(value).slice(0, 500)]),
+    );
+    const contact = { name: null, phone: '', email: null };
+    const response: BotResponse = await this.http.send(
+      buildRequest(data, (text, encode) =>
+        interpolate(text, vars, contact, encode),
+      ),
+    );
+    const body =
+      typeof response.body === 'string'
+        ? response.body
+        : response.body === null || response.body === undefined
+          ? ''
+          : JSON.stringify(response.body, null, 2);
+    return {
+      ok: response.ok,
+      status: response.status,
+      error: response.error ?? null,
+      body: body.slice(0, TEST_BODY_CHARS),
+      values: response.ok
+        ? data.responses.map((item) => ({
+            variable: item.variable,
+            value: valueAt(response.body, item.path),
+          }))
+        : [],
+    };
   }
 
   // ─────────────────────────── Helpers ───────────────────────────

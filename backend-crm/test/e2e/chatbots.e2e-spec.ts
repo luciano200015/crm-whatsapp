@@ -4,6 +4,7 @@ import { seedAuthorization } from '../../prisma/seed-authorization';
 import { seedBilling } from '../../prisma/seed-billing';
 import type { PrismaClient } from '../../src/generated/prisma/client';
 import { ChatbotRunner } from '../../src/modules/chatbots/application/chatbot-runner.service';
+import { BotHttpClient } from '../../src/modules/chatbots/application/ports';
 import { signBody } from '../../src/modules/channels/domain/webhook-signature';
 import { textMessagePayload } from '../../src/modules/channels/domain/whatsapp-payload';
 import {
@@ -50,6 +51,7 @@ interface MessageBody {
   interactive: {
     kind: string;
     buttons?: { id: string; title: string }[];
+    list?: object;
   } | null;
   reply: { id: string; title: string } | null;
   event: { kind: string; to: { name: string } | null } | null;
@@ -441,7 +443,7 @@ describe('Chatbots (e2e)', () => {
         issues: expect.arrayContaining([
           expect.objectContaining({
             nodeId: 'menu',
-            message: 'Agrega al menos un botón',
+            message: 'Escribe el mensaje o adjunta un archivo',
           }),
         ]) as unknown,
       },
@@ -510,6 +512,7 @@ describe('Chatbots (e2e)', () => {
         membershipId: null,
         message: 'Te comunicamos con {{agente}}. En breve te atenderá.',
         pause: '24h',
+        note: null,
       },
     ]);
   });
@@ -849,6 +852,245 @@ describe('Chatbots (e2e)', () => {
     );
     const after = await messagesOf(owner, chat.id);
     expect(after.at(-1)?.text).toBe('Ya te atendemos');
+  });
+
+  it('still answers a list saved before «Respuesta», and sends 5 options as a list', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    const rows = ['Planes', 'Precios', 'Horarios', 'Sucursales', 'Asesor'];
+    const bot = await botOn(owner, line, {
+      nodes: [
+        { id: 'start', type: 'start', position: at, data: {} },
+        {
+          id: 'menu',
+          type: 'list',
+          position: at,
+          data: {
+            body: '¿Qué buscas?',
+            button: 'Ver menú',
+            sections: [
+              {
+                title: 'Opciones',
+                rows: rows.map((title, index) => ({ id: `r${index}`, title })),
+              },
+            ],
+          },
+        },
+        {
+          id: 'branches',
+          type: 'message',
+          position: at,
+          data: { text: 'Estamos en el centro' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', sourceHandle: 'next', target: 'menu' },
+        { id: 'e2', source: 'menu', sourceHandle: 'r3', target: 'branches' },
+      ],
+    });
+
+    await incoming(line, 'hola');
+    const chat = await chatOf(owner, line);
+    let messages = await messagesOf(owner, chat.id);
+    expect(messages.at(-1)?.interactive).toMatchObject({
+      kind: 'list',
+      list: {
+        button: 'Ver menú',
+        sections: [{ title: null, rows: rows.map((title) => ({ title })) }],
+      },
+    });
+    await incoming(line, 'Sucursales', { id: 'menu:r3', title: 'Sucursales' });
+    messages = await messagesOf(owner, chat.id);
+    expect(messages.at(-1)?.text).toBe('Estamos en el centro');
+
+    // Read back with the new shape, ids and connections kept.
+    const saved = (await api(owner).get(`/chatbots/${bot.id}`).expect(200))
+      .body as { graph: { nodes: { type: string; data: object }[] } };
+    expect(saved.graph.nodes[1]).toMatchObject({
+      type: 'message',
+      data: { text: '¿Qué buscas?', listButton: 'Ver menú' },
+    });
+  });
+
+  it('runs the new widgets: API, contact field, location, contact card, note and «Desactivar bot»', async () => {
+    const owner = await signUp();
+    const line = await newLine(owner);
+    const field = (
+      await api(owner)
+        .post('/contact-fields', { label: 'Plan', type: 'TEXT' })
+        .expect(201)
+    ).body as { key: string };
+    const client = t.app.get(BotHttpClient);
+    const send = jest
+      .spyOn(client, 'send')
+      .mockImplementation((req) =>
+        Promise.resolve(
+          req.url.includes('/falla')
+            ? { ok: false, status: 503, body: 'caído' }
+            : { ok: true, status: 200, body: { cliente: { plan: 'Oro' } } },
+        ),
+      );
+    const graph = (url: string) => ({
+      nodes: [
+        { id: 'start', type: 'start', position: at, data: {} },
+        {
+          id: 'api',
+          type: 'api',
+          position: at,
+          data: {
+            method: 'GET',
+            url,
+            auth: { type: 'bearer', token: 'tok-123' },
+            params: [{ key: 'tel', value: '{{telefono}}' }],
+            responses: [{ path: 'cliente.plan', variable: 'plan' }],
+          },
+        },
+        {
+          id: 'save',
+          type: 'contact_field',
+          position: at,
+          data: { field: field.key, source: 'manual', value: '{{plan}}' },
+        },
+        {
+          id: 'map',
+          type: 'location',
+          position: at,
+          data: { latitude: -16.5, longitude: -68.15, name: 'Oficina' },
+        },
+        {
+          id: 'card',
+          type: 'contact_card',
+          position: at,
+          data: { contacts: [{ name: 'Soporte', phone: '+59170000009' }] },
+        },
+        {
+          id: 'agent',
+          type: 'transfer',
+          position: at,
+          data: { to: 'unassigned', note: 'Cliente plan {{plan}}' },
+        },
+        {
+          id: 'down',
+          type: 'message',
+          position: at,
+          data: { text: 'Servicio no disponible' },
+        },
+        {
+          id: 'off',
+          type: 'status',
+          position: at,
+          data: { status: 'OPEN', bot: 'pause' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', sourceHandle: 'next', target: 'api' },
+        { id: 'e2', source: 'api', sourceHandle: 'ok', target: 'save' },
+        { id: 'e3', source: 'save', sourceHandle: 'ok', target: 'map' },
+        { id: 'e4', source: 'map', sourceHandle: 'next', target: 'card' },
+        { id: 'e5', source: 'card', sourceHandle: 'next', target: 'agent' },
+        { id: 'e6', source: 'api', sourceHandle: 'error', target: 'down' },
+        { id: 'e7', source: 'down', sourceHandle: 'next', target: 'off' },
+      ],
+    });
+    try {
+      const bot = await botOn(
+        owner,
+        line,
+        graph('https://api.example.com/plan'),
+      );
+      await incoming(line, 'hola');
+      expect(send).toHaveBeenCalledWith({
+        method: 'GET',
+        url: 'https://api.example.com/plan?tel=%2B59170000001',
+        headers: { Authorization: 'Bearer tok-123' },
+        body: null,
+      });
+      const chat = await chatOf(owner, line);
+      const messages = (await messagesOf(owner, chat.id)) as (MessageBody & {
+        location: object | null;
+        contacts: object[];
+      })[];
+      expect(messages.map((m) => [m.direction, m.type])).toEqual(
+        expect.arrayContaining([
+          ['OUT', 'location'],
+          ['OUT', 'contacts'],
+          ['NOTE', 'text'],
+        ]),
+      );
+      expect(messages.find((m) => m.type === 'location')?.location).toEqual({
+        latitude: -16.5,
+        longitude: -68.15,
+        name: 'Oficina',
+        address: null,
+      });
+      expect(messages.find((m) => m.type === 'contacts')?.contacts).toEqual([
+        expect.objectContaining({
+          name: 'Soporte',
+          phones: [expect.objectContaining({ phone: '+59170000009' })],
+        }),
+      ]);
+      expect(messages.find((m) => m.direction === 'NOTE')).toMatchObject({
+        text: 'Cliente plan Oro',
+        sentBy: { name: 'Bot de ventas', kind: 'bot' },
+      });
+      const contacts = (
+        await api(owner).get('/contacts?search=70000001').expect(200)
+      ).body as { items: { fields: Record<string, unknown> }[] };
+      expect(contacts.items[0]?.fields).toEqual({ [field.key]: 'Oro' });
+
+      // The service fails: its «Error» way, then the bot turns itself off.
+      await api(owner)
+        .patch(`/chatbots/${bot.id}`, {
+          graph: graph('https://api.example.com/falla'),
+        })
+        .expect(200);
+      const other = await newLine(owner);
+      await api(owner)
+        .put(`/chatbots/${bot.id}/lines`, { lineIds: [other.id] })
+        .expect(200);
+      await incoming(other, 'hola');
+      const second = await chatOf(owner, other);
+      const after = await messagesOf(owner, second.id);
+      expect(
+        after.filter((m) => m.direction === 'OUT').map((m) => m.text),
+      ).toEqual(['Servicio no disponible']);
+      expect(second.bot).toMatchObject({ state: 'paused', pausedUntil: null });
+      await incoming(other, '¿hola?');
+      expect(
+        (await messagesOf(owner, second.id)).filter(
+          (m) => m.direction === 'OUT',
+        ),
+      ).toHaveLength(1);
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it('tests a «Consulta API» only against public https addresses', async () => {
+    const owner = await signUp();
+    const agent = await agentOf(owner, 'Ceci Agente');
+    const local = (
+      await api(owner)
+        .post('/chatbots/test-request', {
+          api: { url: 'https://127.0.0.1/admin' },
+        })
+        .expect(200)
+    ).body as { ok: boolean; error: string | null };
+    expect(local).toMatchObject({ ok: false, error: 'Dirección no permitida' });
+    const plain = (
+      await api(owner)
+        .post('/chatbots/test-request', { api: { url: 'http://example.com' } })
+        .expect(200)
+    ).body as { ok: boolean; error: string | null };
+    expect(plain).toMatchObject({
+      ok: false,
+      error: 'Solo se permiten URL https://',
+    });
+    await api(agent)
+      .post('/chatbots/test-request', {
+        api: { url: 'https://api.example.com' },
+      })
+      .expect(403);
   });
 
   it('is only for chatbots.manage', async () => {

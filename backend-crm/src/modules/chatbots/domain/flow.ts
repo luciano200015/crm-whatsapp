@@ -1,4 +1,5 @@
 import { INTERACTIVE_LIMITS as LIMITS } from '../../channels/domain/interactive';
+import { normalizePhone } from '../../contacts/domain/phone';
 import { BOT_PAUSES, type BotPause } from '../../inbox/domain/bot-pause';
 import { scheduleProblem, type Schedule } from './schedule';
 import {
@@ -15,19 +16,32 @@ import {
 export const NODE_KINDS = [
   'start',
   'message',
-  'buttons',
-  'list',
   'url',
   'question',
+  'location',
+  'contact_card',
   'condition',
   'hours',
   'tags',
   'funnel',
+  'contact_field',
+  'api',
   'transfer',
   'status',
   'end',
 ] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
+
+/**
+ * Cards of older flows, read as a «Respuesta» with its options: reply
+ * buttons and lists are now the options of the message itself.
+ */
+const LEGACY_MENUS: readonly string[] = ['buttons', 'list'];
+
+/** Options of a «Respuesta»: up to 3 go as buttons, 4 to 10 as a list. */
+export const MAX_OPTIONS = 10;
+/** «Aceptar cualquier mensaje»: the "Respuesta del usuario" that takes any text. */
+export const ANY_MESSAGE = '*';
 
 export const MAX_NODES = 200;
 
@@ -56,28 +70,67 @@ export interface FlowOption {
   title: string;
 }
 
-export interface FlowListRow extends FlowOption {
+/** An option of a «Respuesta»; the description only shows in a list. */
+export interface FlowReplyOption extends FlowOption {
   description: string;
-}
-
-export interface FlowListSection {
-  id: string;
-  title: string;
-  rows: FlowListRow[];
 }
 
 export const VALIDATIONS = ['any', 'number', 'email', 'phone'] as const;
 export const OPERATORS = [
   'equals',
+  'not_equals',
   'contains',
+  'not_contains',
   'starts_with',
   'is_number',
+  'is_not_number',
   'is_empty',
+  'is_not_empty',
   'greater_than',
+  'gte',
   'less_than',
+  'lte',
+  'in',
+  'not_in',
   'is_true',
   'is_false',
 ] as const;
+export type Operator = (typeof OPERATORS)[number];
+/** Operators that compare with a value («Valor de comparación»). */
+export const VALUE_OPERATORS: readonly Operator[] = [
+  'equals',
+  'not_equals',
+  'contains',
+  'not_contains',
+  'starts_with',
+  'greater_than',
+  'gte',
+  'less_than',
+  'lte',
+  'in',
+  'not_in',
+];
+/**
+ * «Cumplimiento de condiciones»: all of them or any of them (ways out
+ * «Cumple» / «No cumple»), or one way out per condition (older flows).
+ */
+export const CONDITION_MATCHES = ['all', 'any', 'each'] as const;
+export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+export const API_AUTH = ['none', 'bearer', 'basic', 'headers'] as const;
+/** Limits of «Consulta API». */
+export const API_LIMITS = {
+  url: 2000,
+  headers: 20,
+  params: 30,
+  responses: 20,
+  key: 100,
+  value: 1000,
+  path: 200,
+} as const;
+/** Contact cards a «Enviar contacto» sends at most. */
+export const MAX_CONTACT_CARDS = 5;
+/** Variables of the contact's custom fields: {{campo_<key>}}. */
+export const FIELD_VARIABLE = /^campo_[a-z0-9_]{1,40}$/;
 /** Contact fields "Guardar respuesta" can also update. */
 export const CONTACT_FIELDS = ['none', 'name', 'email'] as const;
 
@@ -86,7 +139,7 @@ export interface ConditionRule {
   /** message: the customer's last message; variable: a saved answer. */
   source: 'message' | 'variable';
   variable: string;
-  operator: (typeof OPERATORS)[number];
+  operator: Operator;
   value: string;
 }
 
@@ -94,30 +147,26 @@ export interface ConditionRule {
 export interface NodeData {
   start: Record<string, never>;
   /**
-   * Files go after the text; a single file takes the text as its caption.
-   * wait: instead of "Enviar mensaje y saltar al siguiente nodo", waits for
-   * the customer and follows the connected card whose "Respuesta del
-   * usuario" matches (a menu written as text: "1. Ventas, 2. Soporte").
+   * «Respuesta». Without options, files go after the text and a single file
+   * takes the text as its caption. wait: instead of "Enviar mensaje y saltar
+   * al siguiente nodo", waits for the customer and follows the connected
+   * card whose "Respuesta del usuario" matches (a menu written as text).
+   *
+   * With options («Botones interactivos») it waits for one: up to 3 short
+   * ones are reply buttons (one image, video or document goes as their
+   * header); more, longer than 20 characters or with a description, a list
+   * opened by `listButton`. One way out per option.
    */
-  message: { text: string; attachments: BotMedia[]; wait?: boolean };
-  buttons: {
-    header: string;
-    body: string;
-    footer: string;
-    buttons: FlowOption[];
-    /** Said before repeating the question when the answer matches no option. */
-    invalidText: string;
-    /** Sent before the buttons. */
+  message: {
+    text: string;
     attachments: BotMedia[];
-  };
-  list: {
+    wait?: boolean;
+    options: FlowReplyOption[];
+    listButton: string;
     header: string;
-    body: string;
     footer: string;
-    button: string;
-    sections: FlowListSection[];
+    /** Said when the answer matches no option ('' the bot's fallback text). */
     invalidText: string;
-    attachments: BotMedia[];
   };
   url: {
     header: string;
@@ -127,6 +176,45 @@ export interface NodeData {
     url: string;
     /** Like message: waits for an answer that opens a connected card. */
     wait?: boolean;
+    /** An image, video or document shown above the text. */
+    attachment: BotMedia | null;
+  };
+  /** «Enviar ubicación»: a point on the map. */
+  location: {
+    latitude: number | null;
+    longitude: number | null;
+    name: string;
+    address: string;
+  };
+  /** «Enviar contacto»: cards the customer can save or write to. */
+  contact_card: { contacts: { name: string; phone: string }[] };
+  /**
+   * «Actualizar campo de contacto»: name, email or a custom field (its key),
+   * from the customer's last message (answer) or a text with variables.
+   * Ways out: ok («Campo actualizado») and fail («Campo no actualizado»).
+   */
+  contact_field: {
+    field: string;
+    source: 'answer' | 'manual';
+    value: string;
+  };
+  /**
+   * «Consulta API»: calls an external HTTPS service; `responses` save values
+   * of its JSON answer in variables. Ways out: ok and error.
+   */
+  api: {
+    method: (typeof HTTP_METHODS)[number];
+    url: string;
+    auth: {
+      type: (typeof API_AUTH)[number];
+      token: string;
+      user: string;
+      password: string;
+    };
+    headers: { key: string; value: string }[];
+    /** Query string of a GET, JSON body of the other methods. */
+    params: { key: string; value: string }[];
+    responses: { path: string; variable: string }[];
   };
   question: {
     text: string;
@@ -136,7 +224,10 @@ export interface NodeData {
     /** Also saves the answer in the contact (name or email). */
     saveTo: (typeof CONTACT_FIELDS)[number];
   };
-  condition: { rules: ConditionRule[] };
+  condition: {
+    match: (typeof CONDITION_MATCHES)[number];
+    rules: ConditionRule[];
+  };
   hours: { schedule: Schedule };
   tags: { add: string[]; remove: string[] };
   /** «Establecer contacto en embudo»: puts the contact in that stage. */
@@ -149,8 +240,11 @@ export interface NodeData {
     message: string;
     /** How long the chatbot stays off in the chat afterwards. */
     pause: BotPause;
+    /** «Mensaje para el agente»: an internal note in the chat ('' none). */
+    note: string;
   };
-  status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED' };
+  /** bot pause: «Desactivar bot», the chatbot stops answering this chat. */
+  status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED'; bot: 'keep' | 'pause' };
   end: Record<string, never>;
 }
 
@@ -204,25 +298,32 @@ export class FlowFormatError extends Error {
 export function outputs(node: FlowNode): string[] {
   switch (node.type) {
     case 'start':
-    case 'message':
     case 'url':
     case 'tags':
     case 'funnel':
+    case 'location':
+    case 'contact_card':
       return ['next'];
+    case 'message':
+      return node.data.options.length > 0
+        ? node.data.options.map((option) => option.id)
+        : ['next'];
     case 'question':
       return ['next', 'other'];
-    case 'buttons':
-      return node.data.buttons.map((button) => button.id);
-    case 'list':
-      return node.data.sections.flatMap((section) =>
-        section.rows.map((row) => row.id),
-      );
     case 'condition':
-      return [...node.data.rules.map((rule) => rule.id), 'else'];
+      return node.data.match === 'each'
+        ? [...node.data.rules.map((rule) => rule.id), 'else']
+        : ['yes', 'no'];
     case 'hours':
       return ['in', 'out'];
+    case 'contact_field':
+      return ['ok', 'fail'];
+    case 'api':
+      return ['ok', 'error'];
     case 'status':
-      return node.data.status === 'CLOSED' ? [] : ['next'];
+      return node.data.status === 'CLOSED' || node.data.bot === 'pause'
+        ? []
+        : ['next'];
     case 'transfer':
     case 'end':
       return [];
@@ -291,6 +392,28 @@ class Reader {
     return value;
   }
 
+  /** A number between min and max, or null when missing. */
+  number(
+    source: Json,
+    key: string,
+    min: number,
+    max: number,
+    label: string,
+  ): number | null {
+    const value = source[key];
+    if (value === undefined || value === null || value === '') return null;
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < min ||
+      value > max
+    ) {
+      this.fail(`${label}: debe ser un número entre ${min} y ${max}`);
+      return null;
+    }
+    return value;
+  }
+
   oneOf<T extends string>(
     source: Json,
     key: string,
@@ -308,20 +431,6 @@ class Reader {
     return fallback;
   }
 }
-
-const options = (
-  read: Reader,
-  items: unknown[],
-  titleMax: number,
-  label: string,
-): FlowOption[] =>
-  items.map((item) => {
-    const option = isObject(item) ? item : {};
-    return {
-      id: read.id(option, 'id', label),
-      title: read.text(option, 'title', titleMax, label),
-    };
-  });
 
 /** Files of a node; flows saved with one `media` keep it. */
 function readAttachments(read: Reader, data: Json): BotMedia[] {
@@ -362,85 +471,102 @@ function readMedia(read: Reader, value: unknown): BotMedia | null {
   };
 }
 
+const UUID = /^[0-9a-f-]{36}$/i;
+
+/** «Botones interactivos» of a «Respuesta». */
+const replyOptions = (read: Reader, items: unknown[]): FlowReplyOption[] =>
+  items.map((item) => {
+    const option = isObject(item) ? item : {};
+    return {
+      id: read.id(option, 'id', 'Botón'),
+      title: read.text(option, 'title', LIMITS.rowTitle, 'Botón'),
+      description: read.text(
+        option,
+        'description',
+        LIMITS.rowDescription,
+        'Descripción',
+      ),
+    };
+  });
+
+/** A «Respuesta» from the buttons and list cards of older flows. */
+function legacyMenu(read: Reader, type: string, data: Json): unknown {
+  const common = {
+    text: read.text(data, 'body', LIMITS.body, 'Mensaje'),
+    attachments: readAttachments(read, data),
+    wait: false,
+    header: read.text(data, 'header', LIMITS.header, 'Encabezado'),
+    footer: read.text(data, 'footer', LIMITS.footer, 'Pie'),
+    invalidText: read.text(data, 'invalidText', 1024, 'Respuesta no válida'),
+  };
+  if (type === 'buttons')
+    return {
+      ...common,
+      options: replyOptions(
+        read,
+        read.list(data, 'buttons', LIMITS.buttons, 'Botones'),
+      ),
+      listButton: '',
+    };
+  const rows = read
+    .list(data, 'sections', LIMITS.listSections, 'Secciones')
+    .flatMap((section) =>
+      isObject(section)
+        ? read.list(section, 'rows', MAX_OPTIONS, 'Opciones')
+        : [],
+    );
+  return {
+    ...common,
+    options: replyOptions(read, rows.slice(0, MAX_OPTIONS)),
+    listButton: read.text(
+      data,
+      'button',
+      LIMITS.listButton,
+      'Botón de la lista',
+    ),
+  };
+}
+
 function readData(read: Reader, type: NodeKind, data: Json): unknown {
   switch (type) {
     case 'start':
     case 'end':
       return {};
-    case 'message':
+    case 'message': {
+      const options = replyOptions(
+        read,
+        read.list(data, 'options', MAX_OPTIONS, 'Botones'),
+      );
       return {
-        text: read.text(data, 'text', LIMITS.text, 'Texto'),
+        text: read.text(
+          data,
+          'text',
+          options.length > 0 ? LIMITS.body : LIMITS.text,
+          'Respuesta del bot',
+        ),
         attachments: readAttachments(read, data),
         wait: read.bool(data, 'wait'),
-      };
-    case 'buttons':
-      return {
-        header: read.text(data, 'header', LIMITS.header, 'Encabezado'),
-        body: read.text(data, 'body', LIMITS.body, 'Mensaje'),
-        footer: read.text(data, 'footer', LIMITS.footer, 'Pie'),
-        buttons: options(
-          read,
-          read.list(data, 'buttons', LIMITS.buttons, 'Botones'),
-          LIMITS.buttonTitle,
-          'Botón',
-        ),
-        invalidText: read.text(
+        options,
+        listButton: read.text(
           data,
-          'invalidText',
-          1024,
-          'Respuesta no válida',
-        ),
-        attachments: readAttachments(read, data),
-      };
-    case 'list':
-      return {
-        header: read.text(data, 'header', LIMITS.header, 'Encabezado'),
-        body: read.text(data, 'body', LIMITS.body, 'Mensaje'),
-        footer: read.text(data, 'footer', LIMITS.footer, 'Pie'),
-        button: read.text(
-          data,
-          'button',
+          'listButton',
           LIMITS.listButton,
           'Botón de la lista',
         ),
-        sections: read
-          .list(data, 'sections', LIMITS.listSections, 'Secciones')
-          .map((item) => {
-            const section = isObject(item) ? item : {};
-            return {
-              id: read.id(section, 'id', 'Sección'),
-              title: read.text(
-                section,
-                'title',
-                LIMITS.sectionTitle,
-                'Sección',
-              ),
-              rows: read
-                .list(section, 'rows', LIMITS.listRows, 'Opciones')
-                .map((rowItem) => {
-                  const row = isObject(rowItem) ? rowItem : {};
-                  return {
-                    id: read.id(row, 'id', 'Opción'),
-                    title: read.text(row, 'title', LIMITS.rowTitle, 'Opción'),
-                    description: read.text(
-                      row,
-                      'description',
-                      LIMITS.rowDescription,
-                      'Descripción',
-                    ),
-                  };
-                }),
-            };
-          }),
+        header: read.text(data, 'header', LIMITS.header, 'Encabezado'),
+        footer: read.text(data, 'footer', LIMITS.footer, 'Pie'),
         invalidText: read.text(
           data,
           'invalidText',
           1024,
           'Respuesta no válida',
         ),
-        attachments: readAttachments(read, data),
       };
-    case 'url':
+    }
+    case 'url': {
+      const attachment = readMedia(read, data.attachment);
+      if (attachment?.type === 'audio')
+        read.fail('El encabezado admite imagen, video o documento');
       return {
         header: read.text(data, 'header', LIMITS.header, 'Encabezado'),
         body: read.text(data, 'body', LIMITS.body, 'Mensaje'),
@@ -448,7 +574,9 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
         text: read.text(data, 'text', LIMITS.urlText, 'Texto del botón'),
         url: read.text(data, 'url', LIMITS.url, 'Enlace'),
         wait: read.bool(data, 'wait'),
+        attachment,
       };
+    }
     case 'question':
       return {
         text: read.text(data, 'text', LIMITS.text, 'Pregunta'),
@@ -462,8 +590,72 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
         ),
         saveTo: read.oneOf(data, 'saveTo', CONTACT_FIELDS, 'none'),
       };
+    case 'location':
+      return {
+        latitude: read.number(data, 'latitude', -90, 90, 'Latitud'),
+        longitude: read.number(data, 'longitude', -180, 180, 'Longitud'),
+        name: read.text(data, 'name', 100, 'Nombre'),
+        address: read.text(data, 'address', 100, 'Dirección'),
+      };
+    case 'contact_card':
+      return {
+        contacts: read
+          .list(data, 'contacts', MAX_CONTACT_CARDS, 'Contactos')
+          .map((item) => {
+            const card = isObject(item) ? item : {};
+            return {
+              name: read.text(card, 'name', 80, 'Nombre del contacto'),
+              phone: read.text(card, 'phone', 30, 'Teléfono del contacto'),
+            };
+          }),
+      };
+    case 'contact_field':
+      return {
+        field: read.text(data, 'field', 40, 'Campo para actualizar'),
+        source: read.oneOf(
+          data,
+          'source',
+          ['answer', 'manual'] as const,
+          'answer',
+        ),
+        value: read.text(data, 'value', 500, 'Valor'),
+      };
+    case 'api': {
+      const auth = isObject(data.auth) ? data.auth : {};
+      const pairs = (key: string, max: number, label: string) =>
+        read.list(data, key, max, label).map((item) => {
+          const pair = isObject(item) ? item : {};
+          return {
+            key: read.text(pair, 'key', API_LIMITS.key, label),
+            value: read.text(pair, 'value', API_LIMITS.value, label),
+          };
+        });
+      return {
+        method: read.oneOf(data, 'method', HTTP_METHODS, 'GET'),
+        url: read.text(data, 'url', API_LIMITS.url, 'URL API externa'),
+        auth: {
+          type: read.oneOf(auth, 'type', API_AUTH, 'none'),
+          token: read.text(auth, 'token', API_LIMITS.value, 'Token'),
+          user: read.text(auth, 'user', API_LIMITS.key, 'Usuario'),
+          password: read.text(auth, 'password', API_LIMITS.value, 'Contraseña'),
+        },
+        headers: pairs('headers', API_LIMITS.headers, 'Cabeceras'),
+        params: pairs('params', API_LIMITS.params, 'Parámetros'),
+        responses: read
+          .list(data, 'responses', API_LIMITS.responses, 'Respuesta')
+          .map((item) => {
+            const pair = isObject(item) ? item : {};
+            return {
+              path: read.text(pair, 'path', API_LIMITS.path, 'Ruta'),
+              variable: read.text(pair, 'variable', 31, 'Variable'),
+            };
+          }),
+      };
+    }
     case 'condition':
       return {
+        // Flows saved before «Cumple / No cumple» keep one way per rule.
+        match: read.oneOf(data, 'match', CONDITION_MATCHES, 'each'),
         rules: read.list(data, 'rules', 10, 'Condiciones').map((item) => {
           const rule = isObject(item) ? item : {};
           return {
@@ -474,7 +666,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
               ['message', 'variable'] as const,
               'message',
             ),
-            variable: read.text(rule, 'variable', 31, 'Variable'),
+            variable: read.text(rule, 'variable', 47, 'Variable'),
             operator: read.oneOf(rule, 'operator', OPERATORS, 'contains'),
             value: read.text(rule, 'value', 200, 'Valor'),
           };
@@ -502,9 +694,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
     case 'funnel': {
       const id = (key: string) => {
         const value = data[key];
-        return typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value)
-          ? value
-          : '';
+        return typeof value === 'string' && UUID.test(value) ? value : '';
       };
       return { funnelId: id('funnelId'), stageId: id('stageId') };
     }
@@ -518,8 +708,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           'auto',
         ),
         membershipId:
-          typeof membershipId === 'string' &&
-          /^[0-9a-f-]{36}$/i.test(membershipId)
+          typeof membershipId === 'string' && UUID.test(membershipId)
             ? membershipId
             : null,
         // Flows saved before the message existed keep the default one.
@@ -528,6 +717,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
             ? DEFAULT_TRANSFER_TEXT
             : read.text(data, 'message', LIMITS.text, 'Mensaje al transferir'),
         pause: read.oneOf(data, 'pause', BOT_PAUSES, '24h'),
+        note: read.text(data, 'note', 1024, 'Mensaje para el agente'),
       };
     }
     case 'status':
@@ -538,6 +728,7 @@ function readData(read: Reader, type: NodeKind, data: Json): unknown {
           ['OPEN', 'ON_HOLD', 'CLOSED'] as const,
           'CLOSED',
         ),
+        bot: read.oneOf(data, 'bot', ['keep', 'pause'] as const, 'keep'),
       };
   }
 }
@@ -557,6 +748,8 @@ export function parseFlow(value: unknown): Flow {
 
   const nodes: FlowNode[] = [];
   const ids = new Set<string>();
+  /** Buttons and list cards of older flows, now a «Respuesta». */
+  const menus = new Set<string>();
   for (const item of rawNodes) {
     const raw = isObject(item) ? item : {};
     read.at(null);
@@ -565,19 +758,22 @@ export function parseFlow(value: unknown): Flow {
     if (id && ids.has(id)) read.fail('Nodo repetido');
     ids.add(id);
     const type = raw.type;
+    const legacy = typeof type === 'string' && LEGACY_MENUS.includes(type);
     if (
       typeof type !== 'string' ||
-      !(NODE_KINDS as readonly string[]).includes(type)
+      (!legacy && !(NODE_KINDS as readonly string[]).includes(type))
     ) {
       read.fail('Tipo de nodo desconocido');
       continue;
     }
+    if (legacy) menus.add(id);
     const position = isObject(raw.position) ? raw.position : {};
     const x = Number(position.x);
     const y = Number(position.y);
+    const data = isObject(raw.data) ? raw.data : {};
     nodes.push({
       id,
-      type,
+      type: legacy ? 'message' : type,
       title: read.text(raw, 'title', MAX_TITLE, 'Título'),
       trigger:
         type === 'start'
@@ -587,11 +783,9 @@ export function parseFlow(value: unknown): Flow {
         x: Number.isFinite(x) ? x : 0,
         y: Number.isFinite(y) ? y : 0,
       },
-      data: readData(
-        read,
-        type as NodeKind,
-        isObject(raw.data) ? raw.data : {},
-      ),
+      data: legacy
+        ? legacyMenu(read, type, data)
+        : readData(read, type as NodeKind, data),
     } as FlowNode);
   }
 
@@ -622,11 +816,7 @@ export function parseFlow(value: unknown): Flow {
     }
     // Menus had an "otra respuesta" output: the chatbot now answers that
     // itself, so those old connections are dropped.
-    if (
-      edge.sourceHandle === 'other' &&
-      (source.type === 'buttons' || source.type === 'list')
-    )
-      continue;
+    if (edge.sourceHandle === 'other' && menus.has(source.id)) continue;
     if (!outputs(source).includes(edge.sourceHandle)) {
       read.fail('Conexión desde una salida que no existe');
       continue;
@@ -670,15 +860,34 @@ export function flowIssues(
   const unique = (titles: string[]) =>
     new Set(titles.map((title) => title.trim().toLowerCase())).size ===
     titles.length;
-  // Created in Variables, contact data, or filled by a "Guardar respuesta".
+  // Created in Variables, contact data, or filled by a "Guardar respuesta"
+  // or a «Consulta API».
   const known = new Set([
     ...variables.map((variable) => variable.name.toLowerCase()),
     ...CONTACT_VARIABLES,
     ...flow.nodes.flatMap((node) =>
-      node.type === 'question' ? [node.data.variable.toLowerCase()] : [],
+      node.type === 'question'
+        ? [node.data.variable.toLowerCase()]
+        : node.type === 'api'
+          ? node.data.responses.map((item) => item.variable.toLowerCase())
+          : [],
     ),
   ]);
   const contactVariables = new Set<string>(CONTACT_VARIABLES);
+  /** A variable the bot saves into: its own, never contact data. */
+  const saveVariable = (id: string, name: string) => {
+    if (!VARIABLE.test(name))
+      error(id, 'Elige la variable donde se guarda la respuesta');
+    else if (contactVariables.has(name.toLowerCase()))
+      error(
+        id,
+        'Los datos del contacto no se sobrescriben: usa «Actualizar campo de contacto»',
+      );
+    else if (
+      !variables.some((v) => v.name.toLowerCase() === name.toLowerCase())
+    )
+      warn(id, `Crea la variable «${name}» en Variables`);
+  };
 
   for (const node of flow.nodes) {
     const id = node.id;
@@ -687,44 +896,17 @@ export function flowIssues(
         if (!next.has(`${id}:next`))
           error(id, 'Conecta el inicio con el primer mensaje');
         break;
-      case 'message':
+      case 'message': {
+        const { options } = node.data;
         if (!node.data.text.trim() && node.data.attachments.length === 0)
           error(id, 'Escribe el mensaje o adjunta un archivo');
-        break;
-      case 'buttons':
-        if (!node.data.body.trim())
-          error(id, 'Escribe el mensaje de los botones');
-        if (node.data.buttons.length === 0)
-          error(id, 'Agrega al menos un botón');
-        if (node.data.buttons.some((button) => !button.title.trim()))
+        if (options.length === 0) break;
+        if (!node.data.text.trim())
+          error(id, 'Escribe el mensaje que acompaña a los botones');
+        if (options.some((option) => !option.title.trim()))
           error(id, 'Cada botón necesita un texto');
-        else if (!unique(node.data.buttons.map((button) => button.title)))
+        else if (!unique(options.map((option) => option.title)))
           error(id, 'Los botones no pueden repetirse');
-        if (!node.data.invalidText.trim())
-          error(id, 'Escribe la respuesta cuando el cliente no elige un botón');
-        break;
-      case 'list': {
-        const rows = node.data.sections.flatMap((section) => section.rows);
-        if (!node.data.body.trim()) error(id, 'Escribe el mensaje de la lista');
-        if (!node.data.button.trim())
-          error(id, 'Escribe el texto del botón que abre la lista');
-        if (rows.length === 0) error(id, 'Agrega al menos una opción');
-        if (rows.length > LIMITS.listRows)
-          error(id, `WhatsApp permite hasta ${LIMITS.listRows} opciones`);
-        if (rows.some((row) => !row.title.trim()))
-          error(id, 'Cada opción necesita un título');
-        else if (!unique(rows.map((row) => row.title)))
-          error(id, 'Las opciones no pueden repetirse');
-        if (
-          node.data.sections.length > 1 &&
-          node.data.sections.some((s) => !s.title.trim())
-        )
-          error(id, 'Con varias secciones, cada una necesita título');
-        if (!node.data.invalidText.trim())
-          error(
-            id,
-            'Escribe la respuesta cuando el cliente no elige una opción',
-          );
         break;
       }
       case 'url':
@@ -734,42 +916,75 @@ export function flowIssues(
           error(id, 'El enlace debe empezar con https://');
         break;
       case 'question':
-        if (!node.data.text.trim()) error(id, 'Escribe la pregunta');
-        if (!VARIABLE.test(node.data.variable))
-          error(id, 'Elige la variable donde se guarda la respuesta');
-        else if (contactVariables.has(node.data.variable.toLowerCase()))
+        // Without a question it saves the message that opened the card.
+        if (!node.data.text.trim() && triggerWords(node.trigger).length === 0)
           error(
             id,
-            'Los datos del contacto no se sobrescriben: usa «Guardar también en el contacto»',
+            'Escribe la pregunta, o la «Respuesta del usuario» que se guarda',
           );
-        else if (
-          !variables.some(
-            (v) => v.name.toLowerCase() === node.data.variable.toLowerCase(),
+        saveVariable(id, node.data.variable);
+        break;
+      case 'location':
+        if (node.data.latitude === null || node.data.longitude === null)
+          error(id, 'Escribe la latitud y la longitud');
+        break;
+      case 'contact_card':
+        if (node.data.contacts.length === 0)
+          error(id, 'Agrega al menos un contacto');
+        if (
+          node.data.contacts.some(
+            (card) => !card.name.trim() || !normalizePhone(card.phone),
           )
         )
-          warn(id, `Crea la variable «${node.data.variable}» en Variables`);
+          error(id, 'Cada contacto necesita nombre y un teléfono válido');
+        break;
+      case 'contact_field':
+        if (!node.data.field) error(id, 'Elige el campo para actualizar');
+        if (node.data.source === 'manual' && !node.data.value.trim())
+          error(id, 'Escribe el valor que se guarda');
+        break;
+      case 'api':
+        if (!/^https:\/\/[^\s/]+/i.test(node.data.url.trim()))
+          error(id, 'La URL debe empezar con https://');
+        if (node.data.auth.type === 'bearer' && !node.data.auth.token.trim())
+          error(id, 'Escribe el token');
+        if (node.data.auth.type === 'basic' && !node.data.auth.user.trim())
+          error(id, 'Escribe el usuario');
+        if (
+          node.data.auth.type === 'headers' &&
+          !node.data.headers.some((header) => header.key.trim())
+        )
+          error(id, 'Agrega las cabeceras de autenticación');
+        if (
+          [...node.data.headers, ...node.data.params].some(
+            (pair) => !pair.key.trim() && pair.value.trim(),
+          )
+        )
+          error(id, 'Cada cabecera y parámetro necesita su nombre');
+        for (const item of node.data.responses) {
+          if (!item.path.trim())
+            error(id, 'Escribe la ruta de cada valor de la respuesta');
+          saveVariable(id, item.variable);
+        }
         break;
       case 'condition':
         if (node.data.rules.length === 0)
           error(id, 'Agrega al menos una condición');
         for (const rule of node.data.rules) {
-          if (rule.source === 'variable' && !VARIABLE.test(rule.variable))
+          const name = rule.variable.toLowerCase();
+          if (
+            rule.source === 'variable' &&
+            !VARIABLE.test(rule.variable) &&
+            !FIELD_VARIABLE.test(name)
+          )
             error(id, 'Elige la variable de cada condición');
           else if (
             rule.source === 'variable' &&
-            !known.has(rule.variable.toLowerCase())
+            !known.has(name) &&
+            !FIELD_VARIABLE.test(name)
           )
             warn(id, `La variable «${rule.variable}» no existe`);
-          if (
-            [
-              'equals',
-              'contains',
-              'starts_with',
-              'greater_than',
-              'less_than',
-            ].includes(rule.operator) &&
-            !rule.value.trim()
-          )
+          if (VALUE_OPERATORS.includes(rule.operator) && !rule.value.trim())
             error(id, 'Escribe el valor de cada condición');
         }
         break;
@@ -825,6 +1040,12 @@ export function flowIssues(
   const entries = flow.nodes.filter(
     (node) => !targets.has(node.id) && triggerWords(node.trigger).length > 0,
   );
+  for (const node of entries)
+    if (triggerWords(node.trigger).includes(ANY_MESSAGE))
+      error(
+        node.id,
+        '«Aceptar cualquier mensaje» solo sirve en tarjetas conectadas a un mensaje que espera',
+      );
   if (!uniqueWords(entries.map((node) => node.trigger)))
     error(
       null,
@@ -851,9 +1072,20 @@ export function flowIssues(
   return issues;
 }
 
-/** Message and link cards that wait for an answer instead of moving on. */
+/**
+ * Message and link cards that wait for an answer written by the customer
+ * (a menu as text) instead of moving on. A «Respuesta» with options waits
+ * for one of them instead.
+ */
 export const waitsForAnswer = (node: FlowNode) =>
-  (node.type === 'message' || node.type === 'url') && node.data.wait === true;
+  (node.type === 'message' &&
+    node.data.wait === true &&
+    node.data.options.length === 0) ||
+  (node.type === 'url' && node.data.wait === true);
+
+/** A «Respuesta» with «Botones interactivos». */
+export const hasOptions = (node: FlowNode) =>
+  node.type === 'message' && node.data.options.length > 0;
 
 const simplify = (value: string) =>
   value
@@ -873,16 +1105,22 @@ export function triggerWords(trigger: string | undefined): string[] {
     .filter((word) => word !== '');
 }
 
-/** Whether the customer's text is one of the answers of a card. */
-export const matchesTrigger = (trigger: string | undefined, text: string) =>
-  triggerWords(trigger).includes(simplify(text));
+/** Whether the customer's text is one of the answers of a card («*» aside). */
+export const matchesTrigger = (trigger: string | undefined, text: string) => {
+  const typed = simplify(text);
+  return typed !== '' && triggerWords(trigger).includes(typed);
+};
+
+/** «Aceptar cualquier mensaje»: the card takes whatever the customer writes. */
+export const acceptsAny = (trigger: string | undefined) =>
+  triggerWords(trigger).includes(ANY_MESSAGE);
 
 function uniqueWords(triggers: (string | undefined)[]): boolean {
   const words = triggers.flatMap(triggerWords);
   return new Set(words).size === words.length;
 }
 
-/** The flow of a new chatbot: a greeting after the start. */
+/** The flow of a new chatbot: a greeting with two options after the start. */
 export function starterFlow(): Flow {
   return {
     nodes: [
@@ -899,8 +1137,16 @@ export function starterFlow(): Flow {
         title: 'Saludo inicial',
         position: { x: 0, y: 140 },
         data: {
-          text: '¡Hola {{nombre}}! 👋 Gracias por escribirnos.',
+          text: '¡Hola {{nombre}}! 👋 Gracias por escribirnos. ¿En qué te ayudamos?',
           attachments: [],
+          options: [
+            { id: 'o1', title: 'Opción 1', description: '' },
+            { id: 'o2', title: 'Opción 2', description: '' },
+          ],
+          listButton: '',
+          header: '',
+          footer: '',
+          invalidText: '',
         },
       },
     ],

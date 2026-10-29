@@ -13,7 +13,7 @@ import {
   interactivePayload,
   type InteractiveContent,
 } from '../domain/interactive';
-import type { SharedContact } from '../domain/whatsapp-payload';
+import type { LocationInfo, SharedContact } from '../domain/whatsapp-payload';
 
 const TIMEOUT_MS = 10_000;
 /** Uploads and downloads of media can take longer than API calls. */
@@ -164,11 +164,29 @@ export class GraphWhatsAppGateway extends WhatsAppGateway {
     credentials: LineCredentials,
     to: string,
     content: InteractiveContent,
+    headerMediaId: string | null = null,
   ) {
     return this.sendMessage(credentials, {
       to,
       type: 'interactive',
-      interactive: interactivePayload(content),
+      interactive: interactivePayload(content, headerMediaId),
+    });
+  }
+
+  async sendLocation(
+    credentials: LineCredentials,
+    to: string,
+    location: LocationInfo,
+  ) {
+    return this.sendMessage(credentials, {
+      to,
+      type: 'location',
+      location: {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        ...(location.name && { name: location.name }),
+        ...(location.address && { address: location.address }),
+      },
     });
   }
 
@@ -401,6 +419,10 @@ export class SimulatedWhatsAppGateway extends WhatsAppGateway {
   }
 
   sendInteractive() {
+    return this.sendText();
+  }
+
+  sendLocation() {
     return this.sendText();
   }
 

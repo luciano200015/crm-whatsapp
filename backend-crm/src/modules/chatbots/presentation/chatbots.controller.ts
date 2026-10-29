@@ -32,6 +32,7 @@ import {
   ApiParam,
   ApiProduces,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -52,6 +53,7 @@ import { WorkspaceAccessGuard } from '../../authorization/presentation/workspace
 import { MAX_MEDIA_BYTES, mediaHeaders } from '../../inbox/application/media';
 import { ChatbotsService } from '../application/chatbots.service';
 import {
+  ApiTestResultDto,
   BotMediaDto,
   ChatbotDto,
   ChatbotSummaryDto,
@@ -59,6 +61,7 @@ import {
   SetChatbotLinesDto,
   SimulateChatbotDto,
   SimulationDto,
+  TestApiRequestDto,
   UpdateChatbotDto,
 } from './chatbots.dto';
 
@@ -118,8 +121,11 @@ export class ChatbotsController {
       'Runs the flow for one answer of a pretend customer. Nothing is sent to WhatsApp and nothing changes.',
   })
   @ApiOkResponse({ type: SimulationDto })
-  simulate(@Body() dto: SimulateChatbotDto): SimulationDto {
-    return this.chatbots.simulate({
+  simulate(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @Body() dto: SimulateChatbotDto,
+  ): Promise<SimulationDto> {
+    return this.chatbots.simulate(workspace.workspaceId, {
       graph: dto.graph,
       session: dto.session ?? null,
       text: dto.text ?? null,
@@ -129,6 +135,22 @@ export class ChatbotsController {
       restartKeywords: dto.restartKeywords ?? [],
       variables: dto.variables ?? [],
     });
+  }
+
+  @Post('test-request')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '«Probar conexión» of a «Consulta API»',
+    description:
+      'Calls the service with test values for its variables (HTTPS, public addresses only, 10 s, 100 KB). Up to 10 per minute per user.',
+  })
+  @ApiOkResponse({ type: ApiTestResultDto })
+  @ApiTooManyRequestsResponse({ type: ErrorResponseDto })
+  testRequest(
+    @CurrentUser() auth: AuthContext,
+    @Body() dto: TestApiRequestDto,
+  ): Promise<ApiTestResultDto> {
+    return this.chatbots.testRequest(auth.userId, dto.api, dto.sample ?? {});
   }
 
   @Get(':chatbotId')

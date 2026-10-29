@@ -750,6 +750,15 @@ export class InteractiveDto {
   @ApiProperty({ nullable: true, type: String })
   header: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    type: 'object',
+    additionalProperties: true,
+    description:
+      'A file shown above the text instead of a text header (buttons and cta_url); the message media streams it.',
+  })
+  headerMedia?: object | null;
+
   @ApiProperty()
   body: string;
 

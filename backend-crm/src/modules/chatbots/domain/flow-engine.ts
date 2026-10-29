@@ -2,8 +2,21 @@ import {
   INTERACTIVE_LIMITS as LIMITS,
   type InteractiveContent,
 } from '../../channels/domain/interactive';
+import {
+  INVALID,
+  parseFieldValue,
+  type FieldDefinition,
+} from '../../contacts/domain/contact-fields';
 import type { BotPause } from '../../inbox/domain/bot-pause';
 import {
+  buildRequest,
+  valueAt,
+  type BotRequest,
+  type BotResponse,
+} from './bot-request';
+import {
+  acceptsAny,
+  hasOptions,
   isEmail,
   matchesTrigger,
   waitsForAnswer,
@@ -11,6 +24,7 @@ import {
   type ConditionRule,
   type Flow,
   type FlowNode,
+  type FlowReplyOption,
   type NodeOf,
 } from './flow';
 import { withinSchedule } from './schedule';
@@ -40,12 +54,29 @@ export const BOT_BUTTONS = {
 
 export const DEFAULT_INVALID_TEXT =
   'No entendí tu respuesta. Elige una de las opciones, por favor.';
+/** Said when a «Guardar respuesta» without a question gets an invalid answer. */
+export const DEFAULT_INVALID_ANSWER =
+  'Esa respuesta no es válida. Inténtalo de nuevo, por favor.';
+/** The button that opens a list when the «Respuesta» names none. */
+export const DEFAULT_LIST_BUTTON = 'Ver opciones';
+/** «Consulta API» calls per customer message at most. */
+export const MAX_REQUESTS = 5;
 
 /** What the chatbot sends. */
 export type BotMessage =
   | { kind: 'text'; text: string }
   | { kind: 'interactive'; content: InteractiveContent }
-  | { kind: 'media'; media: BotMedia; caption: string | null };
+  | { kind: 'media'; media: BotMedia; caption: string | null }
+  | {
+      kind: 'location';
+      location: {
+        latitude: number;
+        longitude: number;
+        name: string | null;
+        address: string | null;
+      };
+    }
+  | { kind: 'contacts'; contacts: { name: string; phone: string }[] };
 
 /** What the chatbot does, in order. */
 export type BotAction =
@@ -60,10 +91,17 @@ export type BotAction =
       message: string | null;
       /** How long the chatbot stays off in the chat afterwards. */
       pause: BotPause;
+      /** «Mensaje para el agente»: an internal note (null none). */
+      note: string | null;
     }
   | { kind: 'status'; status: 'OPEN' | 'ON_HOLD' | 'CLOSED' }
-  /** "Guardar también en el contacto". */
-  | { kind: 'contact'; field: 'name' | 'email'; value: string };
+  /** «Desactivar bot»: the chatbot stops answering this chat. */
+  | { kind: 'pause' }
+  /**
+   * "Guardar también en el contacto" and «Actualizar campo de contacto»:
+   * name, email or the key of a custom field (already validated).
+   */
+  | { kind: 'contact'; field: string; value: string };
 
 /** Where the conversation is in the flow. */
 export interface EngineSession {
@@ -81,6 +119,11 @@ export interface EngineInput {
   text: string | null;
   /** Id of the option they tapped in buttons or a list. */
   replyId: string | null;
+  /**
+   * The answer to the request of the «Consulta API» the session stopped at:
+   * the flow goes on from there (ok or error).
+   */
+  response?: BotResponse;
 }
 
 /** General settings of the chatbot that change how it answers. */
@@ -97,12 +140,19 @@ export interface EngineContext {
   settings?: EngineSettings;
   /** Variables created for the chatbot (types and default values). */
   variables?: BotVariable[];
+  /** Custom fields of contacts, for «Actualizar campo de contacto». */
+  contactFields?: FieldDefinition[];
 }
 
 export interface EngineResult {
   actions: BotAction[];
   /** null: the next message starts the flow again. */
   session: EngineSession | null;
+  /**
+   * A «Consulta API» to call: the session stopped at its node and the
+   * caller runs `advance` again with the response.
+   */
+  request?: BotRequest;
 }
 
 /** Ids WhatsApp sends back for an option: unique across the flow. */
@@ -127,13 +177,15 @@ export function interpolate(
   text: string,
   vars: Record<string, string>,
   contact: VariableContact,
+  /** Applied to each value (URL-encoding in a «Consulta API»). */
+  encode: (value: string) => string = (value) => value,
 ): string {
   const fromContact = contactValues(contact);
   return text.replace(
     /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g,
     (_, name: string) => {
       const key = name.toLowerCase();
-      return fromContact[key] ?? vars[name] ?? vars[key] ?? '';
+      return encode(fromContact[key] ?? vars[name] ?? vars[key] ?? '');
     },
   );
 }
@@ -177,23 +229,46 @@ function ruleMatches(
       : lastText;
   const subject = normalize(raw);
   const value = normalize(rule.value);
+  const among = () =>
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .includes(subject);
   switch (rule.operator) {
     case 'equals':
       return subject === value;
+    case 'not_equals':
+      return subject !== value;
     case 'contains':
       return value !== '' && subject.includes(value);
+    case 'not_contains':
+      return value === '' || !subject.includes(value);
     case 'starts_with':
       return value !== '' && subject.startsWith(value);
     case 'is_number':
       return isNumber(subject);
+    case 'is_not_number':
+      return !isNumber(subject);
     case 'is_empty':
       return subject === '';
+    case 'is_not_empty':
+      return subject !== '';
+    case 'in':
+      return among();
+    case 'not_in':
+      return !among();
     case 'greater_than':
-    case 'less_than': {
+    case 'gte':
+    case 'less_than':
+    case 'lte': {
       const left = toNumber(subject);
       const right = toNumber(value);
       if (left === null || right === null) return false;
-      return rule.operator === 'greater_than' ? left > right : left < right;
+      if (rule.operator === 'greater_than') return left > right;
+      if (rule.operator === 'gte') return left >= right;
+      if (rule.operator === 'less_than') return left < right;
+      return left <= right;
     }
     case 'is_true':
       return booleanValue(subject) === 'true';
@@ -259,12 +334,23 @@ export function advance(
   const next = (node: FlowNode, handle: string) =>
     edges.get(`${node.id}:${handle}`) ?? null;
   const targets = new Set(flow.edges.map((edge) => edge.target));
-  /** The card connected to a waiting message whose words were written. */
-  const answered = (node: FlowNode, text: string) =>
-    flow.edges
+  /**
+   * The card connected to a waiting message whose words were written; a
+   * card that takes any message («*») only when no other matches.
+   */
+  const answered = (node: FlowNode, text: string) => {
+    const children = flow.edges
       .filter((edge) => edge.source === node.id)
       .map((edge) => byId.get(edge.target))
-      .find((child) => child && matchesTrigger(child.trigger, text)) ?? null;
+      .filter((child): child is FlowNode => child !== undefined);
+    return (
+      children.find((child) => matchesTrigger(child.trigger, text)) ??
+      (text.trim()
+        ? children.find((child) => acceptsAny(child.trigger))
+        : undefined) ??
+      null
+    );
+  };
   /** A card nothing connects to, opened by its words at any moment. */
   const entry = (text: string) =>
     flow.nodes.find(
@@ -276,6 +362,7 @@ export function advance(
   const lastText = input.text ?? '';
   const settings = context.settings;
   const actions: BotAction[] = [];
+  let request: BotRequest | undefined;
   const say = (message: BotMessage) => actions.push({ kind: 'send', message });
   const fill = (text: string, vars: Record<string, string>) =>
     interpolate(text, vars, context.contact);
@@ -283,47 +370,114 @@ export function advance(
     files.forEach((media, index) =>
       say({ kind: 'media', media, caption: index === 0 ? caption : null }),
     );
+  const done = (result: EngineSession | null): EngineResult => ({
+    actions,
+    session: result,
+    ...(request && { request }),
+  });
+
+  /**
+   * The options of a «Respuesta»: reply buttons (a single image, video or
+   * document as their header) or a list (see sentAsButtons). Other files
+   * go before.
+   */
+  const sendOptions = (
+    node: NodeOf<'message'>,
+    vars: Record<string, string>,
+  ) => {
+    const { options, attachments } = node.data;
+    const asButtons = sentAsButtons(node.data.options);
+    const single = attachments.length === 1 ? attachments[0] : undefined;
+    const headerMedia =
+      asButtons && single && single.type !== 'audio' ? single : null;
+    if (!headerMedia) sendFiles(attachments);
+    const common = {
+      header: headerMedia
+        ? null
+        : cut(fill(node.data.header, vars), LIMITS.header) || null,
+      body: cut(fill(node.data.text, vars), LIMITS.body),
+      footer: cut(fill(node.data.footer, vars), LIMITS.footer) || null,
+    };
+    say({
+      kind: 'interactive',
+      content: asButtons
+        ? {
+            kind: 'buttons',
+            ...common,
+            ...(headerMedia && { headerMedia: mediaHeader(headerMedia) }),
+            buttons: options.map((option) => ({
+              id: optionReplyId(node.id, option.id),
+              title: option.title,
+            })),
+          }
+        : {
+            kind: 'list',
+            ...common,
+            list: {
+              button: node.data.listButton.trim() || DEFAULT_LIST_BUTTON,
+              sections: [
+                {
+                  title: null,
+                  rows: options.map((option) => ({
+                    id: optionReplyId(node.id, option.id),
+                    title: option.title,
+                    description: option.description || null,
+                  })),
+                },
+              ],
+            },
+          },
+    });
+  };
 
   /** The message of a node that waits for an answer. */
   const ask = (node: FlowNode, vars: Record<string, string>) => {
-    if (node.type === 'question') {
+    if (node.type === 'question' && node.data.text.trim()) {
       say({ kind: 'text', text: cut(fill(node.data.text, vars), LIMITS.text) });
-    } else if (node.type === 'buttons') {
-      say({
-        kind: 'interactive',
-        content: {
-          kind: 'buttons',
-          header: cut(fill(node.data.header, vars), LIMITS.header) || null,
-          body: cut(fill(node.data.body, vars), LIMITS.body),
-          footer: cut(fill(node.data.footer, vars), LIMITS.footer) || null,
-          buttons: node.data.buttons.map((button) => ({
-            id: optionReplyId(node.id, button.id),
-            title: button.title,
-          })),
-        },
-      });
-    } else if (node.type === 'list') {
-      say({
-        kind: 'interactive',
-        content: {
-          kind: 'list',
-          header: cut(fill(node.data.header, vars), LIMITS.header) || null,
-          body: cut(fill(node.data.body, vars), LIMITS.body),
-          footer: cut(fill(node.data.footer, vars), LIMITS.footer) || null,
-          list: {
-            button: node.data.button,
-            sections: node.data.sections.map((section) => ({
-              title: section.title || null,
-              rows: section.rows.map((row) => ({
-                id: optionReplyId(node.id, row.id),
-                title: row.title,
-                description: row.description || null,
-              })),
-            })),
-          },
-        },
-      });
+    } else if (node.type === 'message' && hasOptions(node)) {
+      sendOptions(node, vars);
     }
+  };
+
+  /** Saves an answer of a «Guardar respuesta»; false when it is not valid. */
+  const save = (
+    node: NodeOf<'question'>,
+    vars: Record<string, string>,
+    text: string,
+  ): boolean => {
+    const variable = context.variables?.find(
+      (candidate) =>
+        candidate.name.toLowerCase() === node.data.variable.toLowerCase(),
+    );
+    const value = answerValue(node, variable, text);
+    if (value === null) return false;
+    vars[variable?.name ?? node.data.variable] = value;
+    if (node.data.saveTo !== 'none')
+      actions.push({
+        kind: 'contact',
+        field: node.data.saveTo,
+        value: value.slice(0, 200),
+      });
+    return true;
+  };
+
+  /** «Actualizar campo de contacto»: the value when it fits the field. */
+  const fieldValue = (
+    node: NodeOf<'contact_field'>,
+    vars: Record<string, string>,
+  ): string | null => {
+    const raw = (
+      node.data.source === 'answer' ? lastText : fill(node.data.value, vars)
+    ).trim();
+    if (!raw) return null;
+    if (node.data.field === 'name') return raw.slice(0, 120);
+    if (node.data.field === 'email') return isEmail(raw) ? raw : null;
+    const field = context.contactFields?.find(
+      (candidate) => candidate.key === node.data.field,
+    );
+    if (!field) return null;
+    const value = parseFieldValue(field, raw);
+    return value === null || value === INVALID ? null : String(value);
   };
 
   const run = (
@@ -333,6 +487,11 @@ export function advance(
     // The flow simply runs out: still the same conversation, so what the
     // customer writes next gets the fallback text (or "menu" starts again).
     const ended = (): EngineSession => ({ nodeId: null, vars, attempts: 0 });
+    const waitHere = (node: FlowNode): EngineSession => ({
+      nodeId: node.id,
+      vars,
+      attempts: 0,
+    });
     let cursor = from;
     for (let steps = 0; cursor; steps++) {
       if (steps >= MAX_STEPS) return null;
@@ -343,6 +502,10 @@ export function advance(
           cursor = next(node, 'next');
           break;
         case 'message': {
+          if (hasOptions(node)) {
+            sendOptions(node, vars);
+            return waitHere(node);
+          }
           const text = fill(node.data.text, vars).trim();
           const files = node.data.attachments;
           if (files.length === 1) {
@@ -352,39 +515,106 @@ export function advance(
             if (text) say({ kind: 'text', text: cut(text, LIMITS.text) });
             sendFiles(files);
           }
-          if (waitsForAnswer(node))
-            return { nodeId: node.id, vars, attempts: 0 };
+          if (waitsForAnswer(node)) return waitHere(node);
           cursor = next(node, 'next');
           break;
         }
-        case 'buttons':
-        case 'list':
-          sendFiles(node.data.attachments);
-          ask(node, vars);
-          return { nodeId: node.id, vars, attempts: 0 };
-        case 'question':
-          ask(node, vars);
-          return { nodeId: node.id, vars, attempts: 0 };
-        case 'url':
+        case 'question': {
+          if (node.data.text.trim()) {
+            ask(node, vars);
+            return waitHere(node);
+          }
+          // No question: it saves the message that opened the card.
+          if (save(node, vars, lastText)) {
+            cursor = next(node, 'next');
+            break;
+          }
+          const other = next(node, 'other');
+          if (other) {
+            cursor = other;
+            break;
+          }
+          say({
+            kind: 'text',
+            text: cut(
+              fill(node.data.invalidText, vars).trim() ||
+                DEFAULT_INVALID_ANSWER,
+              LIMITS.text,
+            ),
+          });
+          return waitHere(node);
+        }
+        case 'url': {
+          const media = node.data.attachment;
           say({
             kind: 'interactive',
             content: {
               kind: 'cta_url',
-              header: cut(fill(node.data.header, vars), LIMITS.header) || null,
+              header: media
+                ? null
+                : cut(fill(node.data.header, vars), LIMITS.header) || null,
+              ...(media && { headerMedia: mediaHeader(media) }),
               body: cut(fill(node.data.body, vars), LIMITS.body),
               footer: cut(fill(node.data.footer, vars), LIMITS.footer) || null,
               url: { text: node.data.text, url: node.data.url },
             },
           });
-          if (waitsForAnswer(node))
-            return { nodeId: node.id, vars, attempts: 0 };
+          if (waitsForAnswer(node)) return waitHere(node);
           cursor = next(node, 'next');
           break;
-        case 'condition': {
-          const rule = node.data.rules.find((candidate) =>
-            ruleMatches(candidate, vars, lastText, context.contact),
+        }
+        case 'location': {
+          const { latitude, longitude } = node.data;
+          if (latitude !== null && longitude !== null)
+            say({
+              kind: 'location',
+              location: {
+                latitude,
+                longitude,
+                name: cut(fill(node.data.name, vars), 100) || null,
+                address: cut(fill(node.data.address, vars), 100) || null,
+              },
+            });
+          cursor = next(node, 'next');
+          break;
+        }
+        case 'contact_card': {
+          const contacts = node.data.contacts
+            .map((card) => ({
+              name: cut(fill(card.name, vars).trim(), 80),
+              phone: card.phone,
+            }))
+            .filter((card) => card.name && card.phone);
+          if (contacts.length > 0) say({ kind: 'contacts', contacts });
+          cursor = next(node, 'next');
+          break;
+        }
+        case 'contact_field': {
+          const value = fieldValue(node, vars);
+          if (value !== null)
+            actions.push({ kind: 'contact', field: node.data.field, value });
+          cursor = next(node, value === null ? 'fail' : 'ok');
+          break;
+        }
+        case 'api':
+          // Stops here: the caller calls the service and comes back with
+          // its response.
+          request = buildRequest(node.data, (text, encode) =>
+            interpolate(text, vars, context.contact, encode),
           );
-          cursor = next(node, rule?.id ?? 'else');
+          return waitHere(node);
+        case 'condition': {
+          const matches = (rule: ConditionRule) =>
+            ruleMatches(rule, vars, lastText, context.contact);
+          const { rules, match } = node.data;
+          if (match === 'each') {
+            cursor = next(node, rules.find(matches)?.id ?? 'else');
+          } else {
+            const met =
+              rules.length > 0 &&
+              (match === 'all' ? rules.every(matches) : rules.some(matches));
+            cursor = next(node, met ? 'yes' : 'no');
+          }
           break;
         }
         case 'hours':
@@ -412,6 +642,10 @@ export function advance(
           break;
         case 'status':
           actions.push({ kind: 'status', status: node.data.status });
+          if (node.data.bot === 'pause') {
+            actions.push({ kind: 'pause' });
+            return null;
+          }
           if (node.data.status === 'CLOSED') return null;
           cursor = next(node, 'next');
           break;
@@ -428,6 +662,7 @@ export function advance(
                 )
               : null,
             pause: node.data.pause,
+            note: fill(node.data.note, vars).trim().slice(0, 1024) || null,
           });
           return null;
         case 'end':
@@ -437,11 +672,21 @@ export function advance(
     return ended();
   };
 
+  // The answer of the «Consulta API» the flow stopped at.
+  if (input.response) {
+    const waiting = session?.nodeId ? byId.get(session.nodeId) : undefined;
+    if (!session || waiting?.type !== 'api') return done(session);
+    const vars = { ...session.vars };
+    const { response } = input;
+    if (response.ok)
+      for (const item of waiting.data.responses)
+        vars[item.variable] = valueAt(response.body, item.path);
+    return done(run(next(waiting, response.ok ? 'ok' : 'error'), vars));
+  }
+
   const start = flow.nodes.find((node) => node.type === 'start');
-  const restart = () => ({
-    actions,
-    session: run(start?.id ?? null, initialVars(context.variables)),
-  });
+  const restart = () =>
+    done(run(start?.id ?? null, initialVars(context.variables)));
   const fromStart = start
     ? [
         {
@@ -459,10 +704,13 @@ export function advance(
     if (
       !node ||
       waitsForAnswer(node) ||
+      hasOptions(node) ||
       (node.type !== 'message' &&
         node.type !== 'url' &&
         node.type !== 'tags' &&
-        node.type !== 'funnel')
+        node.type !== 'funnel' &&
+        node.type !== 'location' &&
+        node.type !== 'contact_card')
     )
       break;
     home = next(node, 'next');
@@ -498,6 +746,10 @@ export function advance(
     }
   };
 
+  /** Nodes that wait for the customer: an option, an answer or words. */
+  const waitsHere = (node: FlowNode) =>
+    hasOptions(node) || node.type === 'question' || waitsForAnswer(node);
+
   // A tapped option is followed even from an older message (the customer
   // scrolled up to a menu sent before) or after the flow ended.
   const [repliedNode, repliedOption] = input.replyId?.split(':') ?? [];
@@ -506,22 +758,13 @@ export function advance(
     const vars = session ? { ...session.vars } : initialVars(context.variables);
     if (repliedOption === FROM_START && replied.type === 'start')
       return restart();
+    if (repliedOption === SHOW_AGAIN && waitsHere(replied))
+      return done(run(replied.id, vars));
     if (
-      repliedOption === SHOW_AGAIN &&
-      (replied.type === 'buttons' ||
-        replied.type === 'list' ||
-        replied.type === 'question' ||
-        waitsForAnswer(replied))
+      replied.type === 'message' &&
+      replied.data.options.some((option) => option.id === repliedOption)
     )
-      return { actions, session: run(replied.id, vars) };
-    const options =
-      replied.type === 'buttons'
-        ? replied.data.buttons
-        : replied.type === 'list'
-          ? replied.data.sections.flatMap((section) => section.rows)
-          : [];
-    if (options.some((option) => option.id === repliedOption))
-      return { actions, session: run(next(replied, repliedOption), vars) };
+      return done(run(next(replied, repliedOption), vars));
   }
 
   // "menu" (or another word of the settings) goes back to the greeting.
@@ -536,13 +779,13 @@ export function advance(
 
   // A card opened by its words ("Respuesta del usuario"), from anywhere.
   const opened = input.replyId ? null : entry(lastText);
-  const open = (node: FlowNode) => ({
-    actions,
-    session: run(
-      node.id,
-      session ? { ...session.vars } : initialVars(context.variables),
-    ),
-  });
+  const open = (node: FlowNode) =>
+    done(
+      run(
+        node.id,
+        session ? { ...session.vars } : initialVars(context.variables),
+      ),
+    );
 
   if (!session) return opened ? open(opened) : restart();
 
@@ -557,46 +800,18 @@ export function advance(
           ? withButtons(text, fromStart)
           : { kind: 'text', text: cut(text, LIMITS.text) },
       );
-    return { actions, session };
+    return done(session);
   }
 
   const waiting = byId.get(session.nodeId);
-  if (
-    !waiting ||
-    (waiting.type !== 'buttons' &&
-      waiting.type !== 'list' &&
-      waiting.type !== 'question' &&
-      !waitsForAnswer(waiting))
-  )
-    return restart();
+  if (!waiting || !waitsHere(waiting)) return restart();
 
   const vars = { ...session.vars };
   let handle: string | null = null;
   if (waiting.type === 'question') {
-    const variable = context.variables?.find(
-      (candidate) =>
-        candidate.name.toLowerCase() === waiting.data.variable.toLowerCase(),
-    );
-    const value = answerValue(waiting, variable, lastText);
-    if (value !== null) {
-      vars[variable?.name ?? waiting.data.variable] = value;
-      if (waiting.data.saveTo !== 'none')
-        actions.push({
-          kind: 'contact',
-          field: waiting.data.saveTo,
-          value: value.slice(0, 200),
-        });
-      handle = 'next';
-    }
-  } else if (waiting.type === 'message' || waiting.type === 'url') {
-    // A menu written as text: the card whose words were written.
-    const child = answered(waiting, lastText);
-    if (child) return { actions, session: run(child.id, vars) };
-  } else if (waiting.type === 'buttons' || waiting.type === 'list') {
-    const choices =
-      waiting.type === 'buttons'
-        ? waiting.data.buttons
-        : waiting.data.sections.flatMap((section) => section.rows);
+    if (save(waiting, vars, lastText)) handle = 'next';
+  } else if (waiting.type === 'message' && hasOptions(waiting)) {
+    const choices = waiting.data.options;
     const position = /^\d{1,2}$/.test(typed) ? Number(typed) - 1 : -1;
     const chosen =
       choices.find(
@@ -606,27 +821,54 @@ export function advance(
       // "1", "2"… also choose, as customers often answer that way.
       choices[position];
     handle = chosen?.id ?? null;
+  } else {
+    // A menu written as text: the card whose words were written.
+    const child = answered(waiting, lastText);
+    if (child) return done(run(child.id, vars));
   }
-  if (handle) return { actions, session: run(next(waiting, handle), vars) };
+  if (handle) return done(run(next(waiting, handle), vars));
   // Not an answer here, but the words of a card open from anywhere.
   if (opened) return open(opened);
 
   // An answer a question cannot take goes down its "respuesta no válida"
   // branch when it is connected.
   const invalid = waiting.type === 'question' ? next(waiting, 'other') : null;
-  if (invalid) return { actions, session: run(invalid, vars) };
+  if (invalid) return done(run(invalid, vars));
   sorry(
     waiting,
     fill(
-      'invalidText' in waiting.data ? waiting.data.invalidText : '',
+      waiting.type === 'question' || waiting.type === 'message'
+        ? waiting.data.invalidText
+        : '',
       vars,
     ).trim() ||
       fill(settings?.fallbackText ?? '', vars).trim() ||
       DEFAULT_INVALID_TEXT,
     vars,
   );
+  return done({ nodeId: waiting.id, vars, attempts: session.attempts + 1 });
+}
+
+/**
+ * Options of a «Respuesta» that WhatsApp can show as reply buttons: up to 3,
+ * short titles and no descriptions. Otherwise they go as a list.
+ */
+export const sentAsButtons = (options: FlowReplyOption[]) =>
+  options.length <= LIMITS.buttons &&
+  options.every(
+    (option) =>
+      option.title.length <= LIMITS.buttonTitle && !option.description.trim(),
+  );
+
+/** A file of the chatbot as the header of an interactive message. */
+function mediaHeader(
+  media: BotMedia,
+): NonNullable<InteractiveContent['headerMedia']> {
   return {
-    actions,
-    session: { nodeId: waiting.id, vars, attempts: session.attempts + 1 },
+    type: media.type === 'audio' ? 'document' : media.type,
+    fileId: media.fileId,
+    mimeType: media.mimeType,
+    filename: media.filename,
+    size: media.size,
   };
 }

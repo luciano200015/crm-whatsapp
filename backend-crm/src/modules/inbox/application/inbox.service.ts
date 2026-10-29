@@ -17,6 +17,7 @@ import {
 } from '../../channels/application/ports';
 import type { InteractiveContent } from '../../channels/domain/interactive';
 import type {
+  LocationInfo,
   MessageType,
   SharedContact,
 } from '../../channels/domain/whatsapp-payload';
@@ -92,7 +93,25 @@ export type BotOutgoing =
         size: number;
       };
       caption: string | null;
+    }
+  | { kind: 'location'; location: LocationInfo }
+  | { kind: 'contacts'; contacts: { name: string; phone: string }[] };
+
+/** WhatsApp contact cards from a name and a phone. */
+function contactCards(
+  contacts: { name: string; phone: string }[],
+): SharedContact[] {
+  return contacts.map((contact) => {
+    const phone = normalizePhone(contact.phone);
+    if (!phone) throw ContactsErrors.invalidPhone();
+    return {
+      name: contact.name.trim(),
+      phones: [{ phone, waId: toWhatsAppId(phone), type: 'CELL' }],
+      emails: [],
+      organization: null,
     };
+  });
+}
 
 const party = (assignee: Assignee | null) =>
   assignee
@@ -129,6 +148,7 @@ interface Outgoing {
   type: MessageType;
   text: string | null;
   contacts?: SharedContact[];
+  location?: LocationInfo | null;
   interactive?: InteractiveContent | null;
   clientId?: string | null;
   /** A failed message sent again: it is reused instead of stored anew. */
@@ -457,16 +477,7 @@ export class InboxService {
     contacts: { name: string; phone: string }[],
     clientId: string | null = null,
   ): Promise<MessageView> {
-    const cards: SharedContact[] = contacts.map((contact) => {
-      const phone = normalizePhone(contact.phone);
-      if (!phone) throw ContactsErrors.invalidPhone();
-      return {
-        name: contact.name.trim(),
-        phones: [{ phone, waId: toWhatsAppId(phone), type: 'CELL' }],
-        emails: [],
-        organization: null,
-      };
-    });
+    const cards = contactCards(contacts);
     return this.deliver(actor, conversationId, {
       type: 'contacts',
       text: cards.map((card) => card.name).join(', '),
@@ -501,6 +512,7 @@ export class InboxService {
       type: failed.type,
       text: failed.text,
       contacts: failed.contacts,
+      location: failed.location,
       retry: failed,
       send: (credentials, to) =>
         this.resend(workspaceId, failed, credentials, to),
@@ -519,8 +531,12 @@ export class InboxService {
     if (message.type === 'contacts') {
       return this.whatsapp.sendContacts(credentials, to, message.contacts);
     }
+    if (message.type === 'location' && message.location) {
+      return this.whatsapp.sendLocation(credentials, to, message.location);
+    }
     if (message.type === 'interactive' && message.interactive) {
-      return this.whatsapp.sendInteractive(
+      return this.sendInteractive(
+        workspaceId,
         credentials,
         to,
         message.interactive,
@@ -573,6 +589,28 @@ export class InboxService {
       filename,
     });
     return { ...sent, mediaId };
+  }
+
+  /**
+   * Buttons, a list or a link button; a header file of the CRM is uploaded
+   * to Meta first.
+   */
+  private async sendInteractive(
+    workspaceId: string,
+    credentials: LineCredentials,
+    to: string,
+    content: InteractiveContent,
+  ): Promise<{ waMessageId: string }> {
+    const media = content.kind === 'list' ? null : content.headerMedia;
+    if (!media) return this.whatsapp.sendInteractive(credentials, to, content);
+    const stored = await this.mediaStore.open(workspaceId, media.fileId);
+    if (!stored) throw InboxErrors.mediaNotFound();
+    const { mediaId } = await this.whatsapp.uploadMedia(credentials, {
+      body: await buffer(stored.stream),
+      mimeType: stored.mimeType,
+      filename: media.filename || `archivo.${media.type}`,
+    });
+    return this.whatsapp.sendInteractive(credentials, to, content, mediaId);
   }
 
   /** Conversation the actor may see (for streaming its media). */
@@ -659,6 +697,7 @@ export class InboxService {
           text: outgoing.text,
           media: outgoing.prepare ? await outgoing.prepare(workspaceId) : null,
           contacts: outgoing.contacts,
+          location: outgoing.location ?? null,
           interactive: outgoing.interactive ?? null,
           waMessageId: null,
           status: 'pending',
@@ -773,12 +812,48 @@ export class InboxService {
       });
     }
     if (out.kind === 'interactive') {
+      const header =
+        out.content.kind === 'list' ? null : out.content.headerMedia;
       return this.transmit(conversation, line, sentBy, {
         type: 'interactive',
         text: out.content.body,
         interactive: out.content,
+        // The header file is shown in the chat like any other file.
+        ...(header && {
+          prepare: () =>
+            Promise.resolve({
+              id: `local:${header.fileId}`,
+              mimeType: header.mimeType,
+              caption: null,
+              filename: header.filename,
+              fileId: header.fileId,
+              size: header.size,
+            }),
+        }),
         send: (credentials, to) =>
-          this.whatsapp.sendInteractive(credentials, to, out.content),
+          this.sendInteractive(workspaceId, credentials, to, out.content),
+      });
+    }
+    if (out.kind === 'location') {
+      const { location } = out;
+      return this.transmit(conversation, line, sentBy, {
+        type: 'location',
+        text:
+          [location.name, location.address].filter(Boolean).join(', ') ||
+          `${location.latitude},${location.longitude}`,
+        location,
+        send: (credentials, to) =>
+          this.whatsapp.sendLocation(credentials, to, location),
+      });
+    }
+    if (out.kind === 'contacts') {
+      const cards = contactCards(out.contacts);
+      return this.transmit(conversation, line, sentBy, {
+        type: 'contacts',
+        text: cards.map((card) => card.name).join(', '),
+        contacts: cards,
+        send: (credentials, to) =>
+          this.whatsapp.sendContacts(credentials, to, cards),
       });
     }
     const { media } = out;
@@ -990,14 +1065,94 @@ export class InboxService {
     return this.contacts.findContact(workspaceId, contactId);
   }
 
-  /** "Guardar respuesta" in a contact field: the name or the email. */
+  /**
+   * "Guardar respuesta" and «Actualizar campo de contacto»: the name, the
+   * email or a custom field (by its key).
+   */
   async botUpdateContact(
     workspaceId: string,
     contactId: string,
-    field: 'name' | 'email',
+    field: string,
     value: string,
   ): Promise<void> {
-    await this.contactTags.update(workspaceId, contactId, { [field]: value });
+    await this.contactTags.update(
+      workspaceId,
+      contactId,
+      field === 'name' || field === 'email'
+        ? { [field]: value }
+        : { fields: { [field]: value } },
+    );
+  }
+
+  /** Custom fields of contacts, for «Actualizar campo de contacto». */
+  botContactFields(workspaceId: string) {
+    return this.contactTags.listFields(workspaceId);
+  }
+
+  /**
+   * «Mensaje para el agente» of a chatbot's transfer: an internal note,
+   * never sent to WhatsApp.
+   */
+  async botNote(
+    workspaceId: string,
+    conversationId: string,
+    bot: BotSender,
+    text: string,
+  ): Promise<void> {
+    const conversation = await this.store.findConversation(
+      workspaceId,
+      conversationId,
+    );
+    if (!conversation) return;
+    const note = await this.store.insertMessage(workspaceId, {
+      conversationId,
+      direction: 'NOTE',
+      type: 'text',
+      text,
+      media: null,
+      waMessageId: null,
+      status: 'sent',
+      sentBy: { userId: `bot:${bot.id}`, name: bot.name, kind: 'bot' },
+      createdAt: this.clock.now(),
+    });
+    if (note === 'duplicate') return;
+    this.events.emit({
+      workspaceId,
+      type: 'message.created',
+      conversation,
+      message: note,
+    });
+  }
+
+  /**
+   * «Desactivar bot» of «Cambiar estado»: the chatbot stops answering this
+   * chat until an agent turns it on again.
+   */
+  async botPause(
+    workspaceId: string,
+    conversationId: string,
+    bot: BotSender,
+  ): Promise<void> {
+    const conversation = await this.store.findConversation(
+      workspaceId,
+      conversationId,
+    );
+    if (!conversation) return;
+    const updated = await this.store.setBot(workspaceId, conversationId, {
+      paused: true,
+      pausedBy: null,
+      pausedUntil: pauseEnd('permanent', this.clock.now()),
+      session: null,
+    });
+    if (!updated) return;
+    this.emitConversation(updated, conversation);
+    await this.timeline.record(updated, {
+      kind: 'bot_paused',
+      by: botPerson(bot),
+      from: null,
+      to: null,
+      pause: { until: null },
+    });
   }
 
   /**

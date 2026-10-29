@@ -13,13 +13,15 @@ import {
   parseFlow,
   starterFlow,
   type Flow,
-  type FlowNode,
 } from './flow';
 import { isBotPaused, pauseEnd } from '../../inbox/domain/bot-pause';
 import { scheduleProblem, withinSchedule } from './schedule';
 import { booleanValue, contactValues, parseVariables } from './variables';
 
 const at = (x = 0, y = 0) => ({ x, y });
+/** A flow as the editor saves it, read like the API does (older shapes too). */
+const flowOf = (raw: { nodes: unknown[]; edges: unknown[] }): Flow =>
+  parseFlow(raw);
 const context: EngineContext = {
   now: new Date('2026-10-23T15:00:00Z'), // Friday 11:00 in La Paz (UTC-4)
   contact: { name: 'Lucía', phone: '+59170000001', email: null },
@@ -59,8 +61,10 @@ const edge = (source: string, target: string, sourceHandle = 'next') => ({
 });
 
 /** Start → greeting → menu (Ventas / Soporte) → tag + transfer, or a question. */
-function menuFlow(extra: Partial<Flow> = {}): Flow {
-  const nodes: FlowNode[] = [
+function menuFlow(
+  extra: { nodes?: unknown[]; edges?: Flow['edges'] } = {},
+): Flow {
+  const nodes: unknown[] = [
     { id: 'start', type: 'start', title: '', position: at(), data: {} },
     {
       id: 'hello',
@@ -127,7 +131,7 @@ function menuFlow(extra: Partial<Flow> = {}): Flow {
     },
     ...(extra.nodes ?? []),
   ];
-  return {
+  return flowOf({
     nodes,
     edges: [
       edge('start', 'hello'),
@@ -138,7 +142,7 @@ function menuFlow(extra: Partial<Flow> = {}): Flow {
       edge('ask', 'thanks'),
       ...(extra.edges ?? []),
     ],
-  };
+  });
 }
 
 describe('chatbot flow engine', () => {
@@ -189,6 +193,7 @@ describe('chatbot flow engine', () => {
         membershipId: null,
         message: 'Hola Lucía, te atiende {{agente}}.',
         pause: '24h',
+        note: null,
       },
     ]);
     expect(result.session).toBeNull();
@@ -317,8 +322,29 @@ describe('chatbot flow engine', () => {
 
   it('drops the old "otra respuesta" connections of menus', () => {
     const flow = parseFlow({
-      ...menuFlow(),
-      edges: [...menuFlow().edges, edge('menu', 'thanks', 'other')],
+      nodes: [
+        { id: 'start', type: 'start', position: at(), data: {} },
+        {
+          id: 'menu',
+          type: 'buttons',
+          position: at(),
+          data: {
+            body: '¿Qué necesitas?',
+            buttons: [{ id: 'sales', title: 'Ventas' }],
+          },
+        },
+        {
+          id: 'thanks',
+          type: 'message',
+          position: at(),
+          data: { text: 'Gracias' },
+        },
+      ],
+      edges: [
+        edge('start', 'menu'),
+        edge('menu', 'thanks', 'sales'),
+        edge('menu', 'thanks', 'other'),
+      ],
     });
     expect(flow.edges.some((item) => item.sourceHandle === 'other')).toBe(
       false,
@@ -403,7 +429,7 @@ describe('chatbot flow engine', () => {
   });
 
   it('branches on conditions and opening hours', () => {
-    const flow: Flow = {
+    const flow = flowOf({
       nodes: [
         { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
@@ -464,7 +490,7 @@ describe('chatbot flow engine', () => {
         edge('hours', 'open', 'in'),
         edge('hours', 'closed', 'out'),
       ],
-    };
+    });
     const say = (text: string, now = context.now) =>
       advance(flow, null, { text, replyId: null }, { ...context, now }).actions;
 
@@ -481,7 +507,7 @@ describe('chatbot flow engine', () => {
   });
 
   it('stops a flow that loops forever', () => {
-    const flow: Flow = {
+    const flow = flowOf({
       nodes: [
         { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
@@ -500,7 +526,7 @@ describe('chatbot flow engine', () => {
         },
       ],
       edges: [edge('start', 'a'), edge('a', 'b'), edge('b', 'a')],
-    };
+    });
     const result = advance(
       flow,
       null,
@@ -512,7 +538,7 @@ describe('chatbot flow engine', () => {
   });
 
   it('closes the chat with the status node and ends there', () => {
-    const flow: Flow = {
+    const flow = flowOf({
       nodes: [
         { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
@@ -524,7 +550,7 @@ describe('chatbot flow engine', () => {
         },
       ],
       edges: [edge('start', 'bye')],
-    };
+    });
     expect(
       advance(flow, null, { text: 'chau', replyId: null }, context),
     ).toEqual({
@@ -607,7 +633,7 @@ describe('chatbot flow engine', () => {
               button: 'Ver menú',
               sections: [
                 {
-                  title: 'Opciones',
+                  title: null,
                   rows: [
                     {
                       id: optionReplyId('menu', 'buy'),
@@ -720,7 +746,7 @@ describe('chatbot flow engine', () => {
       { ...context, settings },
     );
     expect(general.actions).toEqual([sorry(settings.fallbackText, [SEE_MENU])]);
-    if (menu?.type === 'buttons') menu.data.invalidText = 'Toca un botón 👇';
+    if (menu?.type === 'message') menu.data.invalidText = 'Toca un botón 👇';
     const own = advance(
       flow,
       session,
@@ -779,9 +805,19 @@ describe('chatbot flow engine', () => {
       'Sucursales',
       '2.jpg:null',
       '3.jpg:null',
-      '4.jpg:null',
       'send',
     ]);
+    // The only file of a «Respuesta» with buttons goes as their header.
+    expect(result.actions.at(-1)).toMatchObject({
+      message: {
+        kind: 'interactive',
+        content: {
+          kind: 'buttons',
+          header: null,
+          headerMedia: { type: 'image', filename: '4.jpg' },
+        },
+      },
+    });
     // A message saved with one file (before several were allowed) keeps it.
     const legacy = parseFlow({
       nodes: [
@@ -1061,7 +1097,7 @@ describe('chatbot flow format', () => {
       expect.arrayContaining([
         'Tipo de nodo desconocido',
         'Botones: máximo 3',
-        'Botón: máximo 20 caracteres',
+        'Botón: máximo 24 caracteres',
         'Conexión a un nodo que no existe',
       ]),
     );
@@ -1073,10 +1109,10 @@ describe('chatbot flow format', () => {
         { id: 'start', type: 'start', title: '', position: at(), data: {} },
         {
           id: 'menu',
-          type: 'buttons',
+          type: 'message',
           title: '',
           position: at(),
-          data: { body: '', buttons: [] },
+          data: { text: '', options: [{ id: 'a', title: '' }] },
         },
         {
           id: 'web',
@@ -1094,14 +1130,18 @@ describe('chatbot flow format', () => {
         {
           nodeId: 'menu',
           level: 'error',
-          message: 'Escribe la respuesta cuando el cliente no elige un botón',
+          message: 'Escribe el mensaje que acompaña a los botones',
         },
         {
           nodeId: 'start',
           level: 'error',
           message: 'Conecta el inicio con el primer mensaje',
         },
-        { nodeId: 'menu', level: 'error', message: 'Agrega al menos un botón' },
+        {
+          nodeId: 'menu',
+          level: 'error',
+          message: 'Cada botón necesita un texto',
+        },
         {
           nodeId: 'web',
           level: 'error',

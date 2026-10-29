@@ -25,7 +25,6 @@ import { isBotPaused } from '../../inbox/domain/bot-pause';
 import { FunnelsService } from '../../funnels/application/funnels.service';
 import { FlowFormatError, parseFlow, type Flow } from '../domain/flow';
 import {
-  advance,
   AGENT,
   nudgeMessage,
   type BotAction,
@@ -33,14 +32,11 @@ import {
 } from '../domain/flow-engine';
 import { withinSchedule, type Schedule } from '../domain/schedule';
 import { storedVariables } from '../domain/variables';
-import { ChatbotsStore, type ChatbotRecord } from './ports';
+import { runTurn } from './bot-turn';
+import { BotHttpClient, ChatbotsStore, type ChatbotRecord } from './ports';
 
-const toOutgoing = (message: BotMessage): BotOutgoing =>
-  message.kind === 'text'
-    ? { kind: 'text', text: message.text }
-    : message.kind === 'interactive'
-      ? { kind: 'interactive', content: message.content }
-      : { kind: 'media', media: message.media, caption: message.caption };
+/** What the chatbot sends is what the inbox sends for it. */
+const toOutgoing = (message: BotMessage): BotOutgoing => message;
 
 /** How often due inactivity messages are looked for. */
 const NUDGE_EVERY_MS = 30_000;
@@ -70,6 +66,7 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
     private readonly bots: ChatbotsStore,
     private readonly clock: Clock,
     private readonly funnels: FunnelsService,
+    private readonly http: BotHttpClient,
   ) {}
 
   onModuleInit() {
@@ -180,11 +177,11 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
         ? { nodeId: saved.nodeId, vars: saved.vars, attempts: saved.attempts }
         : null;
 
-    const contact = await this.inbox.botContact(
-      workspaceId,
-      conversation.contactId,
-    );
-    const result = advance(
+    const [contact, contactFields] = await Promise.all([
+      this.inbox.botContact(workspaceId, conversation.contactId),
+      this.inbox.botContactFields(workspaceId),
+    ]);
+    const result = await runTurn(
       flow,
       session,
       { text: message.text, replyId: message.reply?.id ?? null },
@@ -194,13 +191,16 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
           name: contact?.name ?? conversation.contact.name,
           phone: conversation.contact.phone,
           email: contact?.email ?? null,
+          fields: contact?.fields ?? {},
         },
         settings: {
           fallbackText: bot.fallbackText,
           restartKeywords: bot.restartKeywords,
         },
         variables: storedVariables(bot.variables),
+        contactFields,
       },
+      (request) => this.http.send(request),
     );
     const sender: BotSender = { id: bot.id, name: bot.name };
     for (const action of result.actions) {
@@ -297,6 +297,13 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
             bot,
             action,
           );
+          if (action.note)
+            await this.inbox.botNote(
+              workspaceId,
+              conversationId,
+              bot,
+              action.note,
+            );
           if (action.message) {
             await this.inbox.sendAsBot(workspaceId, conversationId, bot, {
               kind: 'text',
@@ -307,6 +314,9 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
           }
           return true;
         }
+        case 'pause':
+          await this.inbox.botPause(workspaceId, conversationId, bot);
+          return true;
         case 'status':
           await this.inbox.botSetStatus(
             workspaceId,
@@ -316,12 +326,21 @@ export class ChatbotRunner implements OnModuleInit, OnModuleDestroy {
           );
           return true;
         case 'contact':
-          await this.inbox.botUpdateContact(
-            workspaceId,
-            conversation.contactId,
-            action.field,
-            action.value,
-          );
+          // An email already in use or a field deleted meanwhile: the
+          // contact stays as it was and the flow goes on.
+          await this.inbox
+            .botUpdateContact(
+              workspaceId,
+              conversation.contactId,
+              action.field,
+              action.value,
+            )
+            .catch((error: unknown) => {
+              if (!(error instanceof HttpException)) throw error;
+              this.logger.warn(
+                `Chatbot ${bot.id} could not update the contact in conversation ${conversationId}: ${error.message}`,
+              );
+            });
           return true;
       }
     } catch (error: unknown) {

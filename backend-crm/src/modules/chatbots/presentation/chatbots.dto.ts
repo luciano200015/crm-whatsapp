@@ -226,7 +226,60 @@ export class SimulateChatbotDto {
   variables?: Record<string, unknown>[];
 }
 
+export class TestApiRequestDto {
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
+    description:
+      'The data of a «Consulta API» node: method, url, auth, headers, params and responses.',
+  })
+  @IsObject()
+  api: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { cedula: '1234567' },
+    description: 'Test values for the {{variables}} of the request.',
+  })
+  @IsOptional()
+  @IsObject()
+  sample?: Record<string, string>;
+}
+
 // ─────────────────────────── Responses ───────────────────────────
+
+export class ApiTestValueDto {
+  @ApiProperty({ example: 'nombre' })
+  variable: string;
+
+  @ApiProperty({ example: 'Ana' })
+  value: string;
+}
+
+export class ApiTestResultDto {
+  @ApiProperty({ description: 'The service answered 2xx.' })
+  ok: boolean;
+
+  @ApiProperty({ example: 200, description: '0: no answer.' })
+  status: number;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'Dirección no permitida',
+  })
+  error: string | null;
+
+  @ApiProperty({ description: 'The answer (up to 2000 characters).' })
+  body: string;
+
+  @ApiProperty({
+    type: [ApiTestValueDto],
+    description: 'What each «Parámetro de respuesta» would save.',
+  })
+  values: ApiTestValueDto[];
+}
 
 export class ChatbotLineDto {
   @ApiProperty({ format: 'uuid' })

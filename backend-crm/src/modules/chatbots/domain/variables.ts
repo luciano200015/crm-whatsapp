@@ -33,15 +33,28 @@ export interface VariableContact {
   name: string | null;
   phone: string;
   email: string | null;
+  /** Custom fields of the contact, by key: {{campo_<key>}}. */
+  fields?: Record<string, unknown>;
 }
 
-/** {{nombre}}, {{apellido}}… of a contact. */
+/** Prefix of the custom fields of the contact in texts: {{campo_cedula}}. */
+export const FIELD_PREFIX = 'campo_';
+
+/** {{nombre}}, {{apellido}}, {{campo_…}}… of a contact. */
 export function contactValues(
   contact: VariableContact,
 ): Record<string, string> {
   const full = (contact.name ?? '').trim().replace(/\s+/g, ' ');
   const [first = '', ...rest] = full ? full.split(' ') : [];
+  const fields = Object.fromEntries(
+    Object.entries(contact.fields ?? {}).flatMap(([key, value]) =>
+      typeof value === 'string' || typeof value === 'number'
+        ? [[`${FIELD_PREFIX}${key}`, String(value)]]
+        : [],
+    ),
+  );
   return {
+    ...fields,
     nombre: first,
     apellido: rest.join(' '),
     nombre_completo: full,

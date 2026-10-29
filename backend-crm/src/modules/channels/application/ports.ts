@@ -4,7 +4,11 @@ import type {
   MembershipStatus,
 } from '../../../generated/prisma/client';
 import type { InteractiveContent } from '../domain/interactive';
-import type { SharedContact, WebhookEvents } from '../domain/whatsapp-payload';
+import type {
+  LocationInfo,
+  SharedContact,
+  WebhookEvents,
+} from '../domain/whatsapp-payload';
 
 export type { LineStatus };
 
@@ -177,11 +181,21 @@ export abstract class WhatsAppGateway {
     to: string,
     media: OutgoingMedia,
   ): Promise<{ waMessageId: string }>;
-  /** Reply buttons, a list or a link button (free inside the 24 h window). */
+  /**
+   * Reply buttons, a list or a link button (free inside the 24 h window).
+   * `headerMediaId`: Meta's id of the uploaded header file, if any.
+   */
   abstract sendInteractive(
     credentials: LineCredentials,
     to: string,
     content: InteractiveContent,
+    headerMediaId?: string | null,
+  ): Promise<{ waMessageId: string }>;
+  /** A point on the map. */
+  abstract sendLocation(
+    credentials: LineCredentials,
+    to: string,
+    location: LocationInfo,
   ): Promise<{ waMessageId: string }>;
   /** Contact cards the customer can save or message. */
   abstract sendContacts(

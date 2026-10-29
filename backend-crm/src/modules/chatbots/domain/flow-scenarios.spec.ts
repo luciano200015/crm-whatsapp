@@ -48,11 +48,17 @@ function line(action: BotAction): string {
         return `[estado: ${action.status}]`;
       case 'contact':
         return `[contacto ${action.field}: ${action.value}]`;
+      case 'pause':
+        return '[bot desactivado]';
     }
   }
   const message = action.message;
   if (message.kind === 'text') return message.text;
   if (message.kind === 'media') return `(archivo) ${message.caption ?? ''}`;
+  if (message.kind === 'location')
+    return `(ubicación) ${message.location.name ?? ''}`.trim();
+  if (message.kind === 'contacts')
+    return `(contacto) ${message.contacts.map((card) => card.name).join(', ')}`;
   const content = message.content;
   if (content.kind === 'cta_url')
     return `${content.body} {${content.url?.text} → ${content.url?.url}}`;
@@ -84,7 +90,10 @@ function conversation(
     );
     session = result.session;
     for (const action of result.actions) {
-      if (action.kind === 'contact') contact[action.field] = action.value;
+      if (action.kind === 'contact' && action.field === 'name')
+        contact.name = action.value;
+      if (action.kind === 'contact' && action.field === 'email')
+        contact.email = action.value;
     }
     received.push(...result.actions);
     return result.actions.map(line);

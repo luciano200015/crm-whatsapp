@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
 import type { FlowIssue } from '../domain/flow';
@@ -61,4 +63,13 @@ export const ChatbotsErrors = {
       message: 'File not found',
       code: 'MEDIA_NOT_FOUND',
     }),
+  /** «Probar conexión» too often. */
+  tooManyRequests: () =>
+    new HttpException(
+      {
+        message: 'Too many test requests, wait a minute',
+        code: 'TOO_MANY_REQUESTS',
+      },
+      HttpStatus.TOO_MANY_REQUESTS,
+    ),
 };

@@ -9,7 +9,8 @@ import { FunnelsModule } from '../funnels/funnels.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { ChatbotRunner } from './application/chatbot-runner.service';
 import { ChatbotsService } from './application/chatbots.service';
-import { ChatbotsStore } from './application/ports';
+import { BotHttpClient, ChatbotsStore } from './application/ports';
+import { HttpsBotClient } from './infrastructure/https-bot-client';
 import { PrismaChatbotsStore } from './infrastructure/prisma-chatbots-store';
 import { ChatbotsController } from './presentation/chatbots.controller';
 
@@ -31,6 +32,7 @@ import { ChatbotsController } from './presentation/chatbots.controller';
     ChatbotsService,
     ChatbotRunner,
     { provide: ChatbotsStore, useClass: PrismaChatbotsStore },
+    { provide: BotHttpClient, useClass: HttpsBotClient },
     { provide: WorkspaceEntitlements, useExisting: BillingService },
     { provide: Clock, useClass: SystemClock },
   ],

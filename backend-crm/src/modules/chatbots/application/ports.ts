@@ -1,3 +1,5 @@
+import type { BotRequest, BotResponse } from '../domain/bot-request';
+
 /** A chatbot as stored (PostgreSQL). `graph` and `schedule` are JSON. */
 export interface ChatbotRecord {
   id: string;
@@ -74,4 +76,12 @@ export abstract class ChatbotsStore {
     lineIds: string[],
     takeOver: boolean,
   ): Promise<SetLinesResult>;
+}
+
+/**
+ * Calls the external service of a «Consulta API». Never throws: failures
+ * come back as a response that is not ok.
+ */
+export abstract class BotHttpClient {
+  abstract send(request: BotRequest): Promise<BotResponse>;
 }

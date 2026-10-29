@@ -38,9 +38,21 @@ export interface InteractiveListSection {
   rows: InteractiveListRow[];
 }
 
+/** A file stored by the CRM shown above the text of buttons or a link button. */
+export interface InteractiveHeaderMedia {
+  type: 'image' | 'video' | 'document';
+  /** The stored file (GridFS); uploaded to Meta when the message is sent. */
+  fileId: string;
+  mimeType: string;
+  filename: string;
+  size: number;
+}
+
 export interface InteractiveContent {
   kind: 'buttons' | 'list' | 'cta_url';
   header: string | null;
+  /** Instead of a text header (buttons and cta_url only). */
+  headerMedia?: InteractiveHeaderMedia | null;
   body: string;
   footer: string | null;
   /** kind "buttons": up to 3 reply buttons. */
@@ -59,12 +71,29 @@ export interface InteractiveReply {
 
 type Json = Record<string, unknown>;
 
-/** The `interactive` object of Graph API's POST /{phone-number-id}/messages. */
-export function interactivePayload(content: InteractiveContent): Json {
+/**
+ * The `interactive` object of Graph API's POST /{phone-number-id}/messages.
+ * `headerMediaId`: Meta's id of the uploaded header file.
+ */
+export function interactivePayload(
+  content: InteractiveContent,
+  headerMediaId: string | null = null,
+): Json {
+  const media = content.kind === 'list' ? null : content.headerMedia;
+  const header =
+    media && headerMediaId
+      ? {
+          type: media.type,
+          [media.type]: {
+            id: headerMediaId,
+            ...(media.type === 'document' && { filename: media.filename }),
+          },
+        }
+      : content.header
+        ? { type: 'text', text: content.header }
+        : null;
   const common: Json = {
-    ...(content.header && {
-      header: { type: 'text', text: content.header },
-    }),
+    ...(header && { header }),
     body: { text: content.body },
     ...(content.footer && { footer: { text: content.footer } }),
   };
