@@ -1,5 +1,6 @@
 import CloseRounded from '@mui/icons-material/CloseRounded'
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded'
+import PlaceOutlined from '@mui/icons-material/PlaceOutlined'
 import ReplayRounded from '@mui/icons-material/ReplayRounded'
 import SendRounded from '@mui/icons-material/SendRounded'
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
@@ -8,6 +9,7 @@ import {
   Box,
   Button,
   IconButton,
+  Link,
   Menu,
   MenuItem,
   Stack,
@@ -21,6 +23,7 @@ import { es } from '../../i18n/es'
 import {
   chatbotsApi,
   type BotAction,
+  type BotLocation,
   type BotVariable,
   type ChatbotSettings,
   type FlowGraph,
@@ -28,6 +31,7 @@ import {
   type SimulationSession,
 } from '../../lib/api/chatbots'
 import { errorMessage } from '../../lib/api/errors'
+import type { ContactField } from '../../lib/api/contacts'
 import { funnelKeys, type Funnel } from '../../lib/api/funnels'
 import type { TagSummary } from '../../lib/api/types'
 import { useChatColors } from '../inbox/chat-colors'
@@ -40,12 +44,13 @@ type Entry =
 
 const tt = es.chatbots.tester
 
-/** What the bot did, told in words (tags, funnel, transfer, status). */
+/** What the bot did, told in words (tags, funnel, transfer, status…). */
 function describe(
   action: BotAction,
   tags: Map<string, TagSummary>,
   members: Member[],
   funnelOf: (id: string) => Funnel | undefined,
+  fields: ContactField[],
 ): string {
   const names = (ids: string[]) => ids.map((id) => tags.get(id)?.name ?? '?').join(', ')
   if (action.kind === 'tags') return tt.tags(names(action.add), names(action.remove))
@@ -65,8 +70,16 @@ function describe(
     return tt.transfer(to, action.pause === 'permanent' ? 'de forma permanente' : 'por 24 horas')
   }
   if (action.kind === 'status') return tt.status(es.chatbots.node.statuses[action.status])
-  if (action.kind === 'contact')
-    return tt.contact(action.field === 'name' ? 'el nombre' : 'el email', action.value)
+  if (action.kind === 'pause') return tt.pause
+  if (action.kind === 'contact') {
+    const field =
+      action.field === 'name'
+        ? 'el nombre'
+        : action.field === 'email'
+          ? 'el email'
+          : `«${fields.find((item) => item.key === action.field)?.label ?? action.field}»`
+    return tt.contact(field, action.value)
+  }
   return ''
 }
 
@@ -87,6 +100,11 @@ function InteractiveBubble({
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   return (
     <Stack spacing={0.75}>
+      {content.headerMedia && (
+        <Typography variant="body2" color="text.secondary">
+          {tt.file(content.headerMedia.filename)}
+        </Typography>
+      )}
       {content.header && <Typography sx={{ fontWeight: 700 }}>{content.header}</Typography>}
       <Typography sx={{ whiteSpace: 'pre-wrap' }}>{content.body}</Typography>
       {content.footer && (
@@ -153,6 +171,32 @@ function InteractiveBubble({
   )
 }
 
+function LocationBubble({ location }: { location: BotLocation }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+      <PlaceOutlined color="error" />
+      <Box>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          {location.name ?? tt.location}
+        </Typography>
+        {location.address && (
+          <Typography variant="caption" component="div">
+            {location.address}
+          </Typography>
+        )}
+        <Link
+          variant="caption"
+          href={`https://www.google.com/maps?q=${location.latitude},${location.longitude}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {tt.map}
+        </Link>
+      </Box>
+    </Stack>
+  )
+}
+
 /**
  * "Probar chatbot": a pretend customer chats with the flow on screen (saved
  * or not). Nothing is sent to WhatsApp and nothing changes.
@@ -164,6 +208,7 @@ export function TestChat({
   variables,
   tags,
   members,
+  fields = [],
   onClose,
 }: {
   workspaceId: string
@@ -173,6 +218,8 @@ export function TestChat({
   variables: BotVariable[]
   tags: TagSummary[]
   members: Member[]
+  /** Custom fields of contacts, to name the ones the bot would update. */
+  fields?: ContactField[]
   onClose: () => void
 }) {
   const colors = useChatColors()
@@ -221,8 +268,12 @@ export function TestChat({
                 {
                   id: next(),
                   from: 'system',
-                  text: describe(action, tagsById, members, funnelOf),
+                  text: describe(action, tagsById, members, funnelOf, fields),
                 },
+                // The note the agent would find in the chat.
+                ...(action.kind === 'transfer' && action.note
+                  ? [{ id: next(), from: 'system' as const, text: tt.note(action.note) }]
+                  : []),
                 // What the customer reads after the handover.
                 ...(action.kind === 'transfer' && action.message
                   ? [
@@ -347,6 +398,16 @@ export function TestChat({
                 </Typography>
               ) : entry.action.kind === 'send' && entry.action.message.kind === 'text' ? (
                 <Typography sx={{ whiteSpace: 'pre-wrap' }}>{entry.action.message.text}</Typography>
+              ) : entry.action.kind === 'send' && entry.action.message.kind === 'location' ? (
+                <LocationBubble location={entry.action.message.location} />
+              ) : entry.action.kind === 'send' && entry.action.message.kind === 'contacts' ? (
+                <Stack spacing={0.25}>
+                  {entry.action.message.contacts.map((card, index) => (
+                    <Typography key={index} variant="body2">
+                      {tt.contactCard(card.name, card.phone)}
+                    </Typography>
+                  ))}
+                </Stack>
               ) : null}
             </Box>
           )

@@ -1,13 +1,15 @@
 import AccessTimeRounded from '@mui/icons-material/AccessTimeRounded'
 import AltRouteRounded from '@mui/icons-material/AltRouteRounded'
+import ApiRounded from '@mui/icons-material/ApiRounded'
 import ChatBubbleOutlineRounded from '@mui/icons-material/ChatBubbleOutlineRounded'
+import ContactPhoneOutlined from '@mui/icons-material/ContactPhoneOutlined'
+import EditNoteRounded from '@mui/icons-material/EditNoteRounded'
 import FlagRounded from '@mui/icons-material/FlagRounded'
 import LinkRounded from '@mui/icons-material/LinkRounded'
-import ListAltRounded from '@mui/icons-material/ListAltRounded'
 import LocalOfferOutlined from '@mui/icons-material/LocalOfferOutlined'
+import PlaceOutlined from '@mui/icons-material/PlaceOutlined'
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded'
-import QuestionAnswerOutlined from '@mui/icons-material/QuestionAnswerOutlined'
-import SmartButtonRounded from '@mui/icons-material/SmartButtonRounded'
+import SaveAltRounded from '@mui/icons-material/SaveAltRounded'
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded'
 import SyncAltRounded from '@mui/icons-material/SyncAltRounded'
 import ViewKanbanOutlined from '@mui/icons-material/ViewKanbanOutlined'
@@ -17,14 +19,16 @@ import type { NodeKind } from '../../lib/api/chatbots'
 const ICONS: Record<NodeKind, typeof PlayArrowRounded> = {
   start: PlayArrowRounded,
   message: ChatBubbleOutlineRounded,
-  buttons: SmartButtonRounded,
-  list: ListAltRounded,
   url: LinkRounded,
-  question: QuestionAnswerOutlined,
+  question: SaveAltRounded,
+  location: PlaceOutlined,
+  contact_card: ContactPhoneOutlined,
   condition: AltRouteRounded,
   hours: AccessTimeRounded,
   tags: LocalOfferOutlined,
   funnel: ViewKanbanOutlined,
+  contact_field: EditNoteRounded,
+  api: ApiRounded,
   transfer: SupportAgentRounded,
   status: SyncAltRounded,
   end: FlagRounded,

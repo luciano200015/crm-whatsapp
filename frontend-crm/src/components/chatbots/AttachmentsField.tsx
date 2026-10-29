@@ -11,8 +11,12 @@ const t = es.chatbots.node
 /** Files of a node; each one goes as its own WhatsApp message. */
 export const MAX_ATTACHMENTS = 5
 
-const ACCEPT =
+export const ACCEPT_ANY =
   'image/jpeg,image/png,video/mp4,video/3gpp,audio/aac,audio/mpeg,audio/mp4,audio/ogg,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt'
+
+/** What a header can show: an image, a video or a document. */
+export const ACCEPT_HEADER =
+  'image/jpeg,image/png,video/mp4,video/3gpp,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt'
 
 /** "Adjuntar archivos": uploads them for the chatbot and lists them. */
 export function AttachmentsField({
@@ -21,12 +25,16 @@ export function AttachmentsField({
   value,
   help,
   onChange,
+  max = MAX_ATTACHMENTS,
+  accept = ACCEPT_ANY,
 }: {
   workspaceId: string
   chatbotId: string
   value: BotMedia[]
   help: string
   onChange: (attachments: BotMedia[]) => void
+  max?: number
+  accept?: string
 }) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,7 +44,7 @@ export function AttachmentsField({
     setError(null)
     const added: BotMedia[] = []
     try {
-      for (const file of files.slice(0, MAX_ATTACHMENTS - value.length)) {
+      for (const file of files.slice(0, max - value.length)) {
         added.push(await chatbotsApi.uploadMedia(workspaceId, chatbotId, file))
       }
     } catch (caught: unknown) {
@@ -67,7 +75,7 @@ export function AttachmentsField({
           ))}
         </Stack>
       )}
-      {value.length < MAX_ATTACHMENTS && (
+      {value.length < max && (
         <Box>
           <Button
             component="label"
@@ -79,9 +87,9 @@ export function AttachmentsField({
             {uploading ? t.uploading : t.attach}
             <input
               hidden
-              multiple
+              multiple={max > 1}
               type="file"
-              accept={ACCEPT}
+              accept={accept}
               onChange={(event) => {
                 const files = [...(event.target.files ?? [])]
                 event.target.value = ''

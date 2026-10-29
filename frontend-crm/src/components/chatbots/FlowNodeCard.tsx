@@ -1,95 +1,101 @@
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded'
+import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded'
+import CancelRounded from '@mui/icons-material/CancelRounded'
 import EditOutlined from '@mui/icons-material/EditOutlined'
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded'
+import FormatListBulletedRounded from '@mui/icons-material/FormatListBulletedRounded'
+import MoreVertRounded from '@mui/icons-material/MoreVertRounded'
+import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded'
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded'
-import { Box, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material'
-import { alpha } from '@mui/material/styles'
+import {
+  Box,
+  Chip,
+  IconButton,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { memo } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import { es } from '../../i18n/es'
 import type { NodeData } from '../../lib/api/chatbots'
 import { useFunnel } from '../funnels/useFunnels'
-import { useFlowEditor } from './flow-editor-context'
+import { fieldVariable, useFlowEditor } from './flow-editor-context'
 import {
+  HANDLE_COLOR,
   NODE_COLORS,
+  optionsOf,
   outputsOf,
   preview,
+  ruleText,
+  sentAsButtons,
   titleOf,
-  triggerOf,
   waitsForAnswer,
   type EditorNode,
+  type Output,
 } from './flow-model'
 import { NodeIcon } from './node-icons'
 
-const handleSx = { width: 12, height: 12, border: '2px solid #fff' }
-
-/** Ways out that are an answer of the customer (buttons, options): green pills, as in WhatsApp. */
-const FALLBACK_OUTPUTS = ['other', 'else', 'out']
-
-/** Kinds whose text goes to the customer: shown in the "Respuesta del bot" box. */
-const SENDS = new Set(['message', 'buttons', 'list', 'url', 'question'])
+const t = es.chatbots.node
+const handleSx = { width: 12, height: 12, border: '2px solid #fff', background: HANDLE_COLOR }
 
 /**
- * A node on the canvas, as in wasapi: a card with what it sends and one
- * connection point per way out (each button, option or branch).
+ * A node on the canvas, as in wasapi: a white card with a grey header,
+ * «Mensaje de usuario» (what opens it), «Respuesta del bot», its buttons as
+ * green pills, or «Acción a realizar», and one green point per way out.
  */
 function FlowNodeCardBase({ id, type, data, selected }: NodeProps<EditorNode>) {
-  const { issues, tags, onEdit } = useFlowEditor()
-  const color = NODE_COLORS[type]
+  const { issues, userMessages, onEdit, onDuplicate, onDelete } = useFlowEditor()
+  const [menu, setMenu] = useState<HTMLElement | null>(null)
   const mine = issues.get(id) ?? []
   const errors = mine.filter((issue) => issue.level === 'error')
   const outputs = outputsOf(type, data)
+  const pills = type === 'message' && optionsOf(data).length > 0
   const single = outputs.length === 1 && outputs[0]?.id === 'next'
   const label = es.chatbots.nodes[type].label
   const title = titleOf(data)
   const summary = preview(type, data)
-  const pills = type === 'buttons' || type === 'list'
-  const trigger = triggerOf(data).trim()
-  const waits = waitsForAnswer(type, data)
+  const opener = userMessages.get(id)
+  const name = title || label
 
   return (
     <Box
-      aria-label={`${title || label}${summary ? `: ${summary}` : ''}`}
+      aria-label={`${name}${summary ? `: ${summary}` : ''}`}
       sx={{
         width: 270,
         bgcolor: 'background.paper',
         borderRadius: 2,
-        border: 2,
-        borderColor: selected ? 'primary.main' : errors.length > 0 ? 'error.main' : 'divider',
+        border: selected ? 2 : 1,
+        borderColor: selected ? 'success.main' : errors.length > 0 ? 'error.main' : 'divider',
         boxShadow: selected ? 6 : 2,
-        overflow: 'visible',
         fontSize: 13,
       }}
     >
-      {type !== 'start' && (
-        <Handle type="target" position={Position.Top} style={{ ...handleSx, background: color }} />
-      )}
+      {type !== 'start' && <Handle type="target" position={Position.Top} style={handleSx} />}
       <Stack
         direction="row"
         spacing={1}
         sx={{
           alignItems: 'center',
-          px: 1.25,
-          py: 0.75,
-          bgcolor: alpha(color, 0.14),
+          pl: 1.25,
+          pr: 0.5,
+          py: 0.5,
+          bgcolor: 'action.hover',
           borderBottom: 1,
           borderColor: 'divider',
-          borderRadius: '6px 6px 0 0',
+          borderRadius: '7px 7px 0 0',
         }}
       >
-        <NodeIcon kind={type} sx={{ color, fontSize: 18 }} />
+        <NodeIcon kind={type} sx={{ color: NODE_COLORS[type], fontSize: 18 }} />
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.25 }} noWrap>
-            {title || label}
+            {name}
           </Typography>
           {title && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              component="div"
-              noWrap
-              sx={{ lineHeight: 1.2 }}
-            >
+            <Typography variant="caption" color="text.secondary" component="div" noWrap>
               {label}
             </Typography>
           )}
@@ -104,278 +110,451 @@ function FlowNodeCardBase({ id, type, data, selected }: NodeProps<EditorNode>) {
           </Tooltip>
         )}
         {type !== 'start' && (
-          <IconButton
-            size="small"
-            className="nodrag"
-            aria-label={`${es.chatbots.editor.editNode}: ${title || label}`}
-            onClick={() => onEdit(id)}
-            sx={{ p: 0.25 }}
-          >
-            <EditOutlined sx={{ fontSize: 16 }} />
-          </IconButton>
+          <>
+            <IconButton
+              size="small"
+              className="nodrag"
+              aria-label={`${es.chatbots.editor.editNode}: ${name}`}
+              onClick={() => onEdit(id)}
+              sx={{ p: 0.25 }}
+            >
+              <EditOutlined sx={{ fontSize: 16 }} />
+            </IconButton>
+            <IconButton
+              size="small"
+              className="nodrag"
+              aria-label={es.chatbots.editor.nodeMenu(name)}
+              onClick={(event) => setMenu(event.currentTarget)}
+              sx={{ p: 0.25 }}
+            >
+              <MoreVertRounded sx={{ fontSize: 18 }} />
+            </IconButton>
+            <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
+              {(
+                [
+                  [es.chatbots.editor.edit, () => onEdit(id)],
+                  [es.chatbots.editor.duplicateNode, () => onDuplicate(id)],
+                  [es.chatbots.editor.deleteNode, () => onDelete(id)],
+                ] as const
+              ).map(([text, action]) => (
+                <MenuItem
+                  key={text}
+                  onClick={() => {
+                    setMenu(null)
+                    action()
+                  }}
+                >
+                  <ListItemText>{text}</ListItemText>
+                </MenuItem>
+              ))}
+            </Menu>
+          </>
         )}
       </Stack>
-      <Box sx={{ px: 1.25, py: 1 }}>
-        <NodeBody type={type} data={data} tags={tags} summary={summary} />
-        {(trigger || waits) && (
-          <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
-            {trigger && (
-              <Chip
-                size="small"
-                variant="outlined"
-                color="primary"
-                label={es.chatbots.node.triggerShort(trigger)}
-                sx={{ maxWidth: '100%' }}
-              />
-            )}
-            {waits && (
-              <Chip
-                size="small"
-                variant="outlined"
-                color="warning"
-                label={es.chatbots.node.waiting}
-              />
-            )}
-          </Stack>
+      <Stack spacing={0.75} sx={{ px: 1.25, py: 1 }}>
+        {opener && (
+          <Box
+            sx={{
+              border: 1,
+              borderColor: 'success.light',
+              bgcolor: 'rgba(34, 197, 94, 0.1)',
+              borderRadius: 1.5,
+              px: 1,
+              py: 0.5,
+            }}
+          >
+            <Typography variant="caption" sx={{ fontWeight: 700 }} component="div">
+              {t.userMessage}
+            </Typography>
+            <Typography variant="caption" component="div" noWrap>
+              {opener}
+            </Typography>
+          </Box>
         )}
-      </Box>
-      {!single && outputs.length > 0 && (
-        <Stack sx={{ pb: 0.5 }}>
-          {outputs.map((output) => {
-            const fallback = FALLBACK_OUTPUTS.includes(output.id)
-            const pill = pills && !fallback
-            return (
-              <Box
-                key={output.id}
-                sx={{
-                  position: 'relative',
-                  mx: 1.25,
-                  mb: 0.5,
-                  px: pill ? 1.5 : 1,
-                  py: 0.5,
-                  borderRadius: pill ? 999 : 1,
-                  textAlign: pill ? 'center' : undefined,
-                  bgcolor: pill ? '#25d366' : 'action.hover',
-                  color: pill ? '#fff' : undefined,
-                  fontWeight: pill ? 700 : undefined,
-                  fontSize: 12,
-                  fontStyle: fallback ? 'italic' : undefined,
-                }}
-              >
-                <Typography
-                  variant="caption"
-                  noWrap
-                  component="div"
-                  sx={{ pr: 1, fontWeight: 'inherit' }}
-                >
-                  {output.label}
-                </Typography>
-                <Handle
-                  type="source"
-                  id={output.id}
-                  position={Position.Right}
-                  style={{ ...handleSx, right: -17, background: pill ? '#25d366' : color }}
-                />
-              </Box>
-            )
-          })}
-        </Stack>
-      )}
-      {single && (
-        <Handle
-          type="source"
-          id="next"
-          position={Position.Bottom}
-          style={{ ...handleSx, background: color }}
-        />
-      )}
+        <NodeBody type={type} data={data} />
+      </Stack>
+      {pills && <Pills data={data as NodeData['message']} outputs={outputs} />}
+      {!pills && !single && outputs.length > 0 && <Branches outputs={outputs} />}
+      {single && <Handle type="source" id="next" position={Position.Bottom} style={handleSx} />}
     </Box>
   )
 }
 
-function NodeBody({
-  type,
-  data,
-  tags,
-  summary,
-}: Pick<NodeProps<EditorNode>, 'type' | 'data'> & {
-  tags: Map<string, { name: string; color: string }>
-  summary: string
-}) {
-  const muted = { color: 'text.secondary', fontStyle: 'italic' } as const
-  if (type === 'start' || type === 'end') {
-    return (
-      <Typography variant="caption" sx={muted}>
-        {es.chatbots.nodes[type].help}
-      </Typography>
-    )
-  }
-  if (type === 'tags') {
-    const { add, remove } = data as NodeData['tags']
-    const chips = [
-      ...add.map((id) => ({ id, prefix: '+' })),
-      ...remove.map((id) => ({ id, prefix: '−' })),
-    ]
-    if (chips.length === 0)
-      return (
-        <Typography variant="caption" sx={muted}>
-          {es.chatbots.node.empty}
+/** «Botones» or «Lista: <name>», each option a green pill with its own point. */
+function Pills({ data, outputs }: { data: NodeData['message']; outputs: Output[] }) {
+  const list = !sentAsButtons(data.options)
+  return (
+    <Box sx={{ mx: 1.25, mb: 1, border: 1, borderColor: 'divider', borderRadius: 1.5, p: 0.75 }}>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mb: 0.5 }}>
+        {list && <FormatListBulletedRounded sx={{ fontSize: 14 }} />}
+        <Typography variant="caption" sx={{ fontWeight: 700 }}>
+          {list ? t.listName(data.listButton || t.listButtonDefault) : t.buttonsBox}
         </Typography>
-      )
-    return (
-      <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-        {chips.map((chip) => {
-          const tag = tags.get(chip.id)
-          return (
-            <Chip
-              key={`${chip.prefix}${chip.id}`}
-              size="small"
-              variant="outlined"
-              label={`${chip.prefix} ${tag?.name ?? '?'}`}
-              sx={{ borderColor: tag?.color, color: tag?.color, height: 20, fontSize: 11 }}
+      </Stack>
+      <Stack spacing={0.5}>
+        {outputs.map((output) => (
+          <Box
+            key={output.id}
+            sx={{
+              position: 'relative',
+              px: 1.5,
+              py: 0.4,
+              borderRadius: 999,
+              textAlign: 'center',
+              bgcolor: HANDLE_COLOR,
+              color: '#fff',
+              fontWeight: 700,
+            }}
+          >
+            <Typography variant="caption" noWrap component="div" sx={{ fontWeight: 'inherit' }}>
+              {output.label}
+            </Typography>
+            <Handle
+              type="source"
+              id={output.id}
+              position={Position.Right}
+              style={{ ...handleSx, right: -18 }}
             />
-          )
-        })}
-      </Stack>
-    )
-  }
-  if (type === 'funnel') return <FunnelBody data={data as NodeData['funnel']} />
-  if (type === 'transfer') {
-    const transfer = data as NodeData['transfer']
-    const message = transfer.message ?? es.chatbots.node.transferMessageDefault
-    return (
-      <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-        <Typography variant="caption" component="div">
-          {es.chatbots.node.transferOptions[transfer.to]}
-        </Typography>
-        {message.trim() && <BotReply text={message} />}
-        <Chip
-          size="small"
-          color="warning"
-          variant="outlined"
-          label={es.chatbots.node.pauseShort[transfer.pause ?? '24h']}
-          sx={{ height: 20, fontSize: 11 }}
-        />
-      </Stack>
-    )
-  }
-  if (type === 'hours') {
-    const { schedule } = data as NodeData['hours']
-    const days = es.chatbots.schedule.days
-    const open = schedule.days.filter((day) => day.ranges.length > 0)
-    return (
-      <Stack spacing={0.25}>
-        <Typography variant="caption" component="div" sx={{ fontWeight: 600 }}>
-          {es.chatbots.node.hoursNotice}
-        </Typography>
-        {open.slice(0, 3).map((day) => (
-          <Typography key={day.day} variant="caption" color="text.secondary" component="div" noWrap>
-            {days[day.day]}: {day.ranges.map((range) => `${range.from}–${range.to}`).join(', ')}
-          </Typography>
-        ))}
-        {open.length > 3 && (
-          <Typography variant="caption" color="text.secondary" component="div">
-            …
-          </Typography>
-        )}
-        <Typography variant="caption" color="text.secondary" component="div">
-          {schedule.timezone}
-        </Typography>
-      </Stack>
-    )
-  }
-  if (type === 'condition') {
-    const { rules } = data as NodeData['condition']
-    return (
-      <Stack spacing={0.25}>
-        {rules.map((rule, index) => (
-          <Typography key={rule.id} variant="caption" noWrap component="div">
-            {index + 1}. {es.chatbots.node.sources[rule.source]}
-            {rule.source === 'variable' && rule.variable ? ` {{${rule.variable}}}` : ''}{' '}
-            {es.chatbots.node.operators[rule.operator]}
-            {rule.value ? ` «${rule.value}»` : ''}
-          </Typography>
+          </Box>
         ))}
       </Stack>
-    )
-  }
-  if (SENDS.has(type)) {
-    const files = (data as { attachments?: unknown[] }).attachments?.length ?? 0
-    const text = type === 'message' ? (data as NodeData['message']).text : summary
-    return (
-      <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-        {files > 0 && (
-          <Chip
-            size="small"
-            icon={<AttachFileRounded />}
-            label={es.chatbots.node.files(files)}
-            sx={{ height: 20, fontSize: 11 }}
-          />
-        )}
-        {text || files === 0 ? <BotReply text={text} /> : null}
-        {type === 'question' && (data as NodeData['question']).variable && (
-          <Typography variant="caption" color="text.secondary">
-            → {`{{${(data as NodeData['question']).variable}}}`}
-          </Typography>
-        )}
-      </Stack>
-    )
-  }
-  return summary ? (
-    <Typography variant="caption" component="div">
-      {summary}
-    </Typography>
-  ) : (
-    <Typography variant="caption" sx={muted}>
-      {es.chatbots.node.empty}
-    </Typography>
+    </Box>
   )
 }
 
-/** "Respuesta del bot": what the customer reads, in a box like wasapi's. */
-function BotReply({ text }: { text: string }) {
+/** Named ways out: ✓ / ✗ rows (Cumple / No cumple, Dentro / Fuera…). */
+function Branches({ outputs }: { outputs: Output[] }) {
+  return (
+    <Stack spacing={0.5} sx={{ pb: 1 }}>
+      {outputs.map((output) => (
+        <Stack
+          key={output.id}
+          direction="row"
+          spacing={0.75}
+          sx={{
+            position: 'relative',
+            alignItems: 'center',
+            mx: 1.25,
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            border: 1,
+            borderColor: 'divider',
+          }}
+        >
+          {output.mark === 'yes' && <CheckCircleRounded color="success" sx={{ fontSize: 16 }} />}
+          {output.mark === 'no' && <CancelRounded color="error" sx={{ fontSize: 16 }} />}
+          <Typography variant="caption" noWrap component="div" sx={{ flex: 1, fontWeight: 600 }}>
+            {output.label}
+          </Typography>
+          <Handle
+            type="source"
+            id={output.id}
+            position={Position.Right}
+            style={{ ...handleSx, right: -18 }}
+          />
+        </Stack>
+      ))}
+    </Stack>
+  )
+}
+
+/** A bordered box with a bold heading, like wasapi's «Respuesta del Bot:». */
+function Box2({ heading, children }: { heading: string; children: ReactNode }) {
+  return (
+    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1.5, px: 1, py: 0.75 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700 }} component="div">
+        {heading}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
+
+/** Orange «No hay … configurado». */
+function Missing({ text }: { text: string }) {
   return (
     <Box
       sx={{
-        width: '100%',
-        boxSizing: 'border-box',
         border: 1,
-        borderColor: 'divider',
+        borderColor: 'warning.light',
+        bgcolor: 'rgba(249, 115, 22, 0.1)',
+        color: 'warning.dark',
         borderRadius: 1.5,
         px: 1,
         py: 0.75,
-        bgcolor: 'action.hover',
       }}
     >
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        component="div"
-        sx={{ fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}
-      >
-        {es.chatbots.node.botReply}
+      <Typography variant="caption" sx={{ fontWeight: 600 }}>
+        {text}
       </Typography>
-      {text ? (
-        <Typography
-          variant="caption"
-          component="div"
-          sx={{
-            whiteSpace: 'pre-wrap',
-            display: '-webkit-box',
-            WebkitLineClamp: 4,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {text}
-        </Typography>
-      ) : (
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
-          {es.chatbots.node.empty}
-        </Typography>
-      )}
     </Box>
   )
+}
+
+const clamp = {
+  whiteSpace: 'pre-wrap',
+  display: '-webkit-box',
+  WebkitLineClamp: 4,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+} as const
+
+function BotReply({ text, files = 0 }: { text: string; files?: number }) {
+  return (
+    <Box2 heading={t.botReplyBox}>
+      {files > 0 && (
+        <Chip
+          size="small"
+          icon={<AttachFileRounded />}
+          label={t.files(files)}
+          sx={{ height: 20, fontSize: 11, my: 0.25 }}
+        />
+      )}
+      {text ? (
+        <Typography variant="caption" component="div" sx={clamp}>
+          {text}
+        </Typography>
+      ) : files === 0 ? (
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+          {t.empty}
+        </Typography>
+      ) : null}
+    </Box2>
+  )
+}
+
+/** «Acción a realizar»: what the card does, and that it moves on. */
+function Action({ children, next = true }: { children: ReactNode; next?: boolean }) {
+  return (
+    <Box2 heading={t.action}>
+      <Typography variant="caption" component="div">
+        {children}
+      </Typography>
+      {next && (
+        <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.25 }}>
+          {t.jumpsNext}
+        </Typography>
+      )}
+    </Box2>
+  )
+}
+
+function NodeBody({ type, data }: Pick<NodeProps<EditorNode>, 'type' | 'data'>) {
+  const { tags, contactFields } = useFlowEditor()
+  const muted = { color: 'text.secondary', fontStyle: 'italic' } as const
+  switch (type) {
+    case 'start':
+    case 'end':
+      return (
+        <Typography variant="caption" sx={muted}>
+          {es.chatbots.nodes[type].help}
+        </Typography>
+      )
+    case 'message': {
+      const message = data as NodeData['message']
+      return (
+        <>
+          <BotReply text={message.text} files={message.attachments.length} />
+          {waitsForAnswer(type, data) && (
+            <Chip size="small" variant="outlined" color="warning" label={t.waiting} />
+          )}
+        </>
+      )
+    }
+    case 'url': {
+      const url = data as NodeData['url']
+      return (
+        <>
+          <BotReply text={url.body} files={url.attachment ? 1 : 0} />
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{ justifyContent: 'center', alignItems: 'center', color: 'info.main' }}
+          >
+            <OpenInNewRounded sx={{ fontSize: 14 }} />
+            <Typography variant="caption" sx={{ fontWeight: 700 }} noWrap>
+              {url.text}
+            </Typography>
+          </Stack>
+        </>
+      )
+    }
+    case 'question': {
+      const question = data as NodeData['question']
+      return (
+        <>
+          {question.text ? (
+            <BotReply text={question.text} />
+          ) : (
+            <Typography variant="caption" component="div">
+              {t.savesMessage}
+            </Typography>
+          )}
+          {question.variable ? (
+            <Typography variant="caption" color="text.secondary">
+              {t.savesIn(question.variable)}
+            </Typography>
+          ) : (
+            <Missing text={t.empty} />
+          )}
+        </>
+      )
+    }
+    case 'location': {
+      const place = data as NodeData['location']
+      if (place.latitude === null || place.longitude === null)
+        return <Missing text={t.noLocation} />
+      return (
+        <Box2 heading={es.chatbots.tester.location}>
+          <Typography variant="caption" component="div" sx={{ fontWeight: 600 }} noWrap>
+            📍 {place.name || `${place.latitude}, ${place.longitude}`}
+          </Typography>
+          {place.address && (
+            <Typography variant="caption" color="text.secondary" component="div" noWrap>
+              {place.address}
+            </Typography>
+          )}
+        </Box2>
+      )
+    }
+    case 'contact_card': {
+      const { contacts } = data as NodeData['contact_card']
+      const named = contacts.filter((contact) => contact.name.trim())
+      if (named.length === 0) return <Missing text={t.noContacts} />
+      return (
+        <Box2 heading={t.contacts}>
+          {named.map((contact, index) => (
+            <Typography key={index} variant="caption" component="div" noWrap>
+              👤 {contact.name}
+            </Typography>
+          ))}
+        </Box2>
+      )
+    }
+    case 'tags': {
+      const { add, remove } = data as NodeData['tags']
+      const chips = [
+        ...add.map((tagId) => ({ tagId, prefix: '+' })),
+        ...remove.map((tagId) => ({ tagId, prefix: '−' })),
+      ]
+      if (chips.length === 0) return <Missing text={t.noTags} />
+      return (
+        <Action>
+          <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.5, mt: 0.25 }}>
+            {chips.map((chip) => {
+              const tag = tags.get(chip.tagId)
+              return (
+                <Chip
+                  key={`${chip.prefix}${chip.tagId}`}
+                  size="small"
+                  variant="outlined"
+                  label={`${chip.prefix} ${tag?.name ?? '?'}`}
+                  sx={{ borderColor: tag?.color, color: tag?.color, height: 20, fontSize: 11 }}
+                />
+              )
+            })}
+          </Stack>
+        </Action>
+      )
+    }
+    case 'funnel':
+      return <FunnelBody data={data as NodeData['funnel']} />
+    case 'contact_field': {
+      const field = data as NodeData['contact_field']
+      if (!field.field) return <Missing text={t.noField} />
+      const name =
+        t.fieldNames[field.field] ??
+        contactFields.find((item) => item.key === field.field)?.label ??
+        `{{${fieldVariable(field.field)}}}`
+      return (
+        <Action next={false}>
+          {t.fieldUpdate(name)} {field.source === 'answer' ? t.fieldFromAnswer : `= ${field.value}`}
+        </Action>
+      )
+    }
+    case 'api': {
+      const api = data as NodeData['api']
+      if (!/^https:\/\/\S+\.\S+/.test(api.url)) return <Missing text={t.noApi} />
+      return (
+        <Action next={false}>
+          <Box component="span" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+            {t.apiCall(api.method, api.url)}
+          </Box>
+        </Action>
+      )
+    }
+    case 'transfer': {
+      const transfer = data as NodeData['transfer']
+      const message = transfer.message ?? t.transferMessageDefault
+      return (
+        <>
+          {message.trim() && <BotReply text={message} />}
+          <Action next={false}>
+            {t.transferOptions[transfer.to]}
+            {transfer.note?.trim() && (
+              <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                📝 {transfer.note}
+              </Box>
+            )}
+          </Action>
+          <Chip
+            size="small"
+            color="warning"
+            variant="outlined"
+            label={t.pauseShort[transfer.pause ?? '24h']}
+            sx={{ height: 20, fontSize: 11, alignSelf: 'flex-start' }}
+          />
+        </>
+      )
+    }
+    case 'status': {
+      const status = data as NodeData['status']
+      const paused = status.bot === 'pause'
+      return (
+        <Action next={status.status !== 'CLOSED' && !paused}>
+          {t.statusTo(t.statuses[status.status])}
+          {paused && (
+            <Box component="span" sx={{ display: 'block', color: 'error.main' }}>
+              {t.botPaused}
+            </Box>
+          )}
+        </Action>
+      )
+    }
+    case 'hours': {
+      const { schedule } = data as NodeData['hours']
+      const days = es.chatbots.schedule.days
+      const open = schedule.days.filter((day) => day.ranges.length > 0)
+      return (
+        <Box2 heading={schedule.timezone}>
+          {open.slice(0, 3).map((day) => (
+            <Typography key={day.day} variant="caption" component="div" noWrap>
+              {days[day.day]}: {day.ranges.map((range) => `${range.from}–${range.to}`).join(', ')}
+            </Typography>
+          ))}
+          {open.length > 3 && (
+            <Typography variant="caption" color="text.secondary" component="div">
+              …
+            </Typography>
+          )}
+        </Box2>
+      )
+    }
+    case 'condition': {
+      const condition = data as NodeData['condition']
+      if (condition.rules.length === 0) return <Missing text={t.noRules} />
+      return (
+        <Box2 heading={`${t.rules} · ${t.matchShort[condition.match]}`}>
+          {condition.rules.map((rule, index) => (
+            <Typography key={rule.id} variant="caption" noWrap component="div">
+              {index + 1}. {ruleText(rule)}
+            </Typography>
+          ))}
+        </Box2>
+      )
+    }
+  }
 }
 
 export const FlowNodeCard = memo(FlowNodeCardBase)
@@ -383,16 +562,11 @@ export const FlowNodeCard = memo(FlowNodeCardBase)
 /** "Ventas → En atención". */
 function FunnelBody({ data }: { data: NodeData['funnel'] }) {
   const funnel = useFunnel(data.funnelId)
-  if (!data.funnelId)
-    return (
-      <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
-        {es.chatbots.node.empty}
-      </Typography>
-    )
+  if (!data.funnelId) return <Missing text={t.noFunnel} />
   const stage = funnel.data?.stages.find((item) => item.id === data.stageId)
   return (
-    <Typography variant="caption" component="div">
+    <Action>
       {funnel.data?.name ?? '…'} → {stage?.name ?? '?'}
-    </Typography>
+    </Action>
   )
 }

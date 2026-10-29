@@ -12,6 +12,7 @@ import type {
   ChatbotChanges,
   ChatbotSummary,
   FlowGraph,
+  NodeData,
 } from '../lib/api/chatbots'
 import { API_BASE_URL } from '../lib/api/client'
 import type { FunnelSummary } from '../lib/api/funnels'
@@ -83,42 +84,58 @@ const me: Me = {
   ],
 }
 
-/** Inicio → menu (Ventas / Soporte); Ventas → transfer. */
-const menuGraph = (): FlowGraph => ({
-  nodes: [
-    { id: 'start', type: 'start', title: '', position: { x: 0, y: 0 }, data: {} },
-    {
-      id: 'menu',
-      type: 'buttons',
-      title: '',
-      position: { x: 0, y: 150 },
-      data: {
-        header: '',
-        body: '¿Qué necesitas?',
-        footer: '',
-        buttons: [
-          { id: 'sales', title: 'Ventas' },
-          { id: 'help', title: 'Soporte' },
-        ],
-        invalidText: 'Elige una opción',
-        attachments: [],
-      },
-    },
-    {
-      id: 'agent',
-      type: 'transfer',
-      title: 'Pasar a Ana',
-      position: { x: 0, y: 350 },
-      data: { to: 'member', membershipId: 'm2' },
-    },
-  ],
-  edges: [
-    { id: 'e1', source: 'start', sourceHandle: 'next', target: 'menu' },
-    { id: 'e2', source: 'menu', sourceHandle: 'sales', target: 'agent' },
-    // The old "otra respuesta" output of menus: dropped by the editor.
-    { id: 'e3', source: 'menu', sourceHandle: 'other', target: 'agent' },
-  ],
+/** A «Respuesta» as the API returns it. */
+const reply = (text: string, changes: Partial<NodeData['message']> = {}): NodeData['message'] => ({
+  text,
+  attachments: [],
+  options: [],
+  listButton: '',
+  header: '',
+  footer: '',
+  invalidText: '',
+  ...changes,
 })
+
+/**
+ * Inicio → menu (Ventas / Soporte); Ventas → transfer. The menu is a
+ * «Botones» card saved before «Respuesta»: the editor opens it as one.
+ */
+const menuGraph = (): FlowGraph =>
+  ({
+    nodes: [
+      { id: 'start', type: 'start', title: '', position: { x: 0, y: 0 }, data: {} },
+      {
+        id: 'menu',
+        type: 'buttons',
+        title: '',
+        position: { x: 0, y: 150 },
+        data: {
+          header: '',
+          body: '¿Qué necesitas?',
+          footer: '',
+          buttons: [
+            { id: 'sales', title: 'Ventas' },
+            { id: 'help', title: 'Soporte' },
+          ],
+          invalidText: 'Elige una opción',
+          attachments: [],
+        },
+      },
+      {
+        id: 'agent',
+        type: 'transfer',
+        title: 'Pasar a Ana',
+        position: { x: 0, y: 350 },
+        data: { to: 'member', membershipId: 'm2' },
+      },
+    ],
+    edges: [
+      { id: 'e1', source: 'start', sourceHandle: 'next', target: 'menu' },
+      { id: 'e2', source: 'menu', sourceHandle: 'sales', target: 'agent' },
+      // The old "otra respuesta" output of menus: dropped by the editor.
+      { id: 'e3', source: 'menu', sourceHandle: 'other', target: 'agent' },
+    ],
+  }) as unknown as FlowGraph
 
 /** Inicio → greeting that waits → "1" opens Ventas; "precios" opens Precios from anywhere. */
 const textMenuGraph = (): FlowGraph => ({
@@ -129,7 +146,7 @@ const textMenuGraph = (): FlowGraph => ({
       type: 'message',
       title: 'Saludo',
       position: { x: 0, y: 150 },
-      data: { text: 'Escribe 1 para ventas', attachments: [], wait: true },
+      data: reply('Escribe 1 para ventas', { wait: true }),
     },
     {
       id: 'sales',
@@ -137,7 +154,7 @@ const textMenuGraph = (): FlowGraph => ({
       title: 'Ventas',
       trigger: '1, ventas',
       position: { x: 0, y: 300 },
-      data: { text: 'Te paso con ventas', attachments: [] },
+      data: reply('Te paso con ventas'),
     },
     {
       id: 'help',
@@ -145,14 +162,14 @@ const textMenuGraph = (): FlowGraph => ({
       title: 'Soporte',
       trigger: '2',
       position: { x: 300, y: 300 },
-      data: { text: 'Cuéntanos', attachments: [] },
+      data: reply('Cuéntanos'),
     },
     {
       id: 'prices',
       type: 'message',
       title: 'Precios',
       position: { x: 600, y: 300 },
-      data: { text: 'Desde 10 USD', attachments: [] },
+      data: reply('Desde 10 USD'),
     },
   ],
   edges: [
@@ -205,6 +222,7 @@ let bots: ChatbotSummary[]
 let patched: ChatbotChanges[]
 let created: string[]
 let simulated: { text: string | null; replyId: string | null }[]
+let tested: unknown[]
 
 const server = setupServer(
   http.post(api('/auth/refresh'), () =>
@@ -222,6 +240,19 @@ const server = setupServer(
     }),
   ),
   http.get(api('/workspaces/w1/tags'), () => HttpResponse.json([])),
+  http.get(api('/workspaces/w1/contact-fields'), () =>
+    HttpResponse.json([{ id: 'cf1', key: 'plan', label: 'Plan', type: 'TEXT', options: [] }]),
+  ),
+  http.post(api(`${BOTS}/test-request`), async ({ request }) => {
+    tested.push(await request.json())
+    return HttpResponse.json({
+      ok: true,
+      status: 200,
+      error: null,
+      body: '{"data":{"saldo":50}}',
+      values: [{ variable: 'saldo', value: '50' }],
+    })
+  }),
   http.get(api('/workspaces/w1/channels/lines'), () => HttpResponse.json([])),
   http.get(api('/workspaces/w1/members'), () =>
     HttpResponse.json({
@@ -319,6 +350,7 @@ beforeEach(() => {
   patched = []
   created = []
   simulated = []
+  tested = []
   document.cookie = 'crm_csrf=abc; path=/'
 })
 afterEach(() => {
@@ -336,6 +368,21 @@ function renderAt(path: string) {
     </AppProviders>,
   )
   return router
+}
+
+type User = ReturnType<typeof userEvent.setup>
+
+/** «Agregar nodo» → a widget of the palette; returns its side panel. */
+async function addNode(user: User, label: string) {
+  await user.click(await screen.findByRole('button', { name: es.chatbots.editor.addNode }))
+  const palette = await screen.findByRole('dialog', { name: es.chatbots.editor.palette })
+  await user.click(within(palette).getByRole('button', { name: new RegExp(`^${label}`) }))
+  return screen.findByLabelText(es.chatbots.editor.editNode)
+}
+
+/** «Actualizar»: the panel's changes go to the canvas. */
+async function apply(user: User, editor: HTMLElement) {
+  await user.click(within(editor).getByRole('button', { name: es.chatbots.editor.update }))
 }
 
 describe('Chatbots', () => {
@@ -379,40 +426,38 @@ describe('Chatbots', () => {
     ])
   })
 
-  it('tells the customer who got the chat after a transfer', async () => {
+  it('tells the customer who got the chat after a transfer, and leaves a note for the agent', async () => {
     renderAt('/automation/chatbots/b1')
     const user = userEvent.setup()
-    await user.click(
-      await screen.findByRole('button', {
-        name: new RegExp(`^${es.chatbots.nodes.transfer.label}`),
-        hidden: true,
-      }),
-    )
-    const editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    const editor = await addNode(user, es.chatbots.nodes.transfer.label)
     const message = within(editor).getByLabelText(es.chatbots.node.transferMessage)
     expect(message).toHaveValue(es.chatbots.node.transferMessageDefault)
     await user.clear(message)
     await user.type(message, 'Ya te atiende {{{{agente}}')
+    await user.type(
+      within(editor).getByLabelText(es.chatbots.node.transferNote),
+      'Quiere el plan anual',
+    )
+    await apply(user, editor)
 
     await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
     await waitFor(() => expect(patched).toHaveLength(1))
     const added = patched[0]!.graph!.nodes.at(-1)!
     expect(added).toMatchObject({
       type: 'transfer',
-      data: { to: 'auto', membershipId: null, message: 'Ya te atiende {{agente}}' },
+      data: {
+        to: 'auto',
+        membershipId: null,
+        message: 'Ya te atiende {{agente}}',
+        note: 'Quiere el plan anual',
+      },
     })
   })
 
   it('puts the contact in a funnel stage, with the funnels of its lines first', async () => {
     renderAt('/automation/chatbots/b1')
     const user = userEvent.setup()
-    await user.click(
-      await screen.findByRole('button', {
-        name: new RegExp(`^${es.chatbots.nodes.funnel.label}`),
-        hidden: true,
-      }),
-    )
-    const editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    const editor = await addNode(user, es.chatbots.nodes.funnel.label)
     const pickFunnel = async (name: string) => {
       await user.click(within(editor).getByRole('combobox', { name: es.chatbots.node.funnel }))
       const listbox = await screen.findByRole('listbox')
@@ -437,6 +482,7 @@ describe('Chatbots', () => {
     expect(within(editor).queryByText(es.chatbots.node.funnelOtherLineWarning)).toBeNull()
     await user.click(within(editor).getByRole('combobox', { name: es.chatbots.node.funnelStage }))
     await user.click(await screen.findByRole('option', { name: 'En atención' }))
+    await apply(user, editor)
 
     await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
     await waitFor(() => expect(patched).toHaveLength(1))
@@ -467,72 +513,102 @@ describe('Chatbots', () => {
     expect(simulated[0]).toMatchObject({ restartKeywords: ['menu'], variables: [] })
   })
 
-  it('names a card, explains it and asks for the answer when no option fits', async () => {
+  it('opens an old menu as a «Respuesta»: 4 options only ask for the name of the list', async () => {
     renderAt('/automation/chatbots/b1')
     const user = userEvent.setup()
     // A titled card shows its title; the rest their kind.
     expect(await screen.findByText('Pasar a Ana')).toBeInTheDocument()
     expect(screen.queryByText('Otra respuesta')).not.toBeInTheDocument()
+    // The card after a button says which one opens it.
+    expect(screen.getByText(es.chatbots.node.userMessage)).toBeInTheDocument()
+    expect(screen.getByText(es.chatbots.node.buttonsBox)).toBeInTheDocument()
     await user.click(
       screen.getByRole('button', {
-        name: `${es.chatbots.editor.editNode}: ${es.chatbots.nodes.buttons.label}`,
+        name: `${es.chatbots.editor.editNode}: ${es.chatbots.nodes.message.label}`,
         hidden: true,
       }),
     )
     const editor = await screen.findByLabelText(es.chatbots.editor.editNode)
-    expect(within(editor).getByText(es.chatbots.nodes.buttons.guide)).toBeInTheDocument()
+    expect(within(editor).getByText(es.chatbots.nodes.message.guide)).toBeInTheDocument()
     await user.type(within(editor).getByLabelText(es.chatbots.node.title), 'Menú principal')
-
-    // "Respuesta si elige otra cosa" is required on buttons.
-    const invalid = within(editor).getByRole('textbox', { name: es.chatbots.node.invalidText })
-    await user.clear(invalid)
-    expect(within(editor).getByText(es.chatbots.node.invalidRequired)).toBeInTheDocument()
-    await user.type(invalid, 'Elige Ventas o Soporte')
+    expect(within(editor).getByLabelText(es.chatbots.node.button(1))).toHaveValue('Ventas')
+    expect(within(editor).getByLabelText(es.chatbots.node.button(2))).toHaveValue('Soporte')
+    // Up to 3 they are buttons: nothing else to fill.
+    expect(within(editor).queryByLabelText(es.chatbots.node.listButton)).toBeNull()
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.addButton }))
+    expect(within(editor).queryByLabelText(es.chatbots.node.listButton)).toBeNull()
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.addButton }))
+    // The 4th: a list, named by its button. No sections, no descriptions.
+    expect(within(editor).getByText(es.chatbots.node.asList)).toBeInTheDocument()
+    await user.type(within(editor).getByLabelText(es.chatbots.node.listButton), 'Ver menú')
+    expect(within(editor).queryByText(/sección/i)).toBeNull()
 
     // "Agregar variable" puts {{nombre}} in the bot's reply.
-    const reply = within(editor).getByRole('textbox', { name: es.chatbots.node.botReply })
-    await user.clear(reply)
-    await user.type(reply, 'Hola ')
+    const replyField = within(editor).getByRole('textbox', { name: es.chatbots.node.botReply })
+    await user.clear(replyField)
+    await user.type(replyField, 'Hola ')
     const insert = within(editor).getAllByRole('button', { name: es.chatbots.variables.insert })
     await user.click(insert[0]!)
     await user.click(await screen.findByRole('menuitem', { name: /^Nombre\s*\{\{nombre\}\}/ }))
-    expect(reply).toHaveValue('Hola {{nombre}}')
+    expect(replyField).toHaveValue('Hola {{nombre}}')
+    await apply(user, editor)
+    expect(await screen.findByText(es.chatbots.node.listName('Ver menú'))).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
     await waitFor(() => expect(patched).toHaveLength(1))
     const menu = patched[0]!.graph!.nodes.find((node) => node.id === 'menu')!
     expect(menu).toMatchObject({
+      type: 'message',
       title: 'Menú principal',
-      data: { body: 'Hola {{nombre}}', invalidText: 'Elige Ventas o Soporte' },
+      data: {
+        text: 'Hola {{nombre}}',
+        listButton: 'Ver menú',
+        invalidText: 'Elige una opción',
+        options: [
+          { id: 'sales', title: 'Ventas' },
+          { id: 'help', title: 'Soporte' },
+          { title: 'Opción 3' },
+          { title: 'Opción 4' },
+        ],
+      },
     })
     expect(menu.data).not.toHaveProperty('title')
+    expect(menu.data).not.toHaveProperty('buttons')
     expect(patched[0]!.graph!.edges.map((edge) => edge.sourceHandle)).toEqual(['next', 'sales'])
   })
 
-  it('opens cards by the words of the customer, or sends and moves on', async () => {
+  it('opens cards by the words of the customer, any message, or sends and moves on', async () => {
     server.use(http.get(api(`${BOTS}/b1`), () => HttpResponse.json(chatbot(textMenuGraph()))))
     renderAt('/automation/chatbots/b1')
     const user = userEvent.setup()
-    expect(await screen.findByText(es.chatbots.node.triggerShort('1, ventas'))).toBeInTheDocument()
+    // «Mensaje de usuario» on the card: the words that open it.
+    expect(await screen.findByText('1, ventas')).toBeInTheDocument()
     expect(screen.getByText(es.chatbots.node.waiting)).toBeInTheDocument()
-    const edit = (title: string) =>
-      user.click(
+    const edit = async (title: string) => {
+      await user.click(
         screen.getByRole('button', {
           name: `${es.chatbots.editor.editNode}: ${title}`,
           hidden: true,
         }),
       )
+      return screen.findByLabelText(es.chatbots.editor.editNode)
+    }
 
     // Nothing connects to «Precios»: its words open it from anywhere.
-    await edit('Precios')
-    let editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    let editor = await edit('Precios')
     await user.type(within(editor).getByLabelText(es.chatbots.node.trigger), 'precios, precio')
     expect(within(editor).getByRole('checkbox', { name: es.chatbots.node.jump })).toBeChecked()
+    await apply(user, editor)
+
+    // «Soporte» takes whatever else the customer writes.
+    editor = await edit('Soporte')
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.acceptAny }))
+    expect(within(editor).getByText(es.chatbots.node.acceptsAny)).toBeInTheDocument()
+    await apply(user, editor)
 
     // The greeting stops waiting: it keeps one connection, and the card
     // after it no longer needs words.
-    await edit('Saludo')
-    editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    editor = await edit('Saludo')
     expect(within(editor).getByLabelText(es.chatbots.node.trigger)).toBeDisabled()
     expect(within(editor).getByText(es.chatbots.node.triggerLocked)).toBeInTheDocument()
     const jump = within(editor).getByRole('checkbox', { name: es.chatbots.node.jump })
@@ -540,6 +616,7 @@ describe('Chatbots', () => {
     expect(within(editor).getByText(es.chatbots.node.waitHelp)).toBeInTheDocument()
     await user.click(jump)
     expect(within(editor).getByText(es.chatbots.node.jumpHelp)).toBeInTheDocument()
+    await apply(user, editor)
 
     await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
     await waitFor(() => expect(patched).toHaveLength(1))
@@ -548,8 +625,166 @@ describe('Chatbots', () => {
     expect(byId('hello').data).toMatchObject({ wait: false })
     expect(saved.edges.map((edge) => edge.target)).toEqual(['hello', 'sales'])
     expect(byId('sales').trigger).toBe('')
+    expect(byId('help').trigger).toBe('*')
     expect(byId('prices').trigger).toBe('precios, precio')
     expect(byId('prices').data).not.toHaveProperty('trigger')
+  })
+
+  it('asks before closing a card with changes not applied', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('button', {
+        name: `${es.chatbots.editor.editNode}: Pasar a Ana`,
+        hidden: true,
+      }),
+    )
+    const editor = await screen.findByLabelText(es.chatbots.editor.editNode)
+    await user.clear(within(editor).getByLabelText(es.chatbots.node.title))
+    await user.type(within(editor).getByLabelText(es.chatbots.node.title), 'Ventas')
+    // The ✕ of the header and «Cerrar» of the footer do the same.
+    await user.click(
+      within(editor).getAllByRole('button', { name: es.chatbots.editor.close }).at(-1)!,
+    )
+    const confirm = await screen.findByRole('dialog', { name: es.chatbots.editor.discardTitle })
+    await user.click(within(confirm).getByRole('button', { name: es.chatbots.editor.discard }))
+    await waitFor(() =>
+      expect(screen.queryByLabelText(es.chatbots.editor.editNode)).not.toBeInTheDocument(),
+    )
+    // Nothing reached the canvas.
+    expect(screen.getByText('Pasar a Ana')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: es.chatbots.editor.save })).toBeDisabled()
+
+    // Opening another card with changes not applied asks too.
+    await user.click(
+      screen.getByRole('button', {
+        name: `${es.chatbots.editor.editNode}: Pasar a Ana`,
+        hidden: true,
+      }),
+    )
+    const again = await screen.findByLabelText(es.chatbots.editor.editNode)
+    await user.type(within(again).getByLabelText(es.chatbots.node.title), '!')
+    expect(screen.getByText(es.chatbots.editor.notApplied)).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', {
+        name: `${es.chatbots.editor.editNode}: ${es.chatbots.nodes.message.label}`,
+        hidden: true,
+      }),
+    )
+    expect(
+      await screen.findByRole('dialog', { name: es.chatbots.editor.discardTitle }),
+    ).toBeInTheDocument()
+  })
+
+  it('builds a condition in «Nueva condición», with «Cumple» and «No cumple»', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    const editor = await addNode(user, es.chatbots.nodes.condition.label)
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.addRule }))
+    const dialog = await screen.findByRole('dialog', { name: es.chatbots.node.newRule })
+    await user.click(within(dialog).getByRole('combobox', { name: es.chatbots.node.ruleVariable }))
+    await user.click(await screen.findByRole('option', { name: es.chatbots.node.lastMessage }))
+    await user.click(within(dialog).getByRole('combobox', { name: es.chatbots.node.operator }))
+    await user.click(
+      await screen.findByRole('option', { name: es.chatbots.node.operators.not_contains }),
+    )
+    await user.type(
+      within(dialog).getByLabelText(new RegExp(`^${es.chatbots.node.value}`)),
+      'precio',
+    )
+    await user.click(within(dialog).getByRole('button', { name: es.chatbots.editor.update }))
+    expect(
+      within(editor).getByText(`${es.chatbots.node.lastMessage} no contiene «precio»`),
+    ).toBeInTheDocument()
+    await user.click(within(editor).getByLabelText(es.chatbots.node.matches.any))
+    await apply(user, editor)
+    expect(await screen.findByText(es.chatbots.node.yes)).toBeInTheDocument()
+    expect(screen.getByText(es.chatbots.node.no)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]!.graph!.nodes.at(-1)).toMatchObject({
+      type: 'condition',
+      data: {
+        match: 'any',
+        rules: [{ source: 'message', variable: '', operator: 'not_contains', value: 'precio' }],
+      },
+    })
+  })
+
+  it('tries a «Consulta API» with test values before saving it', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    const editor = await addNode(user, es.chatbots.nodes.api.label)
+    const url = within(editor).getByRole('textbox', { name: es.chatbots.node.apiUrl })
+    await user.clear(url)
+    await user.type(url, 'https://api.example.com/saldo/{{{{cedula}}')
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.apiResponses }))
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.apiAdd }))
+    await user.type(within(editor).getByLabelText(es.chatbots.node.apiPath), 'data.saldo')
+    await user.type(within(editor).getByLabelText(es.chatbots.node.variable), 'saldo')
+
+    await user.click(within(editor).getByRole('button', { name: es.chatbots.node.apiTest }))
+    const dialog = await screen.findByRole('dialog', { name: es.chatbots.node.apiTest })
+    await user.type(within(dialog).getByLabelText('{{cedula}}'), '123')
+    await user.click(within(dialog).getByRole('button', { name: es.chatbots.node.apiTestRun }))
+    expect(await within(dialog).findByText(es.chatbots.node.apiTestStatus(200))).toBeInTheDocument()
+    expect(within(dialog).getByText(/\{\{saldo\}\} = 50/)).toBeInTheDocument()
+    expect(tested).toEqual([
+      {
+        api: expect.objectContaining({
+          method: 'GET',
+          url: 'https://api.example.com/saldo/{{cedula}}',
+          responses: [{ path: 'data.saldo', variable: 'saldo' }],
+        }) as unknown,
+        sample: { cedula: '123' },
+      },
+    ])
+    await user.click(within(dialog).getByRole('button', { name: es.chatbots.editor.close }))
+    await apply(user, editor)
+    expect(await screen.findByText(es.chatbots.node.ok)).toBeInTheDocument()
+    expect(screen.getByText(es.chatbots.node.error)).toBeInTheDocument()
+  })
+
+  it('updates a custom field of the contact, sends a location and turns the bot off', async () => {
+    renderAt('/automation/chatbots/b1')
+    const user = userEvent.setup()
+    let editor = await addNode(user, es.chatbots.nodes.contact_field.label)
+    await user.click(within(editor).getByRole('combobox', { name: es.chatbots.node.field }))
+    await user.click(await screen.findByRole('option', { name: 'Plan' }))
+    await user.click(within(editor).getByLabelText(es.chatbots.node.fieldSources.manual))
+    await user.type(
+      within(editor).getByLabelText(new RegExp(`^${es.chatbots.node.fieldValue}`)),
+      'Oro',
+    )
+    await apply(user, editor)
+    expect(await screen.findByText(es.chatbots.node.fieldOk)).toBeInTheDocument()
+
+    editor = await addNode(user, es.chatbots.nodes.location.label)
+    await user.type(within(editor).getByLabelText(new RegExp(es.chatbots.node.latitude)), '-16.5')
+    await user.type(within(editor).getByLabelText(new RegExp(es.chatbots.node.longitude)), '-68.15')
+    await user.type(within(editor).getByLabelText(es.chatbots.node.placeName), 'Oficina')
+    expect(within(editor).getByRole('link', { name: es.chatbots.node.seeMap })).toHaveAttribute(
+      'href',
+      'https://www.google.com/maps?q=-16.5,-68.15',
+    )
+    await apply(user, editor)
+
+    editor = await addNode(user, es.chatbots.nodes.status.label)
+    await user.click(within(editor).getByLabelText(es.chatbots.node.botStates.pause))
+    await apply(user, editor)
+
+    await user.click(screen.getByRole('button', { name: es.chatbots.editor.save }))
+    await waitFor(() => expect(patched).toHaveLength(1))
+    const nodes = patched[0]!.graph!.nodes.slice(-3)
+    expect(nodes).toMatchObject([
+      { type: 'contact_field', data: { field: 'plan', source: 'manual', value: 'Oro' } },
+      {
+        type: 'location',
+        data: { latitude: -16.5, longitude: -68.15, name: 'Oficina', address: '' },
+      },
+      { type: 'status', data: { status: 'CLOSED', bot: 'pause' } },
+    ])
   })
 
   it('creates a numeric variable in «Variables»', async () => {

@@ -117,10 +117,25 @@ function InteractiveCard({ content }: { content: InteractiveContent }) {
 /** Body of a message: text, media or location. */
 export function MessageContent({ message }: { message: ChatMessage }) {
   if (message.type === 'interactive') {
-    return message.interactive ? (
-      <InteractiveCard content={message.interactive} />
-    ) : (
-      <Typography sx={textSx}>{message.text}</Typography>
+    if (!message.interactive) return <Typography sx={textSx}>{message.text}</Typography>
+    // A chatbot's buttons can carry an image, video or document above them.
+    const header = message.media?.mimeType ?? ''
+    return (
+      <Stack spacing={0.75}>
+        {message.media && (
+          <MediaViewer
+            message={{
+              ...message,
+              type: header.startsWith('image/')
+                ? 'image'
+                : header.startsWith('video/')
+                  ? 'video'
+                  : 'document',
+            }}
+          />
+        )}
+        <InteractiveCard content={message.interactive} />
+      </Stack>
     )
   }
   if (message.type === 'location') {

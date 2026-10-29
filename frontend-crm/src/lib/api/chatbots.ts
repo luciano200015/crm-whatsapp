@@ -6,14 +6,16 @@ import type { ErrorResponse } from './types'
 export type NodeKind =
   | 'start'
   | 'message'
-  | 'buttons'
-  | 'list'
   | 'url'
   | 'question'
+  | 'location'
+  | 'contact_card'
   | 'condition'
   | 'hours'
   | 'tags'
   | 'funnel'
+  | 'contact_field'
+  | 'api'
   | 'transfer'
   | 'status'
   | 'end'
@@ -26,19 +28,12 @@ export interface BotMedia {
   size: number
 }
 
+/** An option of «Botones interactivos»: a button, or a row when they go as a list. */
 export interface FlowOption {
   id: string
   title: string
-}
-
-export interface FlowListRow extends FlowOption {
-  description: string
-}
-
-export interface FlowListSection {
-  id: string
-  title: string
-  rows: FlowListRow[]
+  /** Only shown when the options go as a list ('' none). */
+  description?: string
 }
 
 export interface ScheduleRange {
@@ -54,14 +49,31 @@ export interface Schedule {
 export type Validation = 'any' | 'number' | 'email' | 'phone'
 export type Operator =
   | 'equals'
+  | 'not_equals'
   | 'contains'
+  | 'not_contains'
   | 'starts_with'
   | 'is_number'
+  | 'is_not_number'
   | 'is_empty'
+  | 'is_not_empty'
   | 'greater_than'
+  | 'gte'
   | 'less_than'
+  | 'lte'
+  | 'in'
+  | 'not_in'
   | 'is_true'
   | 'is_false'
+
+/** «Cumplimiento de condiciones»: all, any (Cumple / No cumple) or one way out per rule. */
+export type ConditionMatch = 'all' | 'any' | 'each'
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+export type ApiAuth = 'none' | 'bearer' | 'basic' | 'headers'
+export interface KeyValue {
+  key: string
+  value: string
+}
 
 /** How long the bot stays off in a chat: a day (it comes back alone) or until turned on. */
 export type BotPause = '24h' | 'permanent'
@@ -87,29 +99,36 @@ export interface ConditionRule {
 
 export interface NodeData {
   start: Record<string, never>
-  /** One file takes the text as caption; several go after it. */
-  /** wait: waits for an answer instead of "Enviar mensaje y saltar al siguiente nodo". */
-  message: { text: string; attachments: BotMedia[]; wait?: boolean }
-  buttons: {
+  /**
+   * «Respuesta». Without options, one file takes the text as caption and
+   * several go after it; wait: waits for an answer instead of "Enviar mensaje
+   * y saltar al siguiente nodo". With options («Botones interactivos») it
+   * waits for one: up to 3 short ones go as buttons, more as a list.
+   */
+  message: {
+    text: string
+    attachments: BotMedia[]
+    wait?: boolean
+    options: FlowOption[]
+    /** «Nombre del botón de la lista» ('' «Ver opciones»). */
+    listButton: string
+    header: string
+    footer: string
+    /** «Texto si elige otra cosa» ('' the bot's fallback text). */
+    invalidText: string
+  }
+  url: {
     header: string
     body: string
     footer: string
-    buttons: FlowOption[]
-    invalidText: string
-    /** Sent before the buttons. */
-    attachments: BotMedia[]
+    text: string
+    url: string
+    wait?: boolean
+    /** An image, video or document above the text. */
+    attachment: BotMedia | null
   }
-  list: {
-    header: string
-    body: string
-    footer: string
-    button: string
-    sections: FlowListSection[]
-    invalidText: string
-    attachments: BotMedia[]
-  }
-  url: { header: string; body: string; footer: string; text: string; url: string; wait?: boolean }
   question: {
+    /** '' saves the message that opened the card (it needs a trigger). */
     text: string
     variable: string
     validation: Validation
@@ -117,11 +136,26 @@ export interface NodeData {
     /** Also saves the answer in the contact. */
     saveTo: 'none' | 'name' | 'email'
   }
-  condition: { rules: ConditionRule[] }
+  /** «Enviar ubicación». */
+  location: { latitude: number | null; longitude: number | null; name: string; address: string }
+  /** «Enviar contacto»: 1 to 5 cards. */
+  contact_card: { contacts: { name: string; phone: string }[] }
+  condition: { match: ConditionMatch; rules: ConditionRule[] }
   hours: { schedule: Schedule }
   tags: { add: string[]; remove: string[] }
   /** «Establecer contacto en embudo». */
   funnel: { funnelId: string; stageId: string }
+  /** «Actualizar campo de contacto»: name, email or the key of a custom field. */
+  contact_field: { field: string; source: 'answer' | 'manual'; value: string }
+  /** «Consulta API»: an HTTPS call; `responses` save values of its JSON in variables. */
+  api: {
+    method: HttpMethod
+    url: string
+    auth: { type: ApiAuth; token: string; user: string; password: string }
+    headers: KeyValue[]
+    params: KeyValue[]
+    responses: { path: string; variable: string }[]
+  }
   transfer: {
     to: 'auto' | 'unassigned' | 'member'
     membershipId: string | null
@@ -129,8 +163,11 @@ export interface NodeData {
     message?: string
     /** How long the bot stays off in the chat afterwards. */
     pause?: BotPause
+    /** «Mensaje para el agente»: an internal note in the chat ('' none). */
+    note?: string
   }
-  status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED' }
+  /** bot pause: «Desactivar bot» in that chat. */
+  status: { status: 'OPEN' | 'ON_HOLD' | 'CLOSED'; bot?: 'keep' | 'pause' }
   end: Record<string, never>
 }
 
@@ -221,12 +258,23 @@ export interface InteractiveContent {
     }[]
   }
   url?: { text: string; url: string }
+  /** A file shown above the buttons. */
+  headerMedia?: { type: string; fileId: string; mimeType: string; filename: string } | null
+}
+
+export interface BotLocation {
+  latitude: number
+  longitude: number
+  name: string | null
+  address: string | null
 }
 
 export type BotMessage =
   | { kind: 'text'; text: string }
   | { kind: 'interactive'; content: InteractiveContent }
   | { kind: 'media'; media: BotMedia; caption: string | null }
+  | { kind: 'location'; location: BotLocation }
+  | { kind: 'contacts'; contacts: { name: string; phone: string }[] }
 
 export type BotAction =
   | { kind: 'send'; message: BotMessage }
@@ -238,9 +286,12 @@ export type BotAction =
       membershipId: string | null
       message?: string | null
       pause?: BotPause
+      note?: string | null
     }
   | { kind: 'status'; status: 'OPEN' | 'ON_HOLD' | 'CLOSED' }
-  | { kind: 'contact'; field: 'name' | 'email'; value: string }
+  | { kind: 'pause' }
+  /** name, email or the key of a custom field. */
+  | { kind: 'contact'; field: string; value: string }
 
 export interface SimulationSession {
   /** null: the flow ended; what the customer writes gets the fallback text. */
@@ -252,6 +303,15 @@ export interface SimulationSession {
 export interface Simulation {
   actions: BotAction[]
   session: SimulationSession | null
+}
+
+/** «Probar conexión» of a «Consulta API». */
+export interface ApiTestResult {
+  ok: boolean
+  status: number
+  error: string | null
+  body: string
+  values: { variable: string; value: string }[]
 }
 
 const base = (workspaceId: string) => `/workspaces/${encodeURIComponent(workspaceId)}/chatbots`
@@ -321,6 +381,12 @@ export const chatbotsApi = {
     return apiRequest<Simulation>(`${base(workspaceId)}/simulate`, {
       method: 'POST',
       body: input,
+    })
+  },
+  testRequest(workspaceId: string, api: NodeData['api'], sample: Record<string, string>) {
+    return apiRequest<ApiTestResult>(`${base(workspaceId)}/test-request`, {
+      method: 'POST',
+      body: { api, sample },
     })
   },
 }

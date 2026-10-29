@@ -1,8 +1,11 @@
 import '@xyflow/react/dist/style.css'
+import AddRounded from '@mui/icons-material/AddRounded'
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded'
 import ChatOutlined from '@mui/icons-material/ChatOutlined'
 import DataObjectRounded from '@mui/icons-material/DataObjectRounded'
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded'
+import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded'
+import FullscreenRounded from '@mui/icons-material/FullscreenRounded'
 import SaveOutlined from '@mui/icons-material/SaveOutlined'
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
@@ -18,6 +21,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Popover,
   Stack,
   Switch,
@@ -61,12 +65,15 @@ import {
   defaultData,
   EDGE_DEFAULTS,
   fromGraph,
+  lockedTargets,
   NODE_COLORS,
+  NODE_KINDS,
   newId,
   outputsOf,
-  waitsForAnswer,
   PALETTE,
   toGraph,
+  userMessages,
+  waitsForAnswer,
   type EditorEdge,
   type EditorNode,
 } from '../../../components/chatbots/flow-model'
@@ -76,7 +83,7 @@ import { NodeIcon } from '../../../components/chatbots/node-icons'
 import { TestChat } from '../../../components/chatbots/TestChat'
 import { VariablesDialog } from '../../../components/chatbots/VariablesDialog'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
-import { useTags, useWorkspaceId } from '../../../components/contacts/useContacts'
+import { useContactFields, useTags, useWorkspaceId } from '../../../components/contacts/useContacts'
 import { useChatColors } from '../../../components/inbox/chat-colors'
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle'
 import { useFillHeight } from '../../../hooks/useFillHeight'
@@ -94,9 +101,7 @@ import { ApiError, errorMessage } from '../../../lib/api/errors'
 import { teamApi } from '../../../lib/api/team'
 
 const t = es.chatbots.editor
-const NODE_TYPES = Object.fromEntries(
-  (['start', ...PALETTE] as NodeKind[]).map((kind) => [kind, FlowNodeCard]),
-)
+const NODE_TYPES = Object.fromEntries(NODE_KINDS.map((kind) => [kind, FlowNodeCard]))
 const EDGE_TYPES = { deletable: DeletableEdge }
 const DRAG_TYPE = 'application/x-chatbot-node'
 
@@ -157,13 +162,29 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
   const [issues, setIssues] = useState<FlowIssue[]>(chatbot.issues)
   const [dirty, setDirty] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
+  // The side panel has changes not applied yet: opening another card asks first.
+  const [draftDirty, setDraftDirty] = useState(false)
+  const [pendingEdit, setPendingEdit] = useState<{ id: string | null } | null>(null)
+  const openEditor = useCallback(
+    (id: string | null) => {
+      if (id === editing) return
+      if (draftDirty) setPendingEdit({ id })
+      else setEditing(id)
+    },
+    [editing, draftDirty],
+  )
   const [testing, setTesting] = useState(params.get('probar') === '1')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [linesOpen, setLinesOpen] = useState(false)
   const [variablesOpen, setVariablesOpen] = useState(false)
   const [issuesAnchor, setIssuesAnchor] = useState<HTMLElement | null>(null)
+  const [paletteAnchor, setPaletteAnchor] = useState<HTMLElement | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
+  const frame = useRef<HTMLDivElement | null>(null)
+  const [frameElement, setFrameElement] = useState<HTMLDivElement | null>(null)
 
   const tags = useTags()
+  const fields = useContactFields(workspaceId, has('contacts.read'))
   const members = useQuery({
     queryKey: ['team', workspaceId, 'members', { status: 'ACTIVE' }],
     queryFn: () => teamApi.members(workspaceId, { status: 'ACTIVE' }),
@@ -251,7 +272,7 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
         selected: true,
       },
     ])
-    setEditing(id)
+    openEditor(id)
     setDirty(true)
   }
 
@@ -277,11 +298,55 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
     setDirty(true)
   }
 
-  const deleteNode = (id: string) => {
-    setNodes((current) => current.filter((node) => node.id !== id))
-    setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id))
-    setEditing(null)
-    setDirty(true)
+  const deleteNode = useCallback(
+    (id: string) => {
+      setNodes((current) => current.filter((node) => node.id !== id))
+      setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id))
+      setEditing((current) => (current === id ? null : current))
+      setDirty(true)
+    },
+    [setNodes, setEdges],
+  )
+
+  /** A copy beside it, without connections; options and rules get new ids. */
+  const duplicateNode = useCallback(
+    (id: string) => {
+      const node = latest.current.nodes.find((item) => item.id === id)
+      if (!node || node.type === 'start') return
+      const copy = structuredClone(node.data)
+      if (Array.isArray(copy.options))
+        copy.options = (copy.options as { id: string }[]).map((option) => ({
+          ...option,
+          id: newId('o'),
+        }))
+      if (Array.isArray(copy.rules))
+        copy.rules = (copy.rules as { id: string }[]).map((rule) => ({ ...rule, id: newId('c') }))
+      const copyId = newId('n')
+      setNodes((current) => [
+        ...current.map((item) => ({ ...item, selected: false })),
+        {
+          id: copyId,
+          type: node.type,
+          position: { x: node.position.x + 40, y: node.position.y + 40 },
+          data: copy,
+          selected: true,
+        },
+      ])
+      openEditor(copyId)
+      setDirty(true)
+    },
+    [setNodes, openEditor],
+  )
+
+  // Fullscreen of the editor itself, so the panel and dialogs stay usable.
+  useEffect(() => {
+    const sync = () => setFullscreen(document.fullscreenElement === frame.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen?.()
+    else void frame.current?.requestFullscreen?.()
   }
 
   // ─── Saving ───
@@ -343,17 +408,33 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
   }, [issues])
   const errors = issues.filter((issue) => issue.level === 'error').length
   const warnings = issues.length - errors
+  const openers = useMemo(() => userMessages(nodes, edges), [nodes, edges])
   const context = useMemo(
     () => ({
       issues: byNode,
       tags: new Map((tags.data ?? []).map((tag) => [tag.id, tag])),
-      onEdit: setEditing,
+      userMessages: openers,
+      onEdit: openEditor,
+      onDuplicate: duplicateNode,
+      onDelete: deleteNode,
       variables: current.variables,
       contactVariables: current.contactVariables,
+      contactFields: fields.data ?? [],
       onOpenVariables: () => setVariablesOpen(true),
       lineIds: current.lines.map((line) => line.id),
     }),
-    [byNode, tags.data, current.variables, current.contactVariables, current.lines],
+    [
+      byNode,
+      tags.data,
+      openers,
+      openEditor,
+      duplicateNode,
+      deleteNode,
+      current.variables,
+      current.contactVariables,
+      fields.data,
+      current.lines,
+    ],
   )
   // Settings, lines and variables are saved apart from the flow on the canvas.
   const keepGraph = (saved: Chatbot) => {
@@ -368,7 +449,7 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
   const focusNode = (id: string) => {
     setNodes((current) => current.map((node) => ({ ...node, selected: node.id === id })))
     void fitView({ nodes: [{ id }], duration: 300, maxZoom: 1.2 })
-    setEditing(id)
+    openEditor(id)
   }
 
   const onDrop = (event: DragEvent) => {
@@ -381,9 +462,13 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
   return (
     <FlowEditorContext.Provider value={context}>
       <Box
-        ref={fillRef}
+        ref={(element: HTMLDivElement | null) => {
+          fillRef.current = element
+          frame.current = element
+          setFrameElement(element)
+        }}
         sx={{
-          height: height ?? 600,
+          height: fullscreen ? '100vh' : (height ?? 600),
           display: 'flex',
           flexDirection: 'column',
           border: 1,
@@ -416,9 +501,21 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
             {current.name}
           </Typography>
           <FormControlLabel
-            sx={{ ml: 1 }}
+            sx={{
+              ml: 1,
+              pr: 1.25,
+              borderRadius: 999,
+              bgcolor: current.enabled ? 'rgba(34, 197, 94, 0.14)' : 'action.hover',
+              '& .MuiFormControlLabel-label': {
+                fontWeight: 700,
+                fontSize: 14,
+                color: current.enabled ? 'success.dark' : 'text.secondary',
+              },
+            }}
             control={
               <Switch
+                size="small"
+                color="success"
                 checked={current.enabled}
                 disabled={save.isPending}
                 onChange={(event) => save.mutate({ enabled: event.target.checked })}
@@ -437,13 +534,16 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
           />
           <Box sx={{ flex: 1 }} />
           <Typography variant="caption" color={dirty ? 'warning.main' : 'text.secondary'}>
-            {save.isPending ? t.saving : dirty ? t.unsaved : t.saved}
+            {save.isPending ? t.saving : draftDirty ? t.notApplied : dirty ? t.unsaved : t.saved}
           </Typography>
           <Button
             size="small"
+            variant="contained"
+            color="info"
+            disableElevation
             startIcon={<ChatOutlined />}
             onClick={() => {
-              setEditing(null)
+              openEditor(null)
               setTesting(true)
             }}
           >
@@ -463,9 +563,20 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
           >
             {t.settings}
           </Button>
+          <Tooltip title={fullscreen ? t.exitFullscreen : t.fullscreen}>
+            <IconButton
+              size="small"
+              aria-label={fullscreen ? t.exitFullscreen : t.fullscreen}
+              onClick={toggleFullscreen}
+            >
+              {fullscreen ? <FullscreenExitRounded /> : <FullscreenRounded />}
+            </IconButton>
+          </Tooltip>
           <Button
             size="small"
             variant="contained"
+            color="success"
+            disableElevation
             startIcon={<SaveOutlined />}
             disabled={save.isPending || !dirty}
             onClick={() => save.mutate({})}
@@ -476,7 +587,7 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
         <Box sx={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
           <Box
             ref={canvas}
-            sx={{ flex: 1, minWidth: 0 }}
+            sx={{ flex: 1, minWidth: 0, position: 'relative' }}
             onDragOver={(event) => {
               event.preventDefault()
               event.dataTransfer.dropEffect = 'move'
@@ -493,7 +604,7 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
               onEdgesChange={handleEdgesChange}
               onConnect={onConnect}
               isValidConnection={isValidConnection}
-              onNodeDoubleClick={(_, node) => setEditing(node.id)}
+              onNodeDoubleClick={(_, node) => openEditor(node.id)}
               deleteKeyCode={['Delete', 'Backspace']}
               selectionKeyCode="Shift"
               multiSelectionKeyCode={['Meta', 'Control']}
@@ -508,17 +619,24 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
               <Controls />
               <MiniMap pannable zoomable nodeColor={(node) => NODE_COLORS[node.type as NodeKind]} />
             </ReactFlow>
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<AddRounded />}
+              aria-haspopup="dialog"
+              onClick={(event) => setPaletteAnchor(event.currentTarget)}
+              sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5, borderRadius: 999 }}
+            >
+              {t.addNode}
+            </Button>
           </Box>
           <Box
             sx={{
-              width: { xs: '100%', md: 360 },
+              width: { xs: '100%', md: 380 },
               position: { xs: 'absolute', md: 'static' },
               inset: { xs: 0, md: 'auto' },
-              zIndex: 5,
-              display: {
-                xs: editingNode || testing ? 'block' : 'none',
-                md: 'block',
-              },
+              zIndex: 6,
+              display: editingNode || testing ? 'block' : 'none',
               borderLeft: 1,
               borderColor: 'divider',
               bgcolor: 'background.paper',
@@ -531,19 +649,13 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
                 workspaceId={workspaceId}
                 chatbotId={chatbot.id}
                 node={editingNode}
-                triggerLocked={edges.some(
-                  (edge) =>
-                    edge.target === editingNode.id &&
-                    !waitsForAnswer(
-                      nodes.find((item) => item.id === edge.source)?.type,
-                      nodes.find((item) => item.id === edge.source)?.data ?? {},
-                    ),
-                )}
+                triggerLocked={lockedTargets(nodes, edges).has(editingNode.id)}
                 tags={tags.data ?? []}
                 members={memberList}
-                onChange={(data) => updateData(editingNode.id, data)}
+                onApply={(data) => updateData(editingNode.id, data)}
                 onDelete={() => deleteNode(editingNode.id)}
                 onClose={() => setEditing(null)}
+                onDirtyChange={setDraftDirty}
               />
             ) : null}
             {/* Kept mounted so the test chat survives editing a node. */}
@@ -556,15 +668,32 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
                   variables={current.variables}
                   tags={tags.data ?? []}
                   members={memberList}
+                  fields={fields.data ?? []}
                   onClose={() => setTesting(false)}
                 />
               )}
             </Box>
-            {!editingNode && !testing && <Palette onAdd={(kind) => addNode(kind)} />}
           </Box>
         </Box>
       </Box>
 
+      <Popover
+        open={!!paletteAnchor}
+        anchorEl={paletteAnchor}
+        onClose={() => setPaletteAnchor(null)}
+        container={frameElement}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{ paper: { sx: { width: 320, maxHeight: 520 } } }}
+      >
+        <Palette
+          onAdd={(kind) => {
+            setPaletteAnchor(null)
+            addNode(kind)
+          }}
+          onDragStart={() => setPaletteAnchor(null)}
+        />
+      </Popover>
       <Popover
         open={!!issuesAnchor}
         anchorEl={issuesAnchor}
@@ -632,6 +761,19 @@ function FlowEditor({ workspaceId, chatbot }: { workspaceId: string; chatbot: Ch
         />
       )}
       <ConfirmDialog
+        open={!!pendingEdit}
+        title={es.chatbots.editor.discardTitle}
+        confirmLabel={es.chatbots.editor.discard}
+        danger
+        onClose={() => setPendingEdit(null)}
+        onConfirm={() => {
+          setEditing(pendingEdit?.id ?? null)
+          setPendingEdit(null)
+        }}
+      >
+        {es.chatbots.editor.discardBody}
+      </ConfirmDialog>
+      <ConfirmDialog
         open={blocker.state === 'blocked'}
         title={t.leaveTitle}
         confirmLabel={t.leave}
@@ -673,41 +815,55 @@ function LinesDialog({
   )
 }
 
-/** "Opciones de respuesta": what can be added to the flow, as in wasapi. */
-function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
+/** «Agregar nodo»: the widgets by group, as in wasapi. Click, or drag to the canvas. */
+function Palette({
+  onAdd,
+  onDragStart,
+}: {
+  onAdd: (kind: NodeKind) => void
+  onDragStart: () => void
+}) {
   return (
-    <Stack sx={{ height: '100%' }} aria-label={t.palette}>
-      <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+    <Box role="dialog" aria-label={t.palette}>
+      <Box sx={{ px: 2, pt: 1.5, pb: 1 }}>
         <Typography sx={{ fontWeight: 700 }}>{t.palette}</Typography>
         <Typography variant="caption" color="text.secondary">
           {t.paletteHelp}
         </Typography>
       </Box>
-      <List dense sx={{ overflowY: 'auto', flex: 1, px: 1 }}>
-        {PALETTE.map((kind) => (
-          <ListItemButton
-            key={kind}
-            draggable
-            onDragStart={(event) => {
-              event.dataTransfer.setData(DRAG_TYPE, kind)
-              event.dataTransfer.effectAllowed = 'move'
-            }}
-            onClick={() => onAdd(kind)}
-            sx={{ border: 1, borderColor: 'divider', borderRadius: 1, mb: 0.75 }}
-          >
-            <ListItemIcon sx={{ minWidth: 36 }}>
-              <NodeIcon kind={kind} sx={{ color: NODE_COLORS[kind] }} />
-            </ListItemIcon>
-            <ListItemText
-              primary={es.chatbots.nodes[kind].label}
-              secondary={es.chatbots.nodes[kind].help}
-            />
-          </ListItemButton>
+      <List dense sx={{ px: 1, pt: 0 }}>
+        {PALETTE.map(({ group, kinds }) => (
+          <Box key={group}>
+            <ListSubheader sx={{ lineHeight: '32px', fontWeight: 700 }}>
+              {t.groups[group]}
+            </ListSubheader>
+            {kinds.map((kind) => (
+              <ListItemButton
+                key={kind}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(DRAG_TYPE, kind)
+                  event.dataTransfer.effectAllowed = 'move'
+                  onDragStart()
+                }}
+                onClick={() => onAdd(kind)}
+                sx={{ borderRadius: 1 }}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <NodeIcon kind={kind} sx={{ color: NODE_COLORS[kind] }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={es.chatbots.nodes[kind].label}
+                  secondary={es.chatbots.nodes[kind].help}
+                />
+              </ListItemButton>
+            ))}
+          </Box>
         ))}
       </List>
-      <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1 }}>
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ px: 2, pb: 1.5 }}>
         {t.selectHelp}
       </Typography>
-    </Stack>
+    </Box>
   )
 }
