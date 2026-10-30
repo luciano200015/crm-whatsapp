@@ -289,12 +289,17 @@ describe('Inbox (e2e)', () => {
       .expect(200);
   }
 
-  const conversations = async (session: Session, query = '') =>
-    (
-      (await api(session).get(`/conversations${query}`).expect(200)).body as {
+  // New chats wait in «En espera» (ON_HOLD) until someone takes them, so
+  // the list shows every status unless the test picks one.
+  const conversations = async (session: Session, query = '') => {
+    const params = new URLSearchParams(query.replace(/^\?/, ''));
+    if (!params.has('status')) params.set('status', 'ALL');
+    return (
+      (await api(session).get(`/conversations?${params}`).expect(200)).body as {
         items: ConversationBody[];
       }
     ).items;
+  };
 
   it('turns incoming WhatsApp messages into contacts and conversations, idempotently', async () => {
     const owner = await signUp();
@@ -312,9 +317,10 @@ describe('Inbox (e2e)', () => {
 
     const [conversation, ...others] = await conversations(owner, '?view=all');
     expect(others).toEqual([]);
+    // Nobody took it: it waits in «En espera».
     expect(conversation).toMatchObject({
       lineName: 'Ventas',
-      status: 'OPEN',
+      status: 'ON_HOLD',
       contact: { name: 'Lucía', phone: '+59171234567' },
       assignee: null,
       lastMessage: { text: '¿Tienen stock?', direction: 'IN' },
@@ -342,7 +348,9 @@ describe('Inbox (e2e)', () => {
       .post(`/conversations/${conversation?.id}/close`)
       .expect(200);
     await incoming(line, '59171234567', 'Hola', { waMessageId: 'wamid.same' });
-    expect(await conversations(owner, '?view=all')).toHaveLength(0);
+    expect(
+      (await conversations(owner, '?view=all')).map((chat) => chat.status),
+    ).toEqual(['CLOSED']);
   });
 
   it('auto-assigns new conversations in turns and limits what agents see', async () => {
@@ -451,13 +459,13 @@ describe('Inbox (e2e)', () => {
     // Oldest first, page by page.
     const first = (
       await api(owner)
-        .get('/conversations?view=all&sort=oldest&limit=2')
+        .get('/conversations?view=all&status=ALL&sort=oldest&limit=2')
         .expect(200)
     ).body as { items: ConversationBody[]; nextCursor: string };
     const second = (
       await api(owner)
         .get(
-          `/conversations?view=all&sort=oldest&limit=2&cursor=${first.nextCursor}`,
+          `/conversations?view=all&status=ALL&sort=oldest&limit=2&cursor=${first.nextCursor}`,
         )
         .expect(200)
     ).body as { items: ConversationBody[] };
@@ -479,7 +487,9 @@ describe('Inbox (e2e)', () => {
       mine: 1,
       mineOnHold: 0,
       mineClosed: 0,
-      all: 2,
+      // The one nobody took waits in «En espera».
+      all: 1,
+      onHold: 1,
     });
   });
 
@@ -572,7 +582,7 @@ describe('Inbox (e2e)', () => {
     await incoming(line, '59170000030', 'Volví');
     const all = await conversations(owner, '?view=all&status=ALL');
     expect(all).toHaveLength(1);
-    expect(all[0]).toMatchObject({ id: chat?.id, status: 'OPEN' });
+    expect(all[0]).toMatchObject({ id: chat?.id, status: 'ON_HOLD' });
   });
 
   it('keeps one chat per contact: reopened unassigned when the customer writes again', async () => {
@@ -589,7 +599,7 @@ describe('Inbox (e2e)', () => {
     const [again] = await conversations(owner, '?view=all&status=ALL');
     expect(again).toMatchObject({
       id: chat?.id,
-      status: 'OPEN',
+      status: 'ON_HOLD',
       assignee: null,
     });
     const history = (
@@ -628,7 +638,7 @@ describe('Inbox (e2e)', () => {
     expect(held.body).toMatchObject({ status: 'ON_HOLD' });
     await incoming(line, '59170000091', '¿Alguna novedad?');
 
-    expect(await conversations(owner, '?view=all')).toHaveLength(0);
+    expect(await conversations(owner, '?view=all&status=OPEN')).toHaveLength(0);
     const waiting = await conversations(owner, '?view=all&status=ON_HOLD');
     expect(waiting).toHaveLength(1);
     expect(waiting[0]).toMatchObject({ id: chat?.id, unreadCount: 2 });
@@ -641,7 +651,7 @@ describe('Inbox (e2e)', () => {
       .post(`/conversations/${chat?.id}/messages`, { text: 'Ya casi' })
       .expect(201);
     await api(owner).post(`/conversations/${chat?.id}/reopen`).expect(200);
-    expect(await conversations(owner, '?view=all')).toHaveLength(1);
+    expect(await conversations(owner, '?view=all&status=OPEN')).toHaveLength(1);
   });
 
   it('applies the chat module settings: assignment, transfers, signature and closing message', async () => {
@@ -673,7 +683,7 @@ describe('Inbox (e2e)', () => {
     // Nobody has the inbox open: the chat waits unassigned.
     await incoming(line, '59170000201', 'Hola');
     const [waiting] = await conversations(owner, '?view=all');
-    expect(waiting?.assignee).toBeNull();
+    expect(waiting).toMatchObject({ status: 'ON_HOLD', assignee: null });
 
     // Ana opens the inbox: new chats go to her, Beto is away.
     const server = t.app.getHttpServer() as unknown as Server;
@@ -736,7 +746,17 @@ describe('Inbox (e2e)', () => {
       const reopened = (await conversations(owner, '?view=all')).find(
         (chat) => chat.id === waiting?.id,
       );
-      expect(reopened?.assignee?.name).toBe('Beto Agente');
+      expect(reopened).toMatchObject({
+        status: 'OPEN',
+        assignee: { name: 'Beto Agente' },
+      });
+      // A brand-new contact has no regular agent: it waits in «En espera»,
+      // even with Ana connected.
+      await incoming(line, '59170000209', 'Soy nuevo');
+      const brandNew = (await conversations(owner, '?view=all')).find(
+        (chat) => chat.contact.phone === '+59170000209',
+      );
+      expect(brandNew).toMatchObject({ status: 'ON_HOLD', assignee: null });
       // «Atendiendo ahora» shows who has the chat.
       const attending = await api(owner)
         .get(`/contacts/${waiting?.contactId}/agents`)
@@ -884,13 +904,12 @@ describe('Inbox (e2e)', () => {
     await incoming(line, '59170000094', 'Buenas');
     // Newest first: the chat with two messages is the second one.
     const [second, first] = await conversations(owner, '?view=all');
-    await api(owner).post(`/conversations/${first?.id}/hold`).expect(200);
 
-    // Messages, not chats: 2 waiting on hold and 1 open.
+    // Messages, not chats: new chats wait on hold until someone accepts them.
     let counts = (await api(ana).get('/conversations/counts').expect(200))
       .body as Record<string, unknown>;
     expect(counts).toMatchObject({
-      unreadByStatus: { OPEN: 1, ON_HOLD: 2, CLOSED: 0 },
+      unreadByStatus: { OPEN: 0, ON_HOLD: 3, CLOSED: 0 },
       mineUnreadByStatus: { OPEN: 0, ON_HOLD: 0, CLOSED: 0 },
     });
 
@@ -1210,19 +1229,31 @@ describe('Inbox (e2e)', () => {
     const [first] = await conversations(owner, '?view=all');
     await api(owner).post(`/conversations/${first?.id}/close`).expect(200);
 
-    expect(await conversations(owner, '?view=all')).toHaveLength(1);
+    expect(await conversations(owner, '?view=all&status=ON_HOLD')).toHaveLength(
+      1,
+    );
     expect(await conversations(owner, '?view=all&status=CLOSED')).toHaveLength(
       1,
     );
     expect(await conversations(owner, '?view=all&status=ALL')).toHaveLength(2);
     const counts = (await api(owner).get('/conversations/counts').expect(200))
       .body as Record<string, number>;
-    expect(counts).toMatchObject({ all: 1, closed: 1 });
+    expect(counts).toMatchObject({ all: 0, onHold: 1, closed: 1 });
 
-    const [open] = await conversations(owner, '?view=all');
-    await api(owner).post(`/conversations/${open?.id}/read`).expect(200);
+    // Nobody took it: opening it does not read it, for anyone.
+    const [waiting] = await conversations(owner, '?view=all&status=ON_HOLD');
+    const notRead = await api(owner)
+      .post(`/conversations/${waiting?.id}/read`)
+      .expect(200);
+    expect(notRead.body).toMatchObject({ unreadCount: 1 });
+    // Taking it opens it; then it can be read.
+    await api(owner).post(`/conversations/${waiting?.id}/take`).expect(200);
+    const read = await api(owner)
+      .post(`/conversations/${waiting?.id}/read`)
+      .expect(200);
+    expect(read.body).toMatchObject({ status: 'OPEN', unreadCount: 0 });
     const unread = await api(owner)
-      .post(`/conversations/${open?.id}/unread`)
+      .post(`/conversations/${waiting?.id}/unread`)
       .expect(200);
     expect(unread.body).toMatchObject({ unreadCount: 1 });
   });
@@ -1698,7 +1729,7 @@ describe('Inbox (e2e)', () => {
     expect(await messageTexts(owner, after?.id)).toEqual(['Volví', 'Hola']);
     const history = (
       await api(owner)
-        .get(`/conversations?view=all&contactId=${after?.contactId}`)
+        .get(`/conversations?view=all&status=ALL&contactId=${after?.contactId}`)
         .expect(200)
     ).body as { items: ConversationBody[] };
     expect(history.items.map((chat) => chat.id)).toEqual([before?.id]);

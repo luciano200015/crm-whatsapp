@@ -80,6 +80,8 @@ export function ConversationPanel({
     retry: false,
   })
   const conversation = current.data
+  // A chat waiting for someone to take it is not read by opening it.
+  const waiting = !!conversation && !conversation.assignee && conversation.status !== 'CLOSED'
   const messages = useInfiniteQuery({
     queryKey: inboxKeys.messages(workspaceId, id),
     queryFn: ({ pageParam, signal }) => inboxApi.messages(workspaceId, id, pageParam, signal),
@@ -196,8 +198,9 @@ export function ConversationPanel({
   })
 
   // Opening a chat reads it (but not right after "Marcar como no leído").
+  // Like wasapi, a chat nobody took stays unread for everyone until someone takes it.
   useEffect(() => {
-    if (!conversation?.unreadCount || current.error || action.isPending) return
+    if (!conversation?.unreadCount || waiting || current.error || action.isPending) return
     if (action.variables?.name === 'unread' && action.isSuccess) return
     let active = true
     void inboxApi
@@ -215,6 +218,7 @@ export function ConversationPanel({
     workspaceId,
     id,
     conversation?.unreadCount,
+    waiting,
     current.error,
     client,
     enqueueSnackbar,

@@ -259,7 +259,8 @@ describe('Chatbots (e2e)', () => {
 
   async function chatOf(owner: Session, line: Line) {
     const page = await api(owner)
-      .get(`/conversations?view=all&lineId=${line.id}`)
+      // New chats wait in «En espera» (ON_HOLD): look at every status.
+      .get(`/conversations?view=all&status=ALL&lineId=${line.id}`)
       .expect(200);
     return (page.body as { items: ConversationBody[] })
       .items[0] as ConversationBody;

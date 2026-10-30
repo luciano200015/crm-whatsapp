@@ -145,6 +145,22 @@ export class InboxIngestService extends WhatsAppEventsSink {
       }
     }
 
+    // Nobody got it: like wasapi, it waits in «En espera» (the chatbot may
+    // attend it there) until an agent accepts it.
+    if (
+      (created || reopened) &&
+      !updated.assignee &&
+      updated.status === 'OPEN'
+    ) {
+      const waiting = await this.store.setStatus(
+        workspaceId,
+        conversation.id,
+        'ON_HOLD',
+        inbound.timestamp,
+      );
+      if (waiting && waiting !== 'already_open') updated = waiting;
+    }
+
     this.events.emit({
       workspaceId,
       type: 'message.created',

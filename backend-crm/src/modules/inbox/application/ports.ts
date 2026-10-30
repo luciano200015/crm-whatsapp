@@ -330,8 +330,11 @@ export abstract class InboxStore {
     conversationId: string,
     status: ConversationStatus,
     at: Date,
-    /** keepUnread: closed by a chatbot, so its unread messages stay unread. */
-    options?: { keepUnread?: boolean },
+    /**
+     * keepUnread: closed by a chatbot, so its unread messages stay unread.
+     * keepActivity: opened without moving the chat up the list.
+     */
+    options?: { keepUnread?: boolean; keepActivity?: boolean },
   ): Promise<ConversationRecord | 'already_open' | null>;
   abstract markRead(
     workspaceId: string,

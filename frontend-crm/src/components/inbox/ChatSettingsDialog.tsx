@@ -223,17 +223,17 @@ function SettingsForm({
               <Choice
                 value="NONE"
                 label="No habilitado"
-                help="Los chats nuevos quedan sin asignar y los agentes los toman."
+                help="Todos los chats nuevos entran a En espera y cada agente acepta el que quiera."
               />
               <Choice
                 value="LEAST_BUSY"
                 label="Autoasignar conversación"
-                help="Al agente de la línea con menos chats abiertos entre los que tienen la bandeja abierta. Si no hay nadie conectado, el chat espera sin asignar."
+                help="Al agente de la línea con menos chats abiertos entre los que tienen la bandeja abierta. Si no hay nadie conectado, el chat queda En espera."
               />
               <Choice
                 value="CONTACT_AGENT"
                 label="Asignar según el agente registrado"
-                help="Al agente regular del contacto (se elige en el panel del contacto). Sin agente regular, se autoasigna como en la opción anterior."
+                help="Al agente regular del contacto (se elige en el panel del contacto). Si el contacto es nuevo o no tiene agente regular, el chat queda En espera."
               />
             </RadioGroup>
             {form.assignment.mode !== 'NONE' && (

@@ -318,7 +318,7 @@ describe('Funnels (e2e)', () => {
     await incoming(other, '59171000003', 'Nadia');
     const chats = (
       await api(owner)
-        .get(`/conversations?view=all&lineId=${other.id}`)
+        .get(`/conversations?view=all&status=ALL&lineId=${other.id}`)
         .expect(200)
     ).body as { items: unknown[] };
     expect(chats.items).toHaveLength(1);
@@ -329,7 +329,11 @@ describe('Funnels (e2e)', () => {
     const lucia = column(view, 'Nuevo')?.leads.find(
       (lead) => lead.contact?.name === 'Lucía',
     ) as Lead;
-    expect(lucia.conversation).toMatchObject({ status: 'OPEN', visible: true });
+    // Nobody took it yet: it waits in «En espera».
+    expect(lucia.conversation).toMatchObject({
+      status: 'ON_HOLD',
+      visible: true,
+    });
     expect(lucia.conversation?.lastMessage?.text).toBe('Hola');
 
     // Writing again does not add it twice.
@@ -492,11 +496,14 @@ describe('Funnels (e2e)', () => {
     await incoming(line, '59173000002', 'Cerrada');
     const chats = (
       await api(owner)
-        .get(`/conversations?view=all&lineId=${line.id}`)
+        .get(`/conversations?view=all&status=ALL&lineId=${line.id}`)
         .expect(200)
     ).body as { items: { id: string; contact: { name: string } }[] };
     const closed = chats.items.find((chat) => chat.contact.name === 'Cerrada');
+    const taken = chats.items.find((chat) => chat.contact.name === 'Abierta');
     await api(owner).post(`/conversations/${closed?.id}/close`).expect(200);
+    // Taking it moves it from «En espera» to Abierto.
+    await api(owner).post(`/conversations/${taken?.id}/take`).expect(200);
 
     const funnel = await newFunnel(owner, line);
     const rules = [
@@ -538,7 +545,7 @@ describe('Funnels (e2e)', () => {
             stageId: stageId(funnel, 'Cerrado'),
           },
           {
-            status: 'OPEN',
+            status: 'ON_HOLD',
             funnelId: funnel.id,
             stageId: stageId(funnel, 'Nuevo'),
           },
@@ -570,7 +577,8 @@ describe('Funnels (e2e)', () => {
     expect(column(view, 'Cerrado')?.count).toBe(2);
     expect(column(view, 'Esperando cliente')?.count).toBe(0);
 
-    // The customer writes to the closed chat: it reopens and the OPEN rule applies, once.
+    // The customer writes to the closed chat: it comes back waiting in
+    // «En espera» and the ON_HOLD rule applies, once.
     await incoming(line, '59173000001', 'Abierta', 'Volví');
     view = await board(owner, funnel);
     expect(column(view, 'Nuevo')?.count).toBe(1);

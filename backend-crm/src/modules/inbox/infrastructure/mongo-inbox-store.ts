@@ -601,7 +601,7 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
     conversationId: string,
     status: ConversationStatus,
     at: Date,
-    options: { keepUnread?: boolean } = {},
+    options: { keepUnread?: boolean; keepActivity?: boolean } = {},
   ): Promise<ConversationRecord | 'already_open' | null> {
     const _id = objectId(conversationId);
     if (!_id) return null;
@@ -619,7 +619,13 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
               }
             : status === 'ON_HOLD'
               ? { $set: { status, closedAt: null } }
-              : { $set: { status, closedAt: null, lastActivityAt: at } },
+              : {
+                  $set: {
+                    status,
+                    closedAt: null,
+                    ...(!options.keepActivity && { lastActivityAt: at }),
+                  },
+                },
           { returnDocument: 'after' },
         )
         .lean<ConversationDocument>();

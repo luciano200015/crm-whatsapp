@@ -327,6 +327,20 @@ describe('Inbox', () => {
     )
   })
 
+  it('does not read a chat nobody took until someone takes it', async () => {
+    renderAt()
+    const user = userEvent.setup()
+
+    await screen.findByLabelText('Escribir respuesta')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tomar chat' })).toBeEnabled())
+    expect(actions.map((action) => action.name)).not.toContain('read')
+    await user.click(screen.getByRole('button', { name: 'Tomar chat' }))
+    await waitFor(() => expect(actions.map((action) => action.name)).toContain('read'))
+    expect(actions.map((action) => action.name).indexOf('take')).toBeLessThan(
+      actions.map((action) => action.name).indexOf('read'),
+    )
+  })
+
   it('«Aceptar» takes a chat on hold and opens it', async () => {
     chat = { ...chat, status: 'ON_HOLD' }
     renderAt('/inbox')

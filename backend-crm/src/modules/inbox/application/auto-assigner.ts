@@ -84,6 +84,8 @@ export class AutoAssigner {
       if (regular && (regular.viewAll || regular.lineIds.includes(lineId))) {
         return toAssignee(regular);
       }
+      // Like wasapi: a contact without a regular agent waits in «En espera».
+      return null;
     }
 
     const connected = this.presence.connectedUserIds(workspaceId);

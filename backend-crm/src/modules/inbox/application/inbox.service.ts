@@ -933,7 +933,12 @@ export class InboxService {
         };
       }
     }
-    await this.store.setAssignee(workspaceId, conversationId, assignee);
+    const assigned = await this.store.setAssignee(
+      workspaceId,
+      conversationId,
+      assignee,
+    );
+    if (assigned) await this.openIfWaiting(assigned, conversation);
     const until = pauseEnd(target.pause, this.clock.now());
     const updated =
       (await this.store.setBot(workspaceId, conversationId, {
@@ -1276,12 +1281,13 @@ export class InboxService {
         name: member.name,
       };
     }
-    const updated = await this.store.setAssignee(
+    const assigned = await this.store.setAssignee(
       workspaceId,
       conversationId,
       assignee,
     );
-    if (!updated) throw InboxErrors.conversationNotFound();
+    if (!assigned) throw InboxErrors.conversationNotFound();
+    const updated = await this.openIfWaiting(assigned, conversation);
     this.emitConversation(updated, conversation);
     await this.timeline.assignment(
       updated,
@@ -1320,13 +1326,14 @@ export class InboxService {
     }
     if (conversation.assignee) throw InboxErrors.alreadyAssigned();
     const me = await this.me(actor);
-    const updated = await this.store.setAssignee(
+    const taken = await this.store.setAssignee(
       workspaceId,
       conversationId,
       me,
       { onlyIfUnassigned: true },
     );
-    if (!updated) throw InboxErrors.alreadyAssigned();
+    if (!taken) throw InboxErrors.alreadyAssigned();
+    const updated = await this.openIfWaiting(taken, conversation);
     this.emitConversation(updated, conversation);
     await this.timeline.assignment(updated, null, me, 'taken');
     return this.view(updated);
@@ -1416,8 +1423,15 @@ export class InboxService {
     return this.view(updated);
   }
 
+  /**
+   * Opening a chat reads it, but not while it waits for someone to take
+   * it: like wasapi, it stays unread for every agent until someone does.
+   */
   async markRead(actor: InboxActor, conversationId: string) {
-    await this.requireVisible(actor, conversationId);
+    const conversation = await this.requireVisible(actor, conversationId);
+    if (!conversation.assignee && conversation.status !== 'CLOSED') {
+      return this.view(conversation);
+    }
     const updated = await this.store.markRead(
       actor.access.workspaceId,
       conversationId,
@@ -1545,6 +1559,27 @@ export class InboxService {
         usage: limit ?? 0,
       });
     }
+  }
+
+  /**
+   * A chat waiting unassigned in «En espera» that gets an agent goes to
+   * Abierto, like «Aceptar». A chat its agent put on hold stays there.
+   */
+  private async openIfWaiting(
+    updated: ConversationRecord,
+    before: ConversationRecord,
+  ): Promise<ConversationRecord> {
+    if (before.assignee || !updated.assignee || updated.status !== 'ON_HOLD') {
+      return updated;
+    }
+    const opened = await this.store.setStatus(
+      updated.workspaceId,
+      updated.id,
+      'OPEN',
+      this.clock.now(),
+      { keepActivity: true },
+    );
+    return opened && opened !== 'already_open' ? opened : updated;
   }
 
   private emitConversation(

@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
 /**
- * How new chats find an agent («Configuración del módulo de chat»):
- * - NONE: they wait unassigned until someone takes them.
+ * How new chats find an agent («Configuración del módulo de chat»). A chat
+ * nobody gets waits unassigned in «En espera» until someone accepts it.
+ * - NONE: every new chat waits.
  * - LEAST_BUSY: to the agent of the line with the fewest open chats among
- *   those with the inbox open; nobody connected → they wait.
- * - CONTACT_AGENT: to the contact's regular agent; without one, LEAST_BUSY.
+ *   those with the inbox open; nobody connected → it waits.
+ * - CONTACT_AGENT: to the contact's regular agent; without one, it waits.
  */
 export const ASSIGNMENT_MODES = [
   'NONE',
