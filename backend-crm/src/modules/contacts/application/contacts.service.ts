@@ -176,6 +176,7 @@ export class ContactsService {
       fields: present(fields),
     });
     if (created === 'phone_taken') throw ContactsErrors.phoneTaken();
+    this.arrived(workspaceId, [created]);
     return withTags(created, await this.tagIndex(workspaceId));
   }
 
@@ -200,6 +201,7 @@ export class ContactsService {
     });
     if (updated === 'phone_taken') throw ContactsErrors.phoneTaken();
     if (!updated) throw ContactsErrors.contactNotFound();
+    if (input.phone !== undefined) this.arrived(workspaceId, [updated]);
     return withTags(updated, await this.tagIndex(workspaceId));
   }
 
@@ -227,6 +229,14 @@ export class ContactsService {
       targetType: 'contact',
       targetId: contactId,
       context: actor.context,
+    });
+  }
+
+  /** The inbox gives them the chats of deleted contacts with their phone. */
+  private arrived(workspaceId: string, contacts: ContactRecord[]): void {
+    this.events.arrived({
+      workspaceId,
+      contacts: contacts.map(({ id, name, phone }) => ({ id, name, phone })),
     });
   }
 
@@ -374,6 +384,7 @@ export class ContactsService {
     actor: Actor,
   ): Promise<ImportResult> {
     const result: ImportResult = { created: 0, updated: 0, failed: [] };
+    const arrived: ContactRecord[] = [];
     const definitions = await this.fieldsStore.list(workspaceId);
     const tagIds = await this.tagResolver(workspaceId);
 
@@ -432,8 +443,10 @@ export class ContactsService {
         fail('CONTACT_PHONE_TAKEN');
         continue;
       }
+      arrived.push(created);
       result.created++;
     }
+    this.arrived(workspaceId, arrived);
 
     await this.audit.record({
       action: 'contacts.contact.imported',

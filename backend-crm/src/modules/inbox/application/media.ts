@@ -28,6 +28,8 @@ export abstract class MediaStore {
     workspaceId: string,
     fileId: string,
   ): Promise<StoredMedia | null>;
+  /** Removes the file; does nothing when it is not in that workspace. */
+  abstract delete(workspaceId: string, fileId: string): Promise<void>;
 }
 
 export const MAX_MEDIA_BYTES = 16 * 1024 * 1024;

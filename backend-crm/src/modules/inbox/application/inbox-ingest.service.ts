@@ -13,6 +13,7 @@ import { normalizePhone } from '../../contacts/domain/phone';
 import { withinSchedule, type Schedule } from '../../chatbots/domain/schedule';
 import { nextStatus } from '../domain/inbox-rules';
 import { AutoAssigner } from './auto-assigner';
+import { ConversationRelinker } from './conversation-relinker';
 import { ConversationTimeline } from './conversation-timeline';
 import { InboxMediaService } from './inbox-media.service';
 import { InboxEvents } from './inbox-events';
@@ -34,6 +35,7 @@ export class InboxIngestService extends WhatsAppEventsSink {
     private readonly timeline: ConversationTimeline,
     private readonly media: InboxMediaService,
     private readonly autoAssigner: AutoAssigner,
+    private readonly relinker: ConversationRelinker,
   ) {
     super();
   }
@@ -64,6 +66,8 @@ export class InboxIngestService extends WhatsAppEventsSink {
       );
       return;
     }
+    // A deleted contact writing again: its old chat comes back, not a new one.
+    await this.relinker.relink(workspaceId, contact);
     const { conversation, created, reopened } =
       await this.store.openConversation(workspaceId, {
         lineId: line.id,

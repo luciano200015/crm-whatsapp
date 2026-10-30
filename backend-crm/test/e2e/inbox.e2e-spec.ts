@@ -7,6 +7,7 @@ import { seedBilling } from '../../prisma/seed-billing';
 import type { PrismaClient } from '../../src/generated/prisma/client';
 import { signBody } from '../../src/modules/channels/domain/webhook-signature';
 import { textMessagePayload } from '../../src/modules/channels/domain/whatsapp-payload';
+import { InboxStore } from '../../src/modules/inbox/application/ports';
 import {
   clearMongo,
   createTestMongo,
@@ -155,6 +156,7 @@ describe('Inbox (e2e)', () => {
         http().patch(url(path)).set(auth).send(body),
       put: (path: string, body: object) =>
         http().put(url(path)).set(auth).send(body),
+      delete: (path: string) => http().delete(url(path)).set(auth),
     };
   };
 
@@ -1652,5 +1654,211 @@ describe('Inbox (e2e)', () => {
     expect(pending).toBeGreaterThan(-1);
     expect(received.indexOf(`"clientId":"${clientId}"`)).toBeGreaterThan(-1);
     expect(received.indexOf('event: message.updated')).toBeGreaterThan(pending);
+  });
+  /** Retries until the check passes (work that runs after the response). */
+  async function eventually(check: () => Promise<void>): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await check();
+      } catch (error: unknown) {
+        if (attempt >= 40) throw error;
+        await new Promise((done) => setTimeout(done, 50));
+      }
+    }
+  }
+
+  const messageTexts = async (session: Session, conversationId?: string) =>
+    (
+      (
+        await api(session)
+          .get(`/conversations/${conversationId}/messages`)
+          .expect(200)
+      ).body as { items: MessageBody[] }
+    ).items.map((message) => message.text);
+
+  it('gives a deleted contact its chat back when the number writes again', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000801', 'Hola', { name: 'Luciano' });
+    const [before] = await conversations(owner, '?view=all');
+    await api(owner).delete(`/contacts/${before?.contactId}`).expect(204);
+    // The history stays in the inbox, with its copy of the name and phone.
+    expect(await conversations(owner, '?view=all')).toHaveLength(1);
+
+    await incoming(line, '59170000801', 'Volví', { name: 'Luciano' });
+    const [after, ...others] = await conversations(owner, '?view=all');
+    expect(others).toEqual([]);
+    expect(after?.id).toBe(before?.id);
+    expect(after?.contactId).not.toBe(before?.contactId);
+    expect(after).toMatchObject({
+      contact: { name: 'Luciano', phone: '+59170000801' },
+      lastMessage: { text: 'Volví' },
+      unreadCount: 2,
+    });
+    expect(await messageTexts(owner, after?.id)).toEqual(['Volví', 'Hola']);
+    const history = (
+      await api(owner)
+        .get(`/conversations?view=all&contactId=${after?.contactId}`)
+        .expect(200)
+    ).body as { items: ConversationBody[] };
+    expect(history.items.map((chat) => chat.id)).toEqual([before?.id]);
+  });
+
+  it('gives the chat back when the deleted contact is created again by hand', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000802', 'Hola');
+    const [before] = await conversations(owner, '?view=all');
+    await api(owner).delete(`/contacts/${before?.contactId}`).expect(204);
+
+    const created = await api(owner)
+      .post('/contacts', { phone: '+59170000802', name: 'Rosa' })
+      .expect(201);
+    const contactId = (created.body as { id: string }).id;
+    await eventually(async () => {
+      const [chat] = await conversations(owner, '?view=all');
+      expect(chat).toMatchObject({
+        id: before?.id,
+        contactId,
+        contact: { name: 'Rosa', phone: '+59170000802' },
+      });
+    });
+  });
+
+  it('merges a chat left by a deleted contact into the chat the number already has', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000803', 'Primer chat');
+    const [old] = await conversations(owner, '?view=all');
+    // As before this fix: the old chat points at a deleted contact and the
+    // number got a second chat.
+    await mongo
+      .collection('conversations')
+      .updateOne(
+        { _id: new Types.ObjectId(old?.id) },
+        { $set: { contactId: new Types.ObjectId().toHexString() } },
+      );
+    const store = t.app.get(InboxStore);
+    const { conversation: second } = await store.openConversation(
+      owner.workspaceId,
+      {
+        lineId: line.id,
+        contactId: old?.contactId ?? '',
+        contact: { name: null, phone: '+59170000803' },
+        at: new Date(),
+      },
+    );
+    expect(second.id).not.toBe(old?.id);
+
+    await incoming(line, '59170000803', 'Tercer mensaje');
+    const [merged, ...others] = await conversations(owner, '?view=all');
+    expect(others).toEqual([]);
+    expect(merged).toMatchObject({ id: second.id, contactId: old?.contactId });
+    expect(await messageTexts(owner, merged?.id)).toEqual([
+      'Tercer mensaje',
+      'Primer chat',
+    ]);
+  });
+
+  it('does not take the chats of a contact whose number was changed', async () => {
+    const owner = await signUp();
+    const line = await lineWithAgents(owner, [], false);
+    await incoming(line, '59170000804', 'Soy Ana');
+    const [ana] = await conversations(owner, '?view=all');
+    await api(owner)
+      .patch(`/contacts/${ana?.contactId}`, { phone: '+59170000805' })
+      .expect(200);
+
+    await incoming(line, '59170000804', 'Soy otra persona');
+    const chats = await conversations(owner, '?view=all');
+    expect(chats).toHaveLength(2);
+    expect(chats.find((chat) => chat.id === ana?.id)?.contactId).toBe(
+      ana?.contactId,
+    );
+  });
+
+  it('deletes a conversation with its messages and files; the contact stays', async () => {
+    const owner = await signUp();
+    const ana = await agentOf(owner, 'Ana Agente');
+    const line = await lineWithAgents(owner, [ana], false);
+    await incomingImage(line, '59170000806');
+    const [chat] = await conversations(owner, '?view=all');
+    const [image] = (
+      (await api(owner).get(`/conversations/${chat?.id}/messages`).expect(200))
+        .body as { items: { id: string }[] }
+    ).items;
+    // Downloading it stores our copy of the file.
+    await api(owner)
+      .get(`/conversations/${chat?.id}/messages/${image?.id}/media`)
+      .expect(200);
+    const stored = await mongo
+      .collection('messages')
+      .findOne({ _id: new Types.ObjectId(image?.id) });
+    const imageFile = (stored?.media as { fileId: string }).fileId;
+
+    const upload = await http()
+      .post(`/api/v1/workspaces/${owner.workspaceId}/quick-replies/attachments`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .attach('file', Buffer.from('%PDF-1.4 lista'), {
+        filename: 'lista.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+    const replyFile = (upload.body as { fileId: string }).fileId;
+    const reply = await api(owner)
+      .post('/quick-replies', {
+        title: 'Lista de precios',
+        text: 'Te paso la lista',
+        attachmentIds: [replyFile],
+      })
+      .expect(201);
+    await api(owner)
+      .post(
+        `/conversations/${chat?.id}/quick-replies/${(reply.body as { id: string }).id}`,
+      )
+      .expect(201);
+
+    const inChat = await mongo
+      .collection('messages')
+      .countDocuments({ conversationId: new Types.ObjectId(chat?.id) });
+    await api(ana).delete(`/conversations/${chat?.id}`).expect(403);
+    await api(owner).delete(`/conversations/${chat?.id}`).expect(204);
+    await api(owner).delete(`/conversations/${chat?.id}`).expect(404);
+    await api(owner).get(`/conversations/${chat?.id}`).expect(404);
+    expect(
+      await mongo
+        .collection('messages')
+        .countDocuments({ conversationId: new Types.ObjectId(chat?.id) }),
+    ).toBe(0);
+    const files = mongo.collection('media.files');
+    expect(
+      await files.findOne({ _id: new Types.ObjectId(imageFile) }),
+    ).toBeNull();
+    expect(
+      await files.findOne({ _id: new Types.ObjectId(replyFile) }),
+    ).not.toBeNull();
+    await api(owner).get(`/contacts/${chat?.contactId}`).expect(200);
+    const audit = await prisma.auditLog.findFirst({
+      where: {
+        action: 'inbox.conversation.deleted',
+        workspaceId: owner.workspaceId,
+      },
+    });
+    expect(audit).toMatchObject({
+      targetId: chat?.id,
+      metadata: {
+        lineId: line.id,
+        contactId: chat?.contactId,
+        messages: inChat,
+      },
+    });
+
+    // Its next message starts an empty chat.
+    await incoming(line, '59170000806', 'Hola otra vez');
+    const [fresh, ...others] = await conversations(owner, '?view=all');
+    expect(others).toEqual([]);
+    expect(fresh?.id).not.toBe(chat?.id);
+    expect(fresh?.contactId).toBe(chat?.contactId);
+    expect(await messageTexts(owner, fresh?.id)).toEqual(['Hola otra vez']);
   });
 });

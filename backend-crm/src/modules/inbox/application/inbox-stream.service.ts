@@ -105,6 +105,11 @@ export class InboxStreamService {
   ): Promise<MessageEvent | null> {
     if (!scope) return null;
     const { conversation } = event;
+    if (event.type === 'conversation.removed') {
+      return canSee(conversation, scope)
+        ? { type: 'conversation.removed', data: { id: conversation.id } }
+        : null;
+    }
     if (!canSee(conversation, scope)) {
       // Visible before the change (mine or unassigned on one of my lines):
       // tell the client to drop it.

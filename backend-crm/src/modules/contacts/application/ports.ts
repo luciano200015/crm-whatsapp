@@ -143,6 +143,11 @@ export abstract class ContactsStore {
     workspaceId: string,
     phone: string,
   ): Promise<ContactRecord | null>;
+  /** The subset of ids that are contacts of this workspace. */
+  abstract existingContactIds(
+    workspaceId: string,
+    contactIds: readonly string[],
+  ): Promise<string[]>;
   /** 'phone_taken' when the workspace already has that number. */
   abstract createContact(
     workspaceId: string,

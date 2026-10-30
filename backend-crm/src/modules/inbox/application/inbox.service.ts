@@ -5,7 +5,9 @@ import {
   planLimit,
   WorkspaceEntitlements,
 } from '../../../shared/entitlements/workspace-entitlements';
+import type { RequestContext } from '../../../shared/http/request-context';
 import { Clock } from '../../../shared/time/clock';
+import { AuditService } from '../../audit/audit.service';
 import type { WorkspaceAccess } from '../../authorization/application/authorization.service';
 import { ChannelsService } from '../../channels/application/channels.service';
 import {
@@ -44,7 +46,7 @@ import {
   sanitizeFilename,
 } from './media';
 import { InboxEvents } from './inbox-events';
-import type { QuickReplyAttachment } from './quick-replies';
+import { QuickRepliesStore, type QuickReplyAttachment } from './quick-replies';
 import {
   AssignmentStore,
   InboxStore,
@@ -213,6 +215,8 @@ export class InboxService {
     private readonly contactTags: ContactsService,
     private readonly chatSettings: ChatSettingsService,
     private readonly autoAssigner: AutoAssigner,
+    private readonly quickReplies: QuickRepliesStore,
+    private readonly audit: AuditService,
   ) {}
 
   async scope(actor: InboxActor): Promise<InboxScope> {
@@ -1433,6 +1437,64 @@ export class InboxService {
     if (!updated) throw InboxErrors.conversationNotFound();
     this.emitConversation(updated, updated);
     return this.view(updated);
+  }
+
+  /**
+   * «Borrar conversación»: the chat, its messages and its own files go away
+   * for good; the contact stays and its next message starts a new chat.
+   * Files a chatbot or a quick reply reuses, or another chat shows, stay.
+   */
+  async remove(
+    actor: InboxActor,
+    conversationId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const { workspaceId } = actor.access;
+    const conversation = await this.requireVisible(actor, conversationId);
+    const deleted = await this.store.deleteConversation(
+      workspaceId,
+      conversationId,
+    );
+    if (!deleted) throw InboxErrors.conversationNotFound();
+    this.events.emit({
+      workspaceId,
+      type: 'conversation.removed',
+      conversation,
+    });
+
+    const candidates = [
+      ...new Set(
+        deleted.files.filter((file) => !file.bot).map((file) => file.fileId),
+      ),
+    ];
+    if (candidates.length > 0) {
+      const [inUse, replies] = await Promise.all([
+        this.store.filesInUse(workspaceId, candidates),
+        this.quickReplies.list(workspaceId),
+      ]);
+      for (const reply of replies) {
+        for (const file of reply.attachments) inUse.add(file.fileId);
+      }
+      for (const fileId of candidates) {
+        if (!inUse.has(fileId))
+          await this.mediaStore.delete(workspaceId, fileId);
+      }
+    }
+
+    // Never the content: only which chat and how much was deleted.
+    await this.audit.record({
+      action: 'inbox.conversation.deleted',
+      actorUserId: actor.userId,
+      workspaceId,
+      targetType: 'conversation',
+      targetId: conversationId,
+      context,
+      metadata: {
+        lineId: conversation.lineId,
+        contactId: conversation.contactId,
+        messages: deleted.messages,
+      },
+    });
   }
 
   // ─────────────────────────── Helpers ───────────────────────────

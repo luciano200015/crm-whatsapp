@@ -150,6 +150,18 @@ export class MongoContactsStore extends ContactsStore implements OnModuleInit {
     return doc ? toContact(doc) : null;
   }
 
+  async existingContactIds(
+    workspaceId: string,
+    contactIds: readonly string[],
+  ): Promise<string[]> {
+    const ids = contactIds.flatMap((id) => objectId(id) ?? []);
+    if (ids.length === 0) return [];
+    const rows = await this.contacts
+      .find({ workspaceId, _id: { $in: ids } }, { _id: 1 })
+      .lean<Pick<ContactDocument, '_id'>[]>();
+    return rows.map((row) => row._id.toHexString());
+  }
+
   async findContactByPhone(
     workspaceId: string,
     phone: string,

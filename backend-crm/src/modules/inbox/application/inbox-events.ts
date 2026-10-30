@@ -8,7 +8,12 @@ import type {
 
 export interface InboxEvent {
   workspaceId: string;
-  type: 'conversation.updated' | 'message.created' | 'message.updated';
+  /** conversation.removed: deleted (or merged into another chat). */
+  type:
+    | 'conversation.updated'
+    | 'conversation.removed'
+    | 'message.created'
+    | 'message.updated';
   conversation: ConversationRecord;
   message?: MessageRecord;
   /** Assignee before the change: lets them drop a conversation that was reassigned away. */

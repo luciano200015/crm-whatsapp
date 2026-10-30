@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -25,6 +26,7 @@ import {
   ApiConflictResponse,
   ApiConsumes,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -37,6 +39,10 @@ import {
 import type { Response } from 'express';
 import type { Observable } from 'rxjs';
 import { ErrorResponseDto } from '../../../shared/http/error-response.dto';
+import {
+  ReqContext,
+  type RequestContext,
+} from '../../../shared/http/request-context';
 import { SWAGGER_BEARER } from '../../../shared/http/swagger';
 import type { AuthContext } from '../../auth/application/auth.service';
 import { CurrentUser } from '../../auth/presentation/auth.decorators';
@@ -525,6 +531,24 @@ export class ConversationsController {
       conversationId,
       dto.tagIds,
     );
+  }
+
+  @Delete(':conversationId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermissions('conversations.delete')
+  @ApiOperation({
+    summary: 'Delete the conversation',
+    description:
+      'Deletes the conversation with all its messages and its own stored files, for good. The contact stays: its next message starts a new conversation. Files a chatbot or a quick reply reuses are kept.',
+  })
+  @ApiNoContentResponse({ description: 'Deleted.' })
+  async remove(
+    @CurrentWorkspace() workspace: WorkspaceAccess,
+    @CurrentUser() auth: AuthContext,
+    @Param('conversationId') conversationId: string,
+    @ReqContext() context: RequestContext,
+  ): Promise<void> {
+    await this.inbox.remove(actor(auth, workspace), conversationId, context);
   }
 
   @Post(':conversationId/unread')

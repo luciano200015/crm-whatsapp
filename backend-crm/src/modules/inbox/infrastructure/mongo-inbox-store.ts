@@ -31,6 +31,10 @@ import {
   type NewMessage,
 } from '../application/ports';
 import {
+  adoptConversations,
+  type MergeCollections,
+} from './conversation-merge';
+import {
   CONVERSATION_MODEL,
   MESSAGE_MODEL,
   ONE_CONVERSATION_INDEX,
@@ -716,6 +720,104 @@ export class MongoInboxStore extends InboxStore implements OnModuleInit {
       .limit(limit)
       .lean<ConversationDocument[]>();
     return rows.map(toConversation);
+  }
+
+  async contactIdsWithPhone(
+    workspaceId: string,
+    phone: string,
+    exceptContactId: string,
+  ): Promise<string[]> {
+    const ids = await this.conversations.distinct('contactId', {
+      workspaceId,
+      'contact.phone': phone,
+      contactId: { $ne: exceptContactId },
+    });
+    return ids.map(String);
+  }
+
+  async adoptConversations(
+    workspaceId: string,
+    target: {
+      contactId: string;
+      contact: { name: string | null; phone: string };
+    },
+    orphanContactIds: readonly string[],
+  ): Promise<{ kept: ConversationRecord[]; removed: ConversationRecord[] }> {
+    const orphans = await this.conversations
+      .find({
+        workspaceId,
+        contactId: { $in: [...orphanContactIds] },
+        'contact.phone': target.contact.phone,
+      })
+      .lean<ConversationDocument[]>();
+    if (orphans.length === 0) return { kept: [], removed: [] };
+    const { keptIds, removedIds } = await adoptConversations(
+      {
+        conversations: this.conversations
+          .collection as unknown as MergeCollections['conversations'],
+        messages: this.messages.collection,
+      },
+      workspaceId,
+      target,
+      orphanContactIds,
+    );
+    const removed = new Set(removedIds.map((id) => id.toHexString()));
+    const kept = await this.conversations
+      .find({ workspaceId, _id: { $in: keptIds } })
+      .lean<ConversationDocument[]>();
+    return {
+      kept: kept.map(toConversation),
+      removed: orphans
+        .filter((doc) => removed.has(doc._id.toHexString()))
+        .map(toConversation),
+    };
+  }
+
+  async deleteConversation(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<{
+    messages: number;
+    files: Array<{ fileId: string; bot: boolean }>;
+  } | null> {
+    const _id = objectId(conversationId);
+    if (!_id) return null;
+    const rows = await this.messages
+      .find(
+        {
+          workspaceId,
+          conversationId: _id,
+          'media.fileId': { $type: 'string' },
+        },
+        { 'media.fileId': 1, 'sentBy.kind': 1 },
+      )
+      .lean<Pick<MessageDocument, 'media' | 'sentBy'>[]>();
+    const deleted = await this.conversations.deleteOne({ workspaceId, _id });
+    if (deleted.deletedCount === 0) return null;
+    const { deletedCount } = await this.messages.deleteMany({
+      workspaceId,
+      conversationId: _id,
+    });
+    return {
+      messages: deletedCount,
+      files: rows.flatMap((row) =>
+        row.media?.fileId
+          ? [{ fileId: row.media.fileId, bot: row.sentBy?.kind === 'bot' }]
+          : [],
+      ),
+    };
+  }
+
+  async filesInUse(
+    workspaceId: string,
+    fileIds: readonly string[],
+  ): Promise<Set<string>> {
+    if (fileIds.length === 0) return new Set();
+    const used = await this.messages.distinct('media.fileId', {
+      workspaceId,
+      'media.fileId': { $in: [...fileIds] },
+    });
+    return new Set(used.map(String));
   }
 
   async markUnread(

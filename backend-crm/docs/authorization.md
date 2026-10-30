@@ -35,6 +35,7 @@ Fuente única: [`src/modules/authorization/domain/permission-catalog.ts`](../src
 | `messages.send`    | ✓ | ✓ | ✓ |
 | `conversations.assign`   | ✓ | ✓ |   |
 | `conversations.view_all` | ✓ | ✓ |   |
+| `conversations.delete`   | ✓ | ✓ |   |
 | `quick_replies.manage` | ✓ | ✓ |   |
 | `chatbots.manage`  | ✓ | ✓ |   |
 | `funnels.read`     | ✓ | ✓ | ✓ |

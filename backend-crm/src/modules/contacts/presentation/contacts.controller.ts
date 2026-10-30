@@ -168,7 +168,7 @@ export class ContactsController {
   @ApiOperation({
     summary: '«Eliminar todos los contactos»',
     description:
-      'Needs { confirmation: "ELIMINAR" } (400 CONFIRMATION_REQUIRED). Conversations keep their copy of the name and phone; funnel leads of the contacts are removed.',
+      'Needs { confirmation: "ELIMINAR" } (400 CONFIRMATION_REQUIRED). Conversations keep their copy of the name and phone and go back to a contact that takes the phone again; funnel leads of the contacts are removed.',
   })
   @ApiOkResponse({ type: DeleteAllResultDto })
   removeAll(

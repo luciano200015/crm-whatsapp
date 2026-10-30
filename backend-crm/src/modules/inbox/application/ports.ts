@@ -343,6 +343,43 @@ export abstract class InboxStore {
     contactId: string,
     limit: number,
   ): Promise<ConversationRecord[]>;
+  /**
+   * Contacts other than `exceptContactId` that own chats with this phone
+   * (deleted contacts leave their chats behind).
+   */
+  abstract contactIdsWithPhone(
+    workspaceId: string,
+    phone: string,
+    exceptContactId: string,
+  ): Promise<string[]>;
+  /**
+   * The chats of these deleted contacts with the contact's phone become the
+   * contact's: one per line, merged with the chat it may already have there.
+   */
+  abstract adoptConversations(
+    workspaceId: string,
+    target: {
+      contactId: string;
+      contact: { name: string | null; phone: string };
+    },
+    orphanContactIds: readonly string[],
+  ): Promise<{ kept: ConversationRecord[]; removed: ConversationRecord[] }>;
+  /**
+   * Deletes the conversation and its messages. Returns the stored files its
+   * messages pointed at (`bot`: sent by a chatbot, so the flow reuses it).
+   */
+  abstract deleteConversation(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<{
+    messages: number;
+    files: Array<{ fileId: string; bot: boolean }>;
+  } | null>;
+  /** Which of these stored files some message still points at. */
+  abstract filesInUse(
+    workspaceId: string,
+    fileIds: readonly string[],
+  ): Promise<Set<string>>;
   /** At least one unread message, so it shows as pending again. */
   abstract markUnread(
     workspaceId: string,

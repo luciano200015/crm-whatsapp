@@ -17,7 +17,7 @@ Código en [`src/modules/contacts`](../src/modules/contacts). Se guardan en **Mo
 
 La lista se ordena del más nuevo al más antiguo y usa **paginación por cursor**: `nextCursor` se pasa como `cursor` para pedir la página siguiente. La búsqueda (`search`) busca en el nombre y el email, y en el teléfono por sus dígitos. `tagId` filtra por etiqueta y `status` (`ACTIVE` o `BLOCKED`) por estado.
 
-Borrar un contacto lo elimina de verdad. Sus conversaciones se conservan con la copia de su nombre y su número, y si vuelve a escribir se crea un contacto nuevo. También sale de todos los **embudos** (sus leads se borran y los tableros se refrescan).
+Borrar un contacto lo elimina de verdad. Sus conversaciones se conservan con la copia de su nombre y su número. Si vuelve a escribir, o se lo crea o importa de nuevo, el contacto nuevo retoma esos mismos chats con su historial (ver «Contacto eliminado que vuelve» en [inbox.md](inbox.md)). También sale de todos los **embudos** (sus leads se borran y los tableros se refrescan).
 
 ## Asignación de asesores
 
@@ -55,7 +55,7 @@ Requieren `contacts.manage` (Propietario y Administrador):
 - **Exportar** (`GET contacts/export.csv`): sin filtros, todos los contactos («Exportar todos los contactos»); con `search`, `tagId` o `status`, los de la lista filtrada («Exportar contactos con filtros asignados»). Se descarga al momento (en wasapi llega por correo).
   - Columnas: Nombre, Teléfono, Correo, Etiquetas, Estado, Origen, Notas, Último mensaje, Creado, Actualizado y una por campo personalizado.
   - UTF-8 con BOM, RFC 4180, en streaming por lotes de 1000, con la protección contra fórmulas de [`shared/csv.ts`](../src/shared/csv.ts).
-- **Eliminar todos los contactos** (`POST contacts/delete-all { confirmation: "ELIMINAR" }`, si no `400 CONFIRMATION_REQUIRED`): borra todos los contactos del workspace y sus leads de embudos; las conversaciones se conservan.
+- **Eliminar todos los contactos** (`POST contacts/delete-all { confirmation: "ELIMINAR" }`, si no `400 CONFIRMATION_REQUIRED`): borra todos los contactos del workspace y sus leads de embudos; las conversaciones se conservan y vuelven a cada contacto cuando su número regresa.
 
 **Selección en la lista** (`POST contacts/bulk`, `contacts.write`): hasta 500 contactos con `add_tags`, `remove_tags` (con `tagIds`) o `delete`. Responde `{ affected }`.
 

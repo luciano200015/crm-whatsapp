@@ -59,4 +59,21 @@ export class GridFsMediaStore extends MediaStore {
       filename: file.filename === 'media' ? null : file.filename,
     };
   }
+
+  async delete(workspaceId: string, fileId: string): Promise<void> {
+    if (!isValidObjectId(fileId)) return;
+    const bucket = this.bucket();
+    const _id = new mongo.ObjectId(fileId);
+    const [file] = await bucket
+      .find({ _id, 'metadata.workspaceId': workspaceId })
+      .limit(1)
+      .toArray();
+    if (!file) return;
+    try {
+      await bucket.delete(_id);
+    } catch (error: unknown) {
+      // Already deleted by another request.
+      if (!(error instanceof mongo.MongoRuntimeError)) throw error;
+    }
+  }
 }

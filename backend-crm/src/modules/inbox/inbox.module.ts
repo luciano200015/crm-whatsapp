@@ -13,6 +13,7 @@ import {
   ChatSettingsStore,
 } from './application/chat-settings';
 import { ContactBlockService } from './application/contact-block.service';
+import { ConversationRelinker } from './application/conversation-relinker';
 import { InboxPresence } from './application/inbox-presence';
 import { PrismaChatSettingsStore } from './infrastructure/prisma-chat-settings-store';
 import { ConversationTimeline } from './application/conversation-timeline';
@@ -81,6 +82,7 @@ import {
     InboxStreamService,
     InboxEvents,
     ConversationTimeline,
+    ConversationRelinker,
     InboxMediaService,
     ContactBlockService,
     QuickRepliesService,

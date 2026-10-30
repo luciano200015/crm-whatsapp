@@ -79,6 +79,7 @@ El engranaje de la barra de la bandeja abre **Configuración del módulo de chat
 | Responder, enviar archivos, tomar, cerrar/reabrir, notas y usar respuestas rápidas | `messages.send` |
 | Transferir o dejar sin asignar | `conversations.assign` |
 | Ver todas las conversaciones del workspace | `conversations.view_all` |
+| Borrar una conversación | `conversations.delete` (OWNER y ADMIN) |
 | Datos completos del contacto | `contacts.read` |
 | Etiquetas del contacto, bloquear y desbloquear | `contacts.write` |
 | Crear, editar y borrar respuestas rápidas | `quick_replies.manage` (OWNER y ADMIN) |
@@ -178,6 +179,23 @@ Lo que hace un chatbot va firmado con `by: { userId: 'bot:<id>', name, kind: 'bo
 
 **Desbloquear** revierte las dos cosas y deja el aviso `contact_unblocked`.
 
+## Borrar conversación
+
+Menú ⋮ del chat → «Borrar conversación», con confirmación. `DELETE /conversations/:id` → `204` (`conversations.delete`; un chat que no se ve da `404`).
+
+- Se borran para siempre la conversación, todos sus mensajes y los archivos propios del chat en GridFS. Se conservan los archivos que reutiliza un chatbot o una respuesta rápida, o que muestra otro mensaje.
+- **El contacto no se toca** (etiquetas, embudos, cupo mensual). Su próximo mensaje abre un chat vacío.
+- Emite `conversation.removed` a quienes veían el chat y registra `inbox.conversation.deleted` en la auditoría, con `lineId`, `contactId` y la cantidad de mensajes (nunca el contenido).
+
+## Contacto eliminado que vuelve
+
+Eliminar un contacto conserva sus chats, con la copia de su nombre y su número. Cuando ese número vuelve a tener contacto, el contacto nuevo **retoma el mismo chat con todo su historial**, en vez de abrir otro:
+- **cuándo:** al llegar su mensaje (antes de abrir el chat), y al crearlo a mano, importarlo o ponerle ese número a otro contacto;
+- **cómo:** se buscan los chats con ese teléfono cuyo contacto ya no existe (índice `{workspaceId, contact.phone}`). Un contacto que sigue existiendo, por ejemplo porque le cambiaron el número, conserva sus chats;
+- si el número ya tiene un chat en esa línea, el viejo se une a él: los mensajes se mueven y el chat vacío se borra (queda el estado más activo y se suman los no leídos).
+
+Para los chats que se duplicaron antes de este cambio: `npm run inbox:relink-conversations` muestra lo que haría, y con `-- --apply` lo hace.
+
 ## Respuestas rápidas
 
 - **Dónde se guardan:** colección `quick_replies`, con `title`, `text` y hasta 5 `attachments` (`fileId`, `filename`, `mimeType`, `size`; los archivos van a GridFS como los del chat). El `shortcut` es la clave única derivada del título (sin tildes ni emojis), así que dos títulos iguales dan `409 QUICK_REPLY_SHORTCUT_TAKEN`. Las respuestas anteriores usan su atajo como título.
@@ -229,6 +247,7 @@ Swagger: `/docs`, etiquetas `inbox`, `contacts` y `quick-replies`. Prefijo: `/ap
 - `POST /conversations/:id/messages` y `/notes` (`{ "text": "...", "clientId": "uuid opcional", "sign": true }`; `sign` solo cuenta en mensajes y con firma `AGENT_CHOICE`) · `POST /conversations/:id/quick-replies/:quickReplyId` · `POST /conversations/:id/media` (multipart) · `POST /conversations/:id/contacts` · `POST /conversations/:id/messages/:messageId/retry`.
 - `POST /conversations/:id/accept` («Aceptar» en En espera: se asigna a quien acepta, o con `conversations.assign` si era de otro agente, y vuelve a Abierto) · `POST /conversations/:id/take`, `/read`, `/unread`, `/hold`, `/close` y `/reopen` · `POST /conversations/:id/bot/pause` (`{ duration }`) y `/bot/resume`.
 - `POST /conversations/:id/close`: `{ "sendMessage": true }` con el mensaje al cerrar en modo `ASK`.
+- `DELETE /conversations/:id` (`conversations.delete`): borra el chat con sus mensajes y archivos; el contacto queda.
 - `POST /conversations/:id/assign`: `{ "membershipId": "uuid o null" }`. Con `conversations.assign`, o con la transferencia de chats activada para tus propios chats.
 - `GET /chat-settings` (`messages.read`) y `PUT /chat-settings` (`channels.manage`): `{ assignment: { mode, includeAdmins }, transfers, signature, closeMessage: { mode, text } }`; la lectura agrega `legacyAssignment`.
 - `PUT /conversations/:id/tags`: `{ "tagIds": [...] }` (`contacts.write`). Reemplaza las etiquetas del contacto del chat, devuelve el chat con `contactTagIds` y emite `conversation.updated`. Una etiqueta desconocida da `404 TAG_NOT_FOUND`.

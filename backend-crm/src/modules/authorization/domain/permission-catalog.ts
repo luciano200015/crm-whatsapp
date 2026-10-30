@@ -26,6 +26,8 @@ export const PERMISSIONS = {
   'conversations.assign': 'Assign or transfer conversations to other agents',
   'conversations.view_all':
     'See every conversation, not only your own and the unassigned ones of your lines',
+  'conversations.delete':
+    'Delete a conversation with all its messages and files (the contact stays)',
   'quick_replies.manage':
     'Create, edit and delete the quick replies of the team',
   'chatbots.manage':

@@ -226,6 +226,8 @@ ConversationSchema.index(
   { workspaceId: 1, lineId: 1, contactId: 1 },
   { unique: true, name: ONE_CONVERSATION_INDEX },
 );
+// Chats left by a deleted contact, found by phone when the number comes back.
+ConversationSchema.index({ workspaceId: 1, 'contact.phone': 1 });
 // Chatbot inactivity messages that are due (only chats waiting for one).
 ConversationSchema.index(
   { workspaceId: 1, 'bot.session.nudgeAt': 1 },
