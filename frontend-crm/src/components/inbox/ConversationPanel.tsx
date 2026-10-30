@@ -26,9 +26,12 @@ import { usePermissions } from '../../auth/usePermissions'
 import { useChatSettings } from '../../lib/api/chat-settings'
 import { ApiError, errorMessage } from '../../lib/api/errors'
 import BlockRounded from '@mui/icons-material/BlockRounded'
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded'
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined'
 import { contactKeys, contactsApi } from '../../lib/api/contacts'
 import { inboxApi, inboxKeys } from '../../lib/api/inbox'
+import { es } from '../../i18n/es'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { BlockContactDialog, type BlockTarget } from '../contacts/BlockContactDialog'
 import { botChoices, BOT_CHOICES } from './bot-pause'
 import { ChatHeader, type ChatAction } from './ChatHeader'
@@ -160,6 +163,19 @@ export function ConversationPanel({
             : 'Bot desactivado en este chat permanentemente',
         { variant: 'success' },
       )
+      void refresh()
+    },
+    onError: fail,
+  })
+  const [askDelete, setAskDelete] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => inboxApi.remove(workspaceId, id),
+    onSuccess: () => {
+      setAskDelete(false)
+      enqueueSnackbar(es.inbox.deleteConversation.deleted, { variant: 'success' })
+      onBack()
+      client.removeQueries({ queryKey: inboxKeys.conversation(workspaceId, id) })
+      client.removeQueries({ queryKey: inboxKeys.messages(workspaceId, id) })
       void refresh()
     },
     onError: fail,
@@ -344,8 +360,34 @@ export function ConversationPanel({
                 </ListItemText>
               </MenuItem>
             ),
+            has('conversations.delete') && (
+              <MenuItem
+                key="delete"
+                sx={{ color: 'error.main' }}
+                onClick={() => {
+                  close()
+                  setAskDelete(true)
+                }}
+              >
+                <ListItemIcon>
+                  <DeleteOutlineRounded color="error" />
+                </ListItemIcon>
+                <ListItemText>{es.inbox.deleteConversation.menu}</ListItemText>
+              </MenuItem>
+            ),
           ]}
         />
+        <ConfirmDialog
+          open={askDelete}
+          danger
+          loading={remove.isPending}
+          title={es.inbox.deleteConversation.title}
+          confirmLabel={es.inbox.deleteConversation.confirm}
+          onConfirm={() => remove.mutate()}
+          onClose={() => setAskDelete(false)}
+        >
+          {es.inbox.deleteConversation.text(contactName(conversation.contact))}
+        </ConfirmDialog>
         <BlockContactDialog
           workspaceId={workspaceId}
           contact={blockTarget}

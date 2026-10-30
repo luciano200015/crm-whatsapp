@@ -607,6 +607,44 @@ describe('Inbox', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Marcar como no leído' }))
     await waitFor(() => expect(actions.map((action) => action.name)).toContain('unread'))
   })
+
+  it('hides «Borrar conversación» without conversations.delete', async () => {
+    permissions = ['messages.read', 'messages.send']
+    renderAt()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Más opciones' }))
+    expect(await screen.findByRole('menuitem', { name: /Marcar como no leído/ })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Borrar conversación' })).not.toBeInTheDocument()
+  })
+
+  it('deletes the conversation after confirming and goes back to the list', async () => {
+    permissions = ['messages.read', 'messages.send', 'conversations.delete']
+    let deleted: string | null = null
+    server.use(
+      http.delete(api(`${base}/:id`), ({ request }) => {
+        deleted = new URL(request.url).pathname
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const router = renderAt()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Más opciones' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Borrar conversación' }))
+    const dialog = await screen.findByRole('dialog', { name: '¿Borrar conversación?' })
+    expect(
+      within(dialog).getByText(
+        'Se borrarán todos los mensajes y archivos del chat con Lucía Cliente. El contacto no se elimina. No se puede deshacer.',
+      ),
+    ).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Borrar' }))
+
+    await waitFor(() => expect(deleted).toMatch(/\/workspaces\/w1\/conversations\/c1$/))
+    expect(await screen.findByText('Conversación borrada')).toBeInTheDocument()
+    await waitFor(() => expect(router.state.location.search).not.toContain('conversation=c1'))
+  })
+
   it('shows a message at once with the clock and then its tick', async () => {
     let release = () => {}
     const answered = new Promise<void>((resolve) => {

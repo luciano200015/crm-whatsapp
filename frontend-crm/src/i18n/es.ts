@@ -240,6 +240,7 @@ export const es = {
       'messages.send': 'Responder, agregar notas, cerrar y reabrir chats',
       'conversations.assign': 'Asignar y transferir chats a otros agentes',
       'conversations.view_all': 'Ver todas las conversaciones (no solo las propias)',
+      'conversations.delete': 'Borrar conversaciones',
       'quick_replies.manage': 'Crear, editar y borrar las respuestas rápidas del equipo',
       'chatbots.manage': 'Crear chatbots, activarlos y elegir sus líneas',
       'funnels.read': 'Ver los tableros de embudos y exportarlos a CSV',
@@ -283,7 +284,7 @@ export const es = {
       'Todavía no le escribió a ninguna línea: la conversación empieza cuando el contacto escribe.',
     deleteTitle: '¿Eliminar contacto?',
     confirmDelete: (name: string) =>
-      `Se eliminará ${name}. Sus conversaciones se conservan con su número.`,
+      `Se eliminará ${name}. Sus conversaciones se conservan; si vuelve a escribir, retoma su mismo historial.`,
     created: 'Contacto creado',
     updated: 'Contacto actualizado',
     deleted: 'Contacto eliminado',
@@ -302,7 +303,7 @@ export const es = {
       count === 1 ? '1 contacto actualizado' : `${count} contactos actualizados`,
     bulkDeleteTitle: '¿Eliminar los contactos seleccionados?',
     bulkDeleteText: (count: number) =>
-      `Se eliminarán ${count === 1 ? '1 contacto' : `${count} contactos`}. Sus conversaciones se conservan con su número.`,
+      `Se eliminarán ${count === 1 ? '1 contacto' : `${count} contactos`}. Sus conversaciones se conservan; si vuelven a escribir, retoman su mismo historial.`,
     bulkDeleted: (count: number) =>
       count === 1 ? '1 contacto eliminado' : `${count} contactos eliminados`,
     more: {
@@ -316,7 +317,7 @@ export const es = {
     exported: 'Descargaste el CSV de contactos.',
     deleteAll: {
       title: '¿Eliminar todos los contactos?',
-      text: 'Se eliminarán todos los contactos del espacio de trabajo y se quitarán de los embudos. Las conversaciones se conservan con su número. No se puede deshacer.',
+      text: 'Se eliminarán todos los contactos del espacio de trabajo y se quitarán de los embudos. Las conversaciones se conservan; si vuelven a escribir, retoman su mismo historial. No se puede deshacer.',
       confirmLabel: 'Escribe ELIMINAR para confirmar',
       confirm: 'Eliminar todos',
       done: (count: number) =>
@@ -424,6 +425,16 @@ export const es = {
         REQUEST_FAILED: 'No se pudo enviar este lote',
       } as Record<string, string>,
       finish: 'Listo',
+    },
+  },
+  inbox: {
+    deleteConversation: {
+      menu: 'Borrar conversación',
+      title: '¿Borrar conversación?',
+      text: (name: string) =>
+        `Se borrarán todos los mensajes y archivos del chat con ${name}. El contacto no se elimina. No se puede deshacer.`,
+      confirm: 'Borrar',
+      deleted: 'Conversación borrada',
     },
   },
   lines: {

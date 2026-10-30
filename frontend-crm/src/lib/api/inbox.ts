@@ -338,6 +338,10 @@ export const inboxApi = {
       { method: 'POST', body: { sendMessage } },
     )
   },
+  /** Deletes the chat's messages and files for good; the contact stays (conversations.delete). */
+  remove(workspaceId: string, id: string) {
+    return apiRequest<void>(conversationPath(workspaceId, id), { method: 'DELETE' })
+  },
   /** Turns the line's chatbot off (for 24 h or for good) or back on in this chat. */
   bot(
     workspaceId: string,
